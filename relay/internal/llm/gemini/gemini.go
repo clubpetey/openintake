@@ -28,6 +28,8 @@ var _ llm.Provider = (*Provider)(nil)
 // (the caller resolves it from os.Getenv(config.LLM.Gemini.APIKeyEnv)).
 // The key is passed to the SDK and never stored in a log-accessible field.
 func New(apiKey, model string, maxTokens int) *Provider {
+	// genai.NewClient requires a context for the constructor signature, but for an
+	// API-key client it performs no I/O and does not retain the context. background is fine.
 	ctx := context.Background()
 	c, err := genai.NewClient(ctx, &genai.ClientConfig{
 		APIKey: apiKey,
@@ -136,7 +138,7 @@ func (p *Provider) Chat(ctx context.Context, messages []llm.Message, opts llm.Ch
 						case <-ctx.Done():
 							select {
 							case ch <- llm.ChatChunk{Err: ctx.Err(), Done: true}:
-							case <-ctx.Done():
+							default:
 							}
 							return
 						}

@@ -206,6 +206,119 @@ func TestName(t *testing.T) {
 	}
 }
 
+// TestChat_EmptyCandidatesMidStream verifies that a chunk with no candidates
+// (e.g. a promptFeedback-only event) is skipped without panic and that the
+// provider still streams subsequent real deltas and a terminal Done chunk.
+// This is a bounds-safety regression guard for the Candidates[0] access path.
+func TestChat_EmptyCandidatesMidStream(t *testing.T) {
+	// Stream: first event has no candidates (usageMetadata-only), second has a delta.
+	const stream = "" +
+		`data: {"usageMetadata":{"promptTokenCount":5}}` + "\n\n" +
+		`data: {"candidates":[{"content":{"parts":[{"text":"hi"}],"role":"model"},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":3,"totalTokenCount":8}}` + "\n\n"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, stream)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}))
+	defer srv.Close()
+
+	p := geminipkg.NewWithClient("test-key", "gemini-2.0-flash", 1024, srv.Client(), srv.URL)
+
+	ch, err := p.Chat(context.Background(), []llm.Message{{Role: "user", Content: "hi"}}, llm.ChatOptions{Stream: true})
+	if err != nil {
+		t.Fatalf("Chat() error: %v", err)
+	}
+
+	var deltas []string
+	var terminalChunk llm.ChatChunk
+	for chunk := range ch {
+		if chunk.Err != nil {
+			t.Fatalf("unexpected error chunk: %v", chunk.Err)
+		}
+		if chunk.Done {
+			terminalChunk = chunk
+		} else if chunk.Delta != "" {
+			deltas = append(deltas, chunk.Delta)
+		}
+	}
+
+	if len(deltas) != 1 || deltas[0] != "hi" {
+		t.Errorf("expected deltas=[\"hi\"], got %v", deltas)
+	}
+	if !terminalChunk.Done {
+		t.Error("expected Done=true terminal chunk")
+	}
+	if terminalChunk.InputTokens != 5 {
+		t.Errorf("InputTokens: got %d, want 5", terminalChunk.InputTokens)
+	}
+	if terminalChunk.OutputTokens != 3 {
+		t.Errorf("OutputTokens: got %d, want 3", terminalChunk.OutputTokens)
+	}
+}
+
+// TestChat_StreamWithoutUsage verifies that a stream with no usageMetadata on
+// any chunk still delivers deltas and a terminal Done chunk with zero token
+// counts (no hang or panic).
+func TestChat_StreamWithoutUsage(t *testing.T) {
+	// Stream: two delta events, neither carries usageMetadata.
+	const stream = "" +
+		`data: {"candidates":[{"content":{"parts":[{"text":"foo"}],"role":"model"}}]}` + "\n\n" +
+		`data: {"candidates":[{"content":{"parts":[{"text":"bar"}],"role":"model"},"finishReason":"STOP"}]}` + "\n\n"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, stream)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}))
+	defer srv.Close()
+
+	p := geminipkg.NewWithClient("test-key", "gemini-2.0-flash", 1024, srv.Client(), srv.URL)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	ch, err := p.Chat(ctx, []llm.Message{{Role: "user", Content: "hi"}}, llm.ChatOptions{Stream: true})
+	if err != nil {
+		t.Fatalf("Chat() error: %v", err)
+	}
+
+	var deltas []string
+	var terminalChunk llm.ChatChunk
+	for chunk := range ch {
+		if chunk.Err != nil {
+			t.Fatalf("unexpected error chunk: %v", chunk.Err)
+		}
+		if chunk.Done {
+			terminalChunk = chunk
+		} else if chunk.Delta != "" {
+			deltas = append(deltas, chunk.Delta)
+		}
+	}
+
+	if len(deltas) != 2 {
+		t.Errorf("expected 2 deltas, got %d: %v", len(deltas), deltas)
+	}
+	if !terminalChunk.Done {
+		t.Error("expected Done=true terminal chunk")
+	}
+	// No usageMetadata in stream → both token counts must be zero.
+	if terminalChunk.InputTokens != 0 {
+		t.Errorf("InputTokens: got %d, want 0", terminalChunk.InputTokens)
+	}
+	if terminalChunk.OutputTokens != 0 {
+		t.Errorf("OutputTokens: got %d, want 0", terminalChunk.OutputTokens)
+	}
+}
+
 func TestKeyNotInError(t *testing.T) {
 	// Verifies that if the provider encounters an HTTP error, the API key
 	// does NOT appear in the returned error text.
