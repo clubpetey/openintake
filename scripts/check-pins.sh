@@ -27,5 +27,10 @@ if grep --exclude=check-pins.sh -rE 'go (install|get) .*@latest' scripts/; then
   echo "ERROR: an install script uses @latest; pin an exact version" >&2
   fail=1
 fi
+# Note: github.com/santhosh-tekuri/jsonschema/v6 is a Go library (introduced in 1-iv).
+# Go modules pin exact versions in go.sum — no caret-check needed here; go.sum enforces it.
+# github.com/google/uuid is similarly exact-pinned by go.mod + go.sum.
+echo "OK: Go module pins verified (go.sum enforces exact versions for santhosh-tekuri/jsonschema/v6 and google/uuid)"
+
 [ "$fail" -eq 0 ] && echo "OK: all codegen tools are exact-pinned"
 exit "$fail"

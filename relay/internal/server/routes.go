@@ -16,6 +16,6 @@ func registerIntakeRoutes(r chi.Router, deps Deps) {
 	r.Group(func(r chi.Router) {
 		r.Use(deps.Auth.Handler)
 		r.Post("/turn", turnHandler(deps))
-		// 1-iv will add: r.Post("/submit", submitHandler(deps))
+		r.Post("/submit", submitHandler(deps))
 	})
 }

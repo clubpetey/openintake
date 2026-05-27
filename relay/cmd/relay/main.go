@@ -12,11 +12,14 @@ import (
 	"time"
 
 	"intake/internal/auth"
+	"intake/internal/classify"
 	"intake/internal/config"
 	"intake/internal/llm/anthropic"
+	"intake/internal/payloadbuild"
 	"intake/internal/server"
 	"intake/internal/triage"
 	"intake/internal/version"
+	"intake/internal/adapter/webhook"
 )
 
 func main() {
@@ -54,6 +57,27 @@ func main() {
 		os.Exit(1)
 	}
 
+	// --- Webhook Adapter (1-iv) ---
+	wh := webhook.New()
+	whCfg := map[string]any{
+		"url":     cfg.Adapters.Webhook.URL,
+		"headers": cfg.Adapters.Webhook.Headers,
+		"retry": map[string]any{
+			"max_attempts": cfg.Adapters.Webhook.Retry.MaxAttempts,
+			"backoff":      cfg.Adapters.Webhook.Retry.Backoff,
+		},
+	}
+	if err := wh.Configure(whCfg); err != nil {
+		logger.Error("webhook adapter: configure failed", "error", err)
+		os.Exit(1)
+	}
+
+	// --- Classifier (1-iv) — reuses the same provider as /turn ---
+	classifier := classify.New(provider, cfg.LLM.Anthropic.Model, cfg.LLM.Anthropic.MaxTokens)
+
+	// --- Payload Builder (1-iv) ---
+	builder := payloadbuild.New("0.1.0") // widget version default; Phase 5 may read from config
+
 	// --- Deps ---
 	// Deps is a value type (README §6.8). No Config field — config-derived values
 	// are promoted to individual Deps fields. main.go populates these from cfg.
@@ -66,6 +90,9 @@ func main() {
 		SystemPrompt: systemPrompt,
 		Model:        cfg.LLM.Anthropic.Model,
 		MaxTokens:    cfg.LLM.Anthropic.MaxTokens,
+		Adapter:      wh,
+		Classifier:   classifier,
+		Builder:      builder,
 	}
 
 	// --- HTTP Server ---
