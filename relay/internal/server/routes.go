@@ -3,12 +3,19 @@ package server
 import "github.com/go-chi/chi/v5"
 
 // registerIntakeRoutes mounts the /v1/intake/* handlers on r.
+// r is already scoped to the /v1/intake prefix by the caller (server.New).
 //
-// This body is intentionally empty in 1-i. Sub-plans extend it:
-//   - 1-iii registers POST /v1/intake/init and POST /v1/intake/turn (SSE)
-//   - 1-iv registers POST /v1/intake/submit
+// 1-iii registers POST /init (no auth; issues a session) and POST /turn (behind auth).
+// 1-iv will add: POST /submit (behind auth).
 func registerIntakeRoutes(r chi.Router, deps Deps) {
-	// /v1/intake/* routes registered by sub-plans 1-iii (init, turn) and 1-iv (submit)
-	_ = r
-	_ = deps
+	// POST /v1/intake/init — no auth; issues a session.
+	r.Post("/init", initHandler(deps))
+
+	// Routes that require a valid session.
+	// deps.Auth.Handler is the chi-compatible middleware from auth.Middleware.
+	r.Group(func(r chi.Router) {
+		r.Use(deps.Auth.Handler)
+		r.Post("/turn", turnHandler(deps))
+		// 1-iv will add: r.Post("/submit", submitHandler(deps))
+	})
 }
