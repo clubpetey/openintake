@@ -23,10 +23,10 @@ This phase does NOT add: runtime multi-provider routing/fallback, interface chan
 
 | # | Plan | Driver | Effort | Status |
 |---|---|---|---|---|
-| 2-i | [Config + providers factory](2-i-config-factory-plan.md) | selection seam | M | Not started |
-| 2-ii | [OpenAI provider](2-ii-openai-provider-plan.md) | openai-go | M | Not started |
-| 2-iii | [Gemini provider](2-iii-gemini-provider-plan.md) | google.golang.org/genai | M | Not started |
-| 2-iv | [Ollama provider](2-iv-ollama-provider-plan.md) | hand-rolled net/http | M | Not started |
+| 2-i | [Config + providers factory](2-i-config-factory-plan.md) | selection seam | M | Complete |
+| 2-ii | [OpenAI provider](2-ii-openai-provider-plan.md) | openai-go | M | Complete |
+| 2-iii | [Gemini provider](2-iii-gemini-provider-plan.md) | google.golang.org/genai | M | Complete |
+| 2-iv | [Ollama provider](2-iv-ollama-provider-plan.md) | hand-rolled net/http | M | Complete |
 
 ## 4. Dependency graph
 
@@ -75,6 +75,17 @@ Proves a real 5-turn conversation completes through **each** new provider (anthr
 ```
 
 A credit-free unit layer backs this: each provider has a mock-HTTP streaming test + ctx-cancel + key-redaction test, plus a `providers` factory test — all green in `go test ./...` with no real keys.
+
+### Smoke result (2026-05-27)
+
+Run headlessly via `core/smoke/drive-multi.ts` (init + 5× `/turn`) with the relay configured per provider.
+
+- **openai (`gpt-4o-mini`) — ✅ PASS.** Full 5-turn guided triage; SSE streamed every turn; non-zero input/output tokens each turn; API key absent from relay logs.
+- **ollama (`llama3.1` @ `http://192.168.1.102:11434`) — ✅ PASS.** Full 5-turn, **fully offline / no API key**, non-zero tokens each turn; cross-LAN reach confirmed.
+- **gemini (`gemini-2.0-flash`) — ⚠️ code-validated; success-path DEFERRED on account credits.** The provider authenticated and reached the real Gemini API, which returned `429 RESOURCE_EXHAUSTED` ("prepayment credits depleted") — surfaced cleanly through the SSE error frame with the key absent from logs. Request construction + auth + error-propagation are validated live; a *successful* 5-turn completion is pending billing credits on the Google AI Studio project. Re-run the gemini arm once credits are added: set `llm.provider: gemini` and run `drive-multi.ts`.
+
+Net: 2/3 new providers fully green live; gemini's implementation is validated against the real API, with only the success-path completion deferred to an account-billing change (not a code defect).
+
 
 ## 8. Shared Contracts (SINGLE SOURCE OF TRUTH)
 
