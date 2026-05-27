@@ -50,15 +50,17 @@ describe('IntakeClient.init()', () => {
     await expect(client.init()).rejects.toThrow(/500/);
   });
 
-  it('stores session_id for use in subsequent requests', async () => {
+  it('stores session_id and returns it from init()', async () => {
     const mockFetch = makeFetch(200, {
       session_id: 'stored-sess',
       capabilities: { auth_modes: ['anonymous'], streaming: true },
     });
     const client = new IntakeClient(BASE_CONFIG, mockFetch);
-    await client.init();
-    // We will test the header is sent in the turn() tests — this verifies no throw
-    expect(true).toBe(true);
+    const result = await client.init();
+    // init() must return the session_id so callers can observe it
+    expect(result.session_id).toBe('stored-sess');
+    // A subsequent turn() sends that session_id in the X-Intake-Session header
+    // (covered by the turn() 'sends X-Intake-Session header' test)
   });
 });
 
@@ -193,6 +195,78 @@ describe('IntakeClient.turn()', () => {
     await expect(
       client.turn([{ role: 'user', content: 'hi' }], () => {})
     ).rejects.toThrow('init()');
+  });
+
+  it('rejects when the relay responds non-2xx (503) before streaming', async () => {
+    const spyFetch = vi.fn((...args: Parameters<typeof fetch>) => {
+      const [url] = args as [string, RequestInit];
+      if ((url as string).endsWith('/init')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          headers: { get: () => 'application/json' },
+          json: () =>
+            Promise.resolve({
+              session_id: 'fail-sess',
+              capabilities: { auth_modes: ['anonymous'], streaming: true },
+            }),
+          body: null,
+        } as unknown as Response);
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 503,
+        headers: { get: () => 'application/json' },
+        json: () => Promise.resolve({ error: { code: 'unavailable', message: 'service down' } }),
+        body: null,
+      } as unknown as Response);
+    });
+
+    const client = new IntakeClient(BASE_CONFIG, spyFetch);
+    await client.init();
+    await expect(
+      client.turn([{ role: 'user', content: 'hello' }], () => {})
+    ).rejects.toThrow(/503/);
+  });
+
+  it('rejects (does not hang) when stream closes without a done frame', async () => {
+    // Stream contains only delta frames — no done or error frame — then closes cleanly.
+    // turn() must reject with a protocol error rather than hanging forever.
+    const sseBody =
+      'data: {"delta":"foo"}\n\n' +
+      'data: {"delta":"bar"}\n\n';
+
+    const spyFetch = vi.fn((...args: Parameters<typeof fetch>) => {
+      const [url] = args as [string, RequestInit];
+      if ((url as string).endsWith('/init')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          headers: { get: () => 'application/json' },
+          json: () =>
+            Promise.resolve({
+              session_id: 'nodone-sess',
+              capabilities: { auth_modes: ['anonymous'], streaming: true },
+            }),
+          body: null,
+        } as unknown as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: { get: () => 'text/event-stream' },
+        body: sseStream(sseBody),
+        json: () => Promise.reject(new Error('streaming')),
+      } as unknown as Response);
+    });
+
+    const client = new IntakeClient(BASE_CONFIG, spyFetch);
+    await client.init();
+
+    // The test completing proves it does not hang; the error message is the proof of correct rejection.
+    await expect(
+      client.turn([{ role: 'user', content: 'hello' }], () => {})
+    ).rejects.toThrow(/stream ended without a done frame/);
   });
 });
 

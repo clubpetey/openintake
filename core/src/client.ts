@@ -1,5 +1,5 @@
 import type { IntakeConfig, ChatMessage, SubmitResult } from './client-types.js';
-import type { InitResponse, SubmitRequest, SubmitResponse } from './types.js';
+import type { InitResponse, SubmitRequest, SubmitResponse, SSEFrame } from './types.js';
 import { consumeSSE } from './sse.js';
 import { captureClient, capturePageMetadata } from './context.js';
 
@@ -58,18 +58,33 @@ export class IntakeClient {
 
     return new Promise<{ input_tokens: number; output_tokens: number }>(
       (resolve, reject) => {
-        consumeSSE(res.body as ReadableStream<Uint8Array>, (frame) => {
+        let settled = false;
+        const settle = (fn: () => void) => {
+          if (!settled) {
+            settled = true;
+            fn();
+          }
+        };
+
+        const onFrame = (frame: SSEFrame) => {
           if ('error' in frame) {
-            reject(new Error(frame.error));
+            settle(() => reject(new Error(frame.error)));
           } else if ('done' in frame && frame.done) {
-            resolve({
-              input_tokens: frame.input_tokens,
-              output_tokens: frame.output_tokens,
-            });
+            settle(() =>
+              resolve({
+                input_tokens: frame.input_tokens,
+                output_tokens: frame.output_tokens,
+              })
+            );
           } else if ('delta' in frame) {
             onDelta(frame.delta);
           }
-        }).catch(reject);
+        };
+
+        consumeSSE(res.body as ReadableStream<Uint8Array>, onFrame).then(
+          () => settle(() => reject(new Error('turn: stream ended without a done frame'))),
+          (err: unknown) => settle(() => reject(err instanceof Error ? err : new Error(String(err)))),
+        );
       }
     );
   }
