@@ -2,6 +2,11 @@ node_modules/
 dist/
 *.local
 .DS_Store
+
+# Local secrets — never commit. Copy .env.example to .env and fill in.
+.env
+.env.*
+!.env.example
 relay/intake-relay
 relay/relay
 relay/relay.exe
