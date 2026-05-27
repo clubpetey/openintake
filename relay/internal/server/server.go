@@ -57,27 +57,37 @@ func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
-			if origin != "" {
-				if _, ok := allowed[strings.ToLower(origin)]; ok {
-					w.Header().Set("Access-Control-Allow-Origin", origin)
-					w.Header().Set("Access-Control-Allow-Credentials", "true")
-					w.Header().Set("Access-Control-Allow-Headers",
-						"Content-Type, X-Intake-Session, Authorization, X-Request-Id")
-					w.Header().Set("Access-Control-Allow-Methods",
-						"GET, POST, OPTIONS")
-				}
+
+			// Always vary on Origin so caches key on it correctly.
+			w.Header().Add("Vary", "Origin")
+
+			// Compute the allow decision once.
+			_, originAllowed := allowed[strings.ToLower(origin)]
+
+			// Set CORS response headers only when the origin is known and allowed.
+			if origin != "" && originAllowed {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+				w.Header().Set("Access-Control-Allow-Headers",
+					"Content-Type, X-Intake-Session, Authorization, X-Request-Id")
+				w.Header().Set("Access-Control-Allow-Methods",
+					"GET, POST, OPTIONS")
 			}
 
-			// Handle preflight.
+			// Handle preflight (OPTIONS).
+			// - allowed origin → 204 No Content (CORS preflight complete).
+			// - disallowed origin → 403 Forbidden.
+			// - no Origin header → not a CORS preflight; pass to router unchanged.
 			if r.Method == http.MethodOptions {
 				if origin != "" {
-					if _, ok := allowed[strings.ToLower(origin)]; ok {
+					if originAllowed {
 						w.WriteHeader(http.StatusNoContent)
-						return
+					} else {
+						w.WriteHeader(http.StatusForbidden)
 					}
+					return
 				}
-				w.WriteHeader(http.StatusForbidden)
-				return
+				// origin == "": fall through to router.
 			}
 
 			next.ServeHTTP(w, r)

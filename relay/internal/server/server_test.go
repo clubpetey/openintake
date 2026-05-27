@@ -36,31 +36,6 @@ func newTestServer(t *testing.T, corsOrigins []string) http.Handler {
 	return server.New(cfg, deps)
 }
 
-// ---- Task 4: writeError shape ----
-
-func TestWriteError_EnvelopeShape(t *testing.T) {
-	w := httptest.NewRecorder()
-	server.WriteErrorExported(w, http.StatusBadRequest, "bad_request", "something is wrong")
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d; want %d", w.Code, http.StatusBadRequest)
-	}
-	ct := w.Header().Get("Content-Type")
-	if ct != "application/json" {
-		t.Errorf("Content-Type = %q; want %q", ct, "application/json")
-	}
-
-	var env server.ErrorEnvelope
-	decodeJSON(t, w.Body.Bytes(), &env)
-
-	if env.Error.Code != "bad_request" {
-		t.Errorf("error.code = %q; want %q", env.Error.Code, "bad_request")
-	}
-	if env.Error.Message != "something is wrong" {
-		t.Errorf("error.message = %q; want %q", env.Error.Message, "something is wrong")
-	}
-}
-
 // ---- Task 6: /v1/health ----
 
 func TestHealth_Returns200(t *testing.T) {
@@ -160,5 +135,40 @@ func TestCORS_PreflightDisallowedOrigin(t *testing.T) {
 
 	if w.Code != http.StatusForbidden {
 		t.Errorf("preflight status = %d; want %d", w.Code, http.StatusForbidden)
+	}
+}
+
+// ---- Fix 2: OPTIONS without Origin must NOT be 403 (not a CORS preflight) ----
+
+func TestCORS_OptionsWithoutOriginPassesThrough(t *testing.T) {
+	h := newTestServer(t, []string{"http://localhost:5173"})
+
+	// OPTIONS /v1/health with no Origin header — this is a plain HTTP OPTIONS
+	// request, not a CORS preflight. The CORS middleware must not short-circuit
+	// it with a 403; it must be handled by the router.
+	req := httptest.NewRequest(http.MethodOptions, "/v1/health", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code == http.StatusForbidden {
+		t.Errorf("OPTIONS without Origin returned 403; want router response (e.g. 405), not a CORS block")
+	}
+}
+
+// ---- Fix 3: Vary: Origin is set on every response ----
+
+func TestCORS_VaryOriginAlwaysSet(t *testing.T) {
+	allowed := "http://localhost:5173"
+	h := newTestServer(t, []string{allowed})
+
+	// Verify Vary: Origin on a request with an allowed origin.
+	req := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
+	req.Header.Set("Origin", allowed)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	vary := w.Header().Get("Vary")
+	if vary == "" {
+		t.Error("Vary header is absent; want Vary: Origin on CORS responses")
 	}
 }

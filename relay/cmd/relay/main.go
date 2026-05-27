@@ -33,8 +33,14 @@ func main() {
 	handler := server.New(cfg, deps)
 
 	srv := &http.Server{
-		Addr:    cfg.Server.Addr,
-		Handler: handler,
+		Addr:              cfg.Server.Addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		// WriteTimeout intentionally 0: the /turn SSE handler (sub-plan 1-iii) streams
+		// for the duration of an LLM response; a write deadline would truncate it.
+		// Revisit per-route write deadlines when SSE lands.
 	}
 
 	// Start the server in a goroutine so the main goroutine can wait for the

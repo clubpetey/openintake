@@ -37,7 +37,10 @@ type LLMConfig struct {
 type AnthropicConfig struct {
 	APIKeyEnv string `yaml:"api_key_env"`
 	Model     string `yaml:"model"`
-	MaxTokens int    `yaml:"max_tokens"`
+	// MaxTokens is the maximum number of tokens the model may generate per turn.
+	// 0 is invalid for the Anthropic API; applyDefaults sets 1024 for both missing
+	// and zero values.
+	MaxTokens int `yaml:"max_tokens"`
 }
 
 // AuthConfig selects which auth modes are enabled.
