@@ -239,7 +239,7 @@ func CanonicalSchemaBytes() []byte {
 	return schemaBytes
 }
 
-// SchemaFromOS reads a schema from the given path (for test comparison).
-func SchemaFromOS(path string) ([]byte, error) {
+// schemaFromOS reads a schema from the given path (for test comparison).
+func schemaFromOS(path string) ([]byte, error) {
 	return os.ReadFile(path)
 }

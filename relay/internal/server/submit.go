@@ -25,10 +25,13 @@ func submitHandler(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
+		// Cap body size before decoding to prevent large-body DoS (1 MB limit).
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+
 		// Decode request body.
 		var req SubmitRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "BAD_REQUEST", fmt.Sprintf("invalid request body: %v", err))
+			writeError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid request body: malformed JSON or body too large")
 			return
 		}
 
@@ -69,12 +72,9 @@ func submitHandler(deps Deps) http.HandlerFunc {
 		// Dispatch to adapter.
 		result, err := deps.Adapter.Create(ctx, p)
 		if err != nil {
-			slog.ErrorContext(ctx, "adapter Create failed",
-				"adapter", deps.Adapter.Name(),
-				"err", err,
-			)
-			writeError(w, http.StatusBadGateway, "ADAPTER_ERROR",
-				fmt.Sprintf("adapter %q failed: %v", deps.Adapter.Name(), err))
+			// Log full detail server-side (may include URLs/responses); client gets opaque message.
+			slog.ErrorContext(ctx, "adapter create failed", "adapter", deps.Adapter.Name(), "error", err)
+			writeError(w, http.StatusBadGateway, "ADAPTER_ERROR", "downstream adapter unavailable")
 			return
 		}
 

@@ -82,7 +82,10 @@ func (a *Adapter) Configure(cfg map[string]any) error {
 				}
 			}
 			if b, ok := rm["backoff"]; ok {
-				if bs, ok := b.(string); ok {
+				if bs, ok := b.(string); ok && bs != "" {
+					if bs != "exponential" && bs != "fixed" {
+						return fmt.Errorf("webhook: invalid retry.backoff %q (must be \"exponential\" or \"fixed\")", bs)
+					}
 					a.backoff = bs
 				}
 			}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"intake/internal/llm"
 )
@@ -134,15 +135,48 @@ func (c *Classifier) doClassify(ctx context.Context, messages []llm.Message) (*R
 	return &result, nil
 }
 
+// maxConversationChars is the maximum total length of the conversation portion
+// written into the classify prompt. Messages exceeding this are truncated from
+// the oldest end so the model context limit is never blown.
+const maxConversationChars = 20000
+
 // buildPrompt combines the system prompt with the conversation for the classify call.
+// Each message role is clamped to "user" or "assistant" before interpolation to
+// prevent prompt injection via untrusted role values. The conversation portion is
+// capped at maxConversationChars, keeping the most recent content.
 func buildPrompt(messages []llm.Message) string {
+	// Build the conversation lines with clamped roles.
+	var conv strings.Builder
+	for _, m := range messages {
+		role := m.Role
+		if role != "user" && role != "assistant" {
+			role = "user"
+		}
+		conv.WriteString(fmt.Sprintf("[%s]: %s\n", role, m.Content))
+	}
+	convStr := conv.String()
+
+	// Cap conversation length — drop from the front (oldest messages) to keep
+	// the most recent context within the limit.
+	if len(convStr) > maxConversationChars {
+		convStr = truncateConversation(convStr, maxConversationChars)
+	}
+
 	var sb strings.Builder
 	sb.WriteString(classifySystemPrompt)
 	sb.WriteString("\n\n--- Conversation ---\n")
-	for _, m := range messages {
-		sb.WriteString(fmt.Sprintf("[%s]: %s\n", m.Role, m.Content))
-	}
+	sb.WriteString(convStr)
 	return sb.String()
+}
+
+// truncateConversation trims the oldest content from a conversation string so
+// that the result is at most maxChars bytes, preserving the most recent lines.
+func truncateConversation(s string, maxChars int) string {
+	if len(s) <= maxChars {
+		return s
+	}
+	// Drop from the front; keep the tail so recent messages are preserved.
+	return "[...truncated...]\n" + s[len(s)-maxChars:]
 }
 
 // validateResult checks that enum fields contain only valid values.
@@ -158,8 +192,11 @@ func validateResult(r *Result) error {
 	if r.TagsSuggested == nil {
 		r.TagsSuggested = []string{}
 	}
-	if len(r.TitleSuggestion) > 80 {
-		r.TitleSuggestion = r.TitleSuggestion[:80]
+	// Truncate by code points, not bytes, to avoid splitting a UTF-8 rune.
+	// The schema's maxLength:80 counts code points.
+	if utf8.RuneCountInString(r.TitleSuggestion) > 80 {
+		runes := []rune(r.TitleSuggestion)
+		r.TitleSuggestion = string(runes[:80])
 	}
 	if r.Language == "" {
 		r.Language = "en"
@@ -168,9 +205,25 @@ func validateResult(r *Result) error {
 }
 
 // stripCodeFences removes ```json ... ``` wrappers if present.
+// The opening fence language tag is compared case-insensitively so that
+// ```JSON and ```Json are treated the same as ```json.
 func stripCodeFences(s string) string {
-	s = strings.TrimPrefix(s, "```json")
-	s = strings.TrimPrefix(s, "```")
+	// Strip opening fence with optional language tag (case-insensitive).
+	if strings.HasPrefix(s, "```") {
+		rest := s[3:] // after the opening ```
+		// Find the end of the first line (the fence + optional lang tag).
+		if idx := strings.Index(rest, "\n"); idx >= 0 {
+			lang := strings.ToLower(strings.TrimSpace(rest[:idx]))
+			if lang == "json" || lang == "" {
+				s = rest[idx+1:]
+			}
+		} else {
+			// No newline: bare ``` with no body — just strip the prefix.
+			if strings.ToLower(strings.TrimSpace(rest)) == "json" || rest == "" {
+				s = ""
+			}
+		}
+	}
 	s = strings.TrimSuffix(s, "```")
 	return strings.TrimSpace(s)
 }

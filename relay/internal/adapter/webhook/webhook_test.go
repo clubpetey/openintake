@@ -162,6 +162,48 @@ func TestWebhookCreate_ExhaustsRetries(t *testing.T) {
 	}
 }
 
+// TestWebhookCreate_CtxCancelDuringBackoff asserts that a context cancellation
+// during the backoff sleep causes Create to return promptly with an error,
+// rather than waiting out all remaining retry attempts.
+func TestWebhookCreate_CtxCancelDuringBackoff(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Always return 503 to force retries and trigger the backoff sleep.
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	a := webhook.New()
+	if err := a.Configure(map[string]any{
+		"url": srv.URL,
+		"retry": map[string]any{
+			// Fixed backoff of 200ms per attempt; 5 attempts = 1s total if not cancelled.
+			// The context deadline of 80ms ensures cancellation happens during backoff.
+			"max_attempts": 5,
+			"backoff":      "fixed",
+		},
+	}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+
+	// Deadline shorter than one full backoff interval (200ms) so the ctx fires mid-sleep.
+	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err := a.Create(ctx, minimalPayload())
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected error when context is cancelled, got nil")
+	}
+	// Must return well before exhausting all attempts (5 * 200ms = 1s).
+	// Allow up to 600ms to account for the first attempt's network round-trip.
+	if elapsed > 600*time.Millisecond {
+		t.Errorf("Create took %v — expected early exit on ctx cancel, not full retry exhaustion", elapsed)
+	}
+	t.Logf("Create returned in %v with error: %v", elapsed, err)
+}
+
 // TestWebhookCreate_CustomHeaders asserts configured headers are sent.
 func TestWebhookCreate_CustomHeaders(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
