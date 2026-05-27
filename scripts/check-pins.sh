@@ -22,6 +22,11 @@ if grep -E 'anthropics/anthropic-sdk-go' relay/go.mod | grep -E '(\^|@latest)'; 
   echo "ERROR: github.com/anthropics/anthropic-sdk-go is caret/latest-pinned in relay/go.mod; PHASE_PLANNING §5 requires exact pins" >&2
   fail=1
 fi
+# Gate: openai-go must be exact-pinned (no caret, no @latest) in go.mod.
+if grep -E 'openai/openai-go' relay/go.mod | grep -E '(\^|@latest)'; then
+  echo "ERROR: github.com/openai/openai-go is caret/latest-pinned in relay/go.mod; PHASE_PLANNING §5 requires exact pins" >&2
+  fail=1
+fi
 # Gate: no go install/get ...@latest in install scripts (excludes this file to avoid self-match).
 if grep --exclude=check-pins.sh -rE 'go (install|get) .*@latest' scripts/; then
   echo "ERROR: an install script uses @latest; pin an exact version" >&2

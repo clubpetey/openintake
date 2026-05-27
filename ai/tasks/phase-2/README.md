@@ -41,7 +41,7 @@ Verify exact latest at install (in the introducing sub-plan's first task), pin e
 
 | Tool | Version | Reason |
 |---|---|---|
-| github.com/openai/openai-go | verify+pin exact at install (2-ii) | OpenAI Chat Completions streaming + usage; **exact** |
+| github.com/openai/openai-go | v1.12.0 | OpenAI Chat Completions streaming + usage; **exact** |
 | google.golang.org/genai | verify+pin exact at install (2-iii) | Gemini GenerateContentStream + usageMetadata; **exact** |
 | (ollama) | — (stdlib net/http) | local `/api/chat`; no SDK |
 
