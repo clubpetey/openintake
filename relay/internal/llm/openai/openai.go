@@ -142,9 +142,11 @@ func (p *Provider) Chat(ctx context.Context, messages []llm.Message, opts llm.Ch
 				}
 			}
 
-			// Capture usage when present. The final chunk (choices=[]) carries
-			// non-zero PromptTokens and CompletionTokens when include_usage=true.
-			if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
+			// Capture usage when present. chunk.JSON.Usage.Valid() is true only
+			// when the "usage" field was present and non-null in the SSE event
+			// (requires include_usage=true). This correctly handles legitimately
+			// zero-token responses that the old "> 0" guard would silently drop.
+			if chunk.JSON.Usage.Valid() {
 				inputTokens = int(chunk.Usage.PromptTokens)
 				outputTokens = int(chunk.Usage.CompletionTokens)
 			}
@@ -153,7 +155,7 @@ func (p *Provider) Chat(ctx context.Context, messages []llm.Message, opts llm.Ch
 		if err := stream.Err(); err != nil {
 			select {
 			case ch <- llm.ChatChunk{Err: redactedErr(err), Done: true}:
-			default:
+			case <-ctx.Done():
 			}
 			return
 		}

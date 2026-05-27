@@ -164,7 +164,7 @@ func (p *Provider) Chat(ctx context.Context, messages []llm.Message, opts llm.Ch
 			// Redact the API key from the error before surfacing it.
 			select {
 			case ch <- llm.ChatChunk{Err: redactedErr(err), Done: true}:
-			default:
+			case <-ctx.Done():
 			}
 			return
 		}

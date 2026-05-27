@@ -175,6 +175,147 @@ func TestName(t *testing.T) {
 	}
 }
 
+// cannedSSENoUsage is a minimal OpenAI Chat Completions streaming response with
+// two text deltas and a [DONE] sentinel but NO usage chunk. This exercises the
+// path where chunk.JSON.Usage.Valid() is always false, so InputTokens and
+// OutputTokens on the terminal Done chunk must be 0.
+const cannedSSENoUsage = "" +
+	`data: {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1700000000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}` + "\n\n" +
+	`data: {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1700000000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{"content":"foo"},"finish_reason":null}]}` + "\n\n" +
+	`data: {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1700000000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{"content":"bar"},"finish_reason":"stop"}]}` + "\n\n" +
+	"data: [DONE]\n\n"
+
+// TestChat_StreamWithoutUsage verifies that a stream with no usage chunk
+// delivers all deltas and emits a terminal Done chunk with zero tokens (does
+// not hang or skip the Done).
+func TestChat_StreamWithoutUsage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, cannedSSENoUsage)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}))
+	defer srv.Close()
+
+	p := openaipkg.NewWithClient("test-key-not-real", "gpt-4o-mini", 1024, srv.Client(), srv.URL)
+
+	ch, err := p.Chat(context.Background(), []llm.Message{{Role: "user", Content: "hi"}}, llm.ChatOptions{Stream: true})
+	if err != nil {
+		t.Fatalf("Chat() returned error: %v", err)
+	}
+
+	var deltas []string
+	var terminalChunk llm.ChatChunk
+	var gotDone bool
+
+	done := make(chan struct{})
+	go func() {
+		for chunk := range ch {
+			if chunk.Err != nil {
+				t.Errorf("unexpected error chunk: %v", chunk.Err)
+			}
+			if chunk.Done {
+				terminalChunk = chunk
+				gotDone = true
+			} else if chunk.Delta != "" {
+				deltas = append(deltas, chunk.Delta)
+			}
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("channel not closed within 3s — possible hang")
+	}
+
+	if len(deltas) != 2 {
+		t.Fatalf("expected 2 delta chunks, got %d: %v", len(deltas), deltas)
+	}
+	if deltas[0] != "foo" {
+		t.Errorf("delta[0]: got %q, want %q", deltas[0], "foo")
+	}
+	if deltas[1] != "bar" {
+		t.Errorf("delta[1]: got %q, want %q", deltas[1], "bar")
+	}
+	if !gotDone {
+		t.Error("expected a Done=true terminal chunk")
+	}
+	if terminalChunk.InputTokens != 0 {
+		t.Errorf("InputTokens: got %d, want 0", terminalChunk.InputTokens)
+	}
+	if terminalChunk.OutputTokens != 0 {
+		t.Errorf("OutputTokens: got %d, want 0", terminalChunk.OutputTokens)
+	}
+}
+
+// cannedSSEWithError is an SSE stream that emits one text delta followed by an
+// SSE event whose data contains an "error" field. The openai-go ssestream
+// package (ssestream.go:169-173) detects this and sets stream.Err() to a
+// non-nil error containing the error message. This exercises the error-arm
+// ctx-guard change.
+const cannedSSEWithError = "" +
+	`data: {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1700000000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{"content":"partial"},"finish_reason":null}]}` + "\n\n" +
+	`data: {"error":{"message":"stream interrupted","type":"server_error","code":"stream_error"}}` + "\n\n"
+
+// TestChat_ErrorMidStream verifies that a mid-stream SSE error is surfaced as a
+// terminal ChatChunk{Err != nil, Done: true} and that the API key is not leaked.
+func TestChat_ErrorMidStream(t *testing.T) {
+	const sensitiveKey = "sk-SUPER-SECRET-MIDSTREAM-KEY"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, cannedSSEWithError)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}))
+	defer srv.Close()
+
+	p := openaipkg.NewWithClient(sensitiveKey, "gpt-4o-mini", 1024, srv.Client(), srv.URL)
+
+	ch, err := p.Chat(context.Background(), []llm.Message{{Role: "user", Content: "hi"}}, llm.ChatOptions{Stream: true})
+	if err != nil {
+		t.Fatalf("Chat() returned error: %v", err)
+	}
+
+	var errChunk llm.ChatChunk
+	var gotError bool
+
+	done := make(chan struct{})
+	go func() {
+		for chunk := range ch {
+			if chunk.Done && chunk.Err != nil {
+				errChunk = chunk
+				gotError = true
+			}
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("channel not closed within 3s after mid-stream error — possible hang")
+	}
+
+	if !gotError {
+		t.Fatal("expected a terminal ChatChunk with Err != nil and Done=true")
+	}
+	if errChunk.Err == nil {
+		t.Error("terminal chunk Err must be non-nil")
+	}
+	if strings.Contains(errChunk.Err.Error(), sensitiveKey) {
+		t.Errorf("API key leaked into error message: %q", errChunk.Err.Error())
+	}
+}
+
 func TestKeyNotInError(t *testing.T) {
 	// Verifies that if the provider encounters an HTTP error, the API key does
 	// NOT appear in the returned error text.
