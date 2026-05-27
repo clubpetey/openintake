@@ -37,10 +37,10 @@ func main() {
 	}
 
 	// --- LLM Provider ---
-	// API key is read from env; NEVER from config file or logs (security invariant §2).
-	apiKey := os.Getenv(cfg.LLM.Anthropic.APIKeyEnv)
-	if apiKey == "" {
-		logger.Error("LLM API key not set", "env_var", cfg.LLM.Anthropic.APIKeyEnv)
+	// API key is resolved from env OR a _FILE path; NEVER from config file or logs (security invariant §2).
+	apiKey, err := config.RequireSecret(cfg.LLM.Anthropic.APIKeyEnv)
+	if err != nil {
+		logger.Error("LLM API key not set", "env_var", cfg.LLM.Anthropic.APIKeyEnv, "error", err)
 		os.Exit(1)
 	}
 	provider := anthropic.New(apiKey, cfg.LLM.Anthropic.Model, cfg.LLM.Anthropic.MaxTokens)
