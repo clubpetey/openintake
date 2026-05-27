@@ -28,6 +28,9 @@ type ServerConfig struct {
 type LLMConfig struct {
 	Provider         string          `yaml:"provider"`
 	Anthropic        AnthropicConfig `yaml:"anthropic"`
+	OpenAI           OpenAIConfig    `yaml:"openai"`
+	Gemini           GeminiConfig    `yaml:"gemini"`
+	Ollama           OllamaConfig    `yaml:"ollama"`
 	SystemPromptFile string          `yaml:"system_prompt_file"`
 }
 
@@ -41,6 +44,31 @@ type AnthropicConfig struct {
 	// 0 is invalid for the Anthropic API; applyDefaults sets 1024 for both missing
 	// and zero values.
 	MaxTokens int `yaml:"max_tokens"`
+}
+
+// OpenAIConfig holds OpenAI-specific settings.
+// APIKeyEnv is the NAME of the environment variable containing the API key.
+type OpenAIConfig struct {
+	APIKeyEnv string `yaml:"api_key_env"`
+	Model     string `yaml:"model"`
+	MaxTokens int    `yaml:"max_tokens"`
+}
+
+// GeminiConfig holds Gemini-specific settings.
+// APIKeyEnv is the NAME of the environment variable containing the API key.
+type GeminiConfig struct {
+	APIKeyEnv string `yaml:"api_key_env"`
+	Model     string `yaml:"model"`
+	MaxTokens int    `yaml:"max_tokens"`
+}
+
+// OllamaConfig holds Ollama-specific settings.
+// BearerTokenEnv is optional: "" means no auth header is sent.
+type OllamaConfig struct {
+	BaseURL        string `yaml:"base_url"`
+	Model          string `yaml:"model"`
+	BearerTokenEnv string `yaml:"bearer_token_env"`
+	MaxTokens      int    `yaml:"max_tokens"`
 }
 
 // AuthConfig selects which auth modes are enabled.
@@ -95,6 +123,37 @@ func applyDefaults(c *Config) {
 	if c.LLM.Anthropic.MaxTokens == 0 {
 		c.LLM.Anthropic.MaxTokens = 1024
 	}
+	// OpenAI defaults
+	if c.LLM.OpenAI.APIKeyEnv == "" {
+		c.LLM.OpenAI.APIKeyEnv = "OPENAI_API_KEY"
+	}
+	if c.LLM.OpenAI.Model == "" {
+		c.LLM.OpenAI.Model = "gpt-4o-mini"
+	}
+	if c.LLM.OpenAI.MaxTokens == 0 {
+		c.LLM.OpenAI.MaxTokens = 1024
+	}
+	// Gemini defaults
+	if c.LLM.Gemini.APIKeyEnv == "" {
+		c.LLM.Gemini.APIKeyEnv = "GEMINI_API_KEY"
+	}
+	if c.LLM.Gemini.Model == "" {
+		c.LLM.Gemini.Model = "gemini-2.0-flash"
+	}
+	if c.LLM.Gemini.MaxTokens == 0 {
+		c.LLM.Gemini.MaxTokens = 1024
+	}
+	// Ollama defaults
+	if c.LLM.Ollama.BaseURL == "" {
+		c.LLM.Ollama.BaseURL = "http://localhost:11434"
+	}
+	if c.LLM.Ollama.Model == "" {
+		c.LLM.Ollama.Model = "llama3.1"
+	}
+	if c.LLM.Ollama.MaxTokens == 0 {
+		c.LLM.Ollama.MaxTokens = 1024
+	}
+	// BearerTokenEnv intentionally left as "" (no default — absence means no auth)
 	if c.Adapters.Webhook.Retry.MaxAttempts == 0 {
 		c.Adapters.Webhook.Retry.MaxAttempts = 3
 	}

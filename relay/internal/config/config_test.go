@@ -85,3 +85,54 @@ func TestLoad_MissingFile(t *testing.T) {
 		t.Fatal("Load returned nil error for missing file; want non-nil")
 	}
 }
+
+func TestLoad_AppliesOpenAIDefaults(t *testing.T) {
+	cfg, err := config.Load("testdata/minimal.yaml")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.LLM.OpenAI.APIKeyEnv != "OPENAI_API_KEY" {
+		t.Errorf("default OpenAI.APIKeyEnv = %q; want %q", cfg.LLM.OpenAI.APIKeyEnv, "OPENAI_API_KEY")
+	}
+	if cfg.LLM.OpenAI.Model != "gpt-4o-mini" {
+		t.Errorf("default OpenAI.Model = %q; want %q", cfg.LLM.OpenAI.Model, "gpt-4o-mini")
+	}
+	if cfg.LLM.OpenAI.MaxTokens != 1024 {
+		t.Errorf("default OpenAI.MaxTokens = %d; want 1024", cfg.LLM.OpenAI.MaxTokens)
+	}
+}
+
+func TestLoad_AppliesGeminiDefaults(t *testing.T) {
+	cfg, err := config.Load("testdata/minimal.yaml")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.LLM.Gemini.APIKeyEnv != "GEMINI_API_KEY" {
+		t.Errorf("default Gemini.APIKeyEnv = %q; want %q", cfg.LLM.Gemini.APIKeyEnv, "GEMINI_API_KEY")
+	}
+	if cfg.LLM.Gemini.Model != "gemini-2.0-flash" {
+		t.Errorf("default Gemini.Model = %q; want %q", cfg.LLM.Gemini.Model, "gemini-2.0-flash")
+	}
+	if cfg.LLM.Gemini.MaxTokens != 1024 {
+		t.Errorf("default Gemini.MaxTokens = %d; want 1024", cfg.LLM.Gemini.MaxTokens)
+	}
+}
+
+func TestLoad_AppliesOllamaDefaults(t *testing.T) {
+	cfg, err := config.Load("testdata/minimal.yaml")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.LLM.Ollama.BaseURL != "http://localhost:11434" {
+		t.Errorf("default Ollama.BaseURL = %q; want %q", cfg.LLM.Ollama.BaseURL, "http://localhost:11434")
+	}
+	if cfg.LLM.Ollama.Model != "llama3.1" {
+		t.Errorf("default Ollama.Model = %q; want %q", cfg.LLM.Ollama.Model, "llama3.1")
+	}
+	if cfg.LLM.Ollama.MaxTokens != 1024 {
+		t.Errorf("default Ollama.MaxTokens = %d; want 1024", cfg.LLM.Ollama.MaxTokens)
+	}
+	if cfg.LLM.Ollama.BearerTokenEnv != "" {
+		t.Errorf("default Ollama.BearerTokenEnv = %q; want empty string", cfg.LLM.Ollama.BearerTokenEnv)
+	}
+}
