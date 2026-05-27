@@ -2,10 +2,10 @@
   "name": "intake-monorepo",
   "private": true,
   "version": "0.0.0",
-  "workspaces": ["core", "vue"],
+  "workspaces": ["core", "vue", "examples/vue-anonymous", "examples/webhook-receiver"],
   "engines": { "node": ">=24" },
   "scripts": {
-    "type-check": "npm run -w @intake/core type-check",
+    "type-check": "npm run -w @intake/core type-check && npm run -w @intake/vue type-check",
     "codegen": "npm run codegen:ts && npm run codegen:go",
     "codegen:ts": "json2ts -i schema/payload.v1.json -o core/src/generated/payload.ts --no-additionalProperties --bannerComment \"// GENERATED from schema/payload.v1.json — DO NOT EDIT. Run: npm run codegen\"",
     "codegen:go": "bash scripts/codegen-go.sh",
