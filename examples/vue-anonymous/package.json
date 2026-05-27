@@ -1,0 +1,21 @@
+{
+  "name": "examples-vue-anonymous",
+  "version": "0.0.1",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@intake/vue": "*",
+    "@intake/core": "*",
+    "vue": "3.5.34"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "5.2.4",
+    "vite": "5.4.21",
+    "vue-tsc": "3.3.2"
+  }
+}
