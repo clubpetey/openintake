@@ -1,0 +1,25 @@
+server:
+  addr: ":9000"
+  external_url: "http://example.com"
+  cors_origins:
+    - "http://localhost:5173"
+    - "http://localhost:3000"
+llm:
+  provider: "anthropic"
+  anthropic:
+    api_key_env: "ANTHROPIC_API_KEY"
+    model: "claude-sonnet-4-6"
+    max_tokens: 2048
+  system_prompt_file: ""
+auth:
+  modes:
+    anonymous: true
+adapters:
+  webhook:
+    enabled: true
+    url: "http://localhost:9099/intake"
+    headers:
+      X-Custom: "value"
+    retry:
+      max_attempts: 5
+      backoff: "fixed"
