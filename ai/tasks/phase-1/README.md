@@ -13,7 +13,7 @@ The thinnest end-to-end path that works: a user holds a guided triage conversati
 ## 2. Architectural Decision Record (ADR) summary
 
 - **Relay is the sole LLM broker; no provider keys in the browser.** Provider keys are read server-side from env vars only; the widget talks only to the relay, which proxies the provider call. **Trigger to revisit:** never (security invariant).
-- **`payload.v1.json` is the relay→adapter contract, assembled server-side from a thinner `SubmitRequest`.** The relay runs `classify()` at submit, assembles + schema-validates the canonical `payload.Payload`, then calls `Adapter.Create`. **Trigger to revisit:** a future server-to-server caller that submits a fully-formed payload (add a separate validated ingress).
+- **`payload.v1.json` is the relay→adapter contract, assembled server-side from a thinner `SubmitRequest`.** The relay runs `classify()` at submit, assembles + schema-validates the canonical `payload.IntakePayload`, then calls `Adapter.Create`. **Trigger to revisit:** a future server-to-server caller that submits a fully-formed payload (add a separate validated ingress).
 - **Relay is stateless between turns; the widget owns conversation history** (PROJECT.md §6). **Trigger to revisit:** per-turn payload size becomes a problem before the Phase-5 20-turn/8000-token caps.
 - **Anonymous-only auth in Phase 1; the middleware contract accommodates `Authorization: Bearer <jwt>`.** **Trigger to revisit:** Phase 4 (email/SSO).
 - **chi v5 router + stdlib `net/http`; no web framework.** Matches PROJECT.md §3. **Trigger to revisit:** never planned for v0.
@@ -36,7 +36,7 @@ This phase does NOT add: rate limiting / caps / spend cap / CAPTCHA (Phase 5 —
 ```
 1-i ─► 1-ii ─► 1-iii ─► 1-iv ─► 1-v ─► 1-vi
 ```
-Mostly serial. 1-iii consumes the 1-ii Provider; 1-iv consumes 1-i's server + the Phase-0 `payload.Payload`; the TS client (1-v) and widget (1-vi) consume the relay HTTP contract finalized by 1-iv. The frozen interfaces (§6) are the exit criterion of their introducing sub-plan and MUST NOT change afterward without re-smoking the dependents.
+Mostly serial. 1-iii consumes the 1-ii Provider; 1-iv consumes 1-i's server + the Phase-0 `payload.IntakePayload`; the TS client (1-v) and widget (1-vi) consume the relay HTTP contract finalized by 1-iv. The frozen interfaces (§6) are the exit criterion of their introducing sub-plan and MUST NOT change afterward without re-smoking the dependents.
 
 ## 5. Tool version pin list
 
@@ -111,10 +111,12 @@ type Adapter interface {
 	Name() string
 	RequiresLicense() bool
 	Configure(config map[string]any) error
-	Create(ctx context.Context, p *payload.Payload) (*CreateResult, error)
+	Create(ctx context.Context, p *payload.IntakePayload) (*CreateResult, error)
 	HealthCheck(ctx context.Context) error
 }
 ```
+
+> **Generated-type name:** the Phase-0 codegen emits the root type as `payload.IntakePayload` (from the schema `title`), not `payload.Payload`. The adapter interface uses the actual generated name. If a future codegen run renames it, update this interface in the same commit.
 
 ### 6.3 Go — `relay/internal/auth/session.go` (frozen in 1-iii)
 ```go
@@ -311,6 +313,43 @@ export class IntakeClient {
 }
 ```
 The client sends the `X-Intake-Session` header (from `init()`) on `turn()`/`submit()`. It captures `client.*` (url, referrer, user_agent, viewport, locale) and `context.page_metadata` from the browser when assembling the `SubmitRequest`.
+
+### 6.8 Go — relay wiring contract (CANONICAL; resolves cross-sub-plan ambiguity)
+
+All relay sub-plans (1-i owns the seam; 1-iii/1-iv extend it) MUST use these exact shapes. Where an earlier draft used a different name, this section wins.
+
+- **Server constructor (owned by 1-i, `internal/server/server.go`):**
+  ```go
+  func New(cfg *config.Config, deps Deps) http.Handler
+  ```
+  `New` builds the chi mux + middleware (RequestID, Recoverer, strict CORS from `cfg.Server.CORSOrigins`), registers `/v1/health` + `/v1/version`, then calls `registerIntakeRoutes(r, deps)`. There is **no** `NewRouter`; tests construct a handler via `server.New(testCfg, deps)`.
+- **`Deps` is a VALUE type** (passed by value, not `*Deps`), in `internal/server/deps.go`. Final end-of-phase shape (1-i defines the first two fields; later sub-plans add theirs):
+  ```go
+  type Deps struct {
+      Version      version.BuildInfo // 1-i
+      CORSOrigins  []string          // 1-i (New uses this for the CORS middleware)
+      Logger       *slog.Logger      // 1-iii (slog.Default() if unset)
+      Auth         *auth.Middleware  // 1-iii
+      Provider     llm.Provider      // 1-iii (also used by 1-iv classify)
+      SystemPrompt string            // 1-iii
+      Model        string            // 1-iii
+      MaxTokens    int               // 1-iii
+      Adapter      adapter.Adapter   // 1-iv
+      Classifier   *classify.Classifier  // 1-iv
+      Builder      *payloadbuild.Builder // 1-iv
+  }
+  ```
+  Handlers read config-derived values from `Deps` fields (`Model`, `MaxTokens`, `SystemPrompt`, `CORSOrigins`), **not** from a `Deps.Config` field — there is no `Config` field on `Deps`. `main.go` populates these from the loaded `config.Config`.
+- **Route registration (owned by 1-i, `internal/server/routes.go`):**
+  ```go
+  func registerIntakeRoutes(r chi.Router, deps Deps) // 1-i: empty seam; 1-iii adds init+turn; 1-iv adds submit
+  ```
+- **Anthropic constructor (owned by 1-ii, `internal/llm/anthropic/anthropic.go`):**
+  ```go
+  func New(apiKey, model string, maxTokens int) *Provider   // *Provider satisfies llm.Provider
+  ```
+  `main.go` resolves the key with `os.Getenv(cfg.LLM.Anthropic.APIKeyEnv)` and calls `anthropic.New(apiKey, cfg.LLM.Anthropic.Model, cfg.LLM.Anthropic.MaxTokens)`. There is **no** `anthropic.New(apiKey)` and **no** `anthropic.New(cfg.LLM.Anthropic)`. The interface lives in `internal/llm/provider.go`; the implementation in `internal/llm/anthropic/anthropic.go` (not `provider.go`).
+- **`main.go` (owned by 1-i, extended additively by 1-iii then 1-iv):** loads config → builds `Deps` incrementally (1-iii adds Provider/Auth/SystemPrompt/Model/MaxTokens; 1-iv adds Adapter/Classifier/Builder) → `server.New(cfg, deps)` → `http.ListenAndServe` with graceful shutdown.
 
 ## 7. Build-fail checklist
 
