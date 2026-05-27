@@ -49,10 +49,14 @@ New dependencies this phase introduces. Confirm exact latest patch at install (i
 | github.com/google/uuid | v1.6.0 | session_id / submission.id generation (pinned exact by go.mod/go.sum) |
 | github.com/anthropics/anthropic-sdk-go | v1.45.0 | Anthropic Messages API streaming + usage tokens; **exact** (response shape load-bearing) |
 | github.com/santhosh-tekuri/jsonschema/v6 | v6.0.2 | server-side validation of the assembled payload against `schema/payload.v1.json` (Go-native draft 2020-12; introduced in 1-iv) |
-| vue | 3.5.x (verify+pin at install) | widget framework |
-| vite | 5.4.x (verify+pin exact at install) | widget + example build/dev; **exact** (bundle output) |
-| @vitejs/plugin-vue | verify+pin at install | vite Vue SFC support |
-| tsx | verify+pin at install | run the @intake/core Node smoke script (1-v) |
+| vue | 3.5.34 | widget framework (1-vi) |
+| vite | 5.4.21 | widget + example build/dev; **exact** (bundle output) (1-vi) |
+| @vitejs/plugin-vue | 5.2.4 | vite Vue SFC support (1-vi) |
+| vue-tsc | 3.3.2 | Vue TypeScript type-check build path (1-vi) |
+| vitest | 4.1.7 | widget component + composable tests (1-vi) |
+| @vue/test-utils | 2.4.10 | Vue component test mounting (1-vi) |
+| jsdom | 29.1.1 | jsdom environment for vitest component tests (1-vi) |
+| tsx | 4.22.3 | run the @intake/core Node smoke script (1-v) |
 
 > If a pinned version is unavailable or a newer patch is needed at install, the introducing sub-plan's first task records the actual version and updates this table in the same commit. The constraint is *exact pinning of load-bearing tools*, not these specific numbers.
 
