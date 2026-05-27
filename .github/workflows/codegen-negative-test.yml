@@ -1,0 +1,44 @@
+name: codegen-negative-test
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"   # weekly Monday 06:00 UTC
+
+jobs:
+  gate-catches-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.2"
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Mutate schema WITHOUT committing regenerated files
+        run: |
+          node -e "
+            const fs = require('fs');
+            const p = 'schema/payload.v1.json';
+            const s = JSON.parse(fs.readFileSync(p));
+            s['\$defs'].Client.properties.debug_note = { type: 'string' };
+            fs.writeFileSync(p, JSON.stringify(s, null, 2) + '\n');
+          "
+
+      - name: Regenerate and assert the diff-check WOULD fail
+        run: |
+          npm run codegen
+          if git diff --exit-code core/src/generated/payload.ts relay/internal/payload/types.go; then
+            echo "::error::staleness gate did NOT detect drift after a schema change — the gate is broken"
+            exit 1
+          fi
+          echo "OK: gate correctly detects drift (diff is non-empty after schema mutation)."

@@ -80,6 +80,8 @@ Proves the contract spine works as a round-trip on a clean checkout.
 
 A simulation of this smoke runs in CI (sub-plan 0-iv): CI regenerates and asserts `git diff --exit-code` is clean, so a PR that edits the schema without regenerating is rejected.
 
+**GitHub Actions arm deferred:** This repo has no git remote (`git init` only), so the push/PR/`gh workflow run` steps in the 0-iv plan cannot execute. The workflow files (`.github/workflows/ci.yml` and `.github/workflows/codegen-negative-test.yml`) are committed as deliverables and will activate automatically once a remote is configured. In the meantime, `scripts/verify-contract.sh` provides an equivalent local gate: it runs the pin-grep, fixture validation, codegen, `git diff --exit-code` staleness check, `tsc --noEmit`, and `go build/vet` in order — exit 0 on a clean tree, non-zero on drift. The green/red/revert proof was executed locally and confirmed correct (red path: `git diff --exit-code` exits 1 after schema mutation + regen, proving drift is detected).
+
 ## 8. Done criteria
 
 - [ ] All four sub-plans complete; each sub-plan's own smoke passes.
