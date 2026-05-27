@@ -6,12 +6,15 @@
   "engines": { "node": ">=24" },
   "scripts": {
     "type-check": "npm run -w @intake/core type-check",
-    "codegen": "echo \"codegen wired in sub-plan 0-iii\" && exit 1",
+    "codegen": "npm run codegen:ts && npm run codegen:go",
+    "codegen:ts": "json2ts -i schema/payload.v1.json -o core/src/generated/payload.ts --no-additionalProperties --bannerComment \"// GENERATED from schema/payload.v1.json — DO NOT EDIT. Run: npm run codegen\"",
+    "codegen:go": "bash scripts/codegen-go.sh",
     "validate-schema": "ajv validate --spec=draft2020 --all-errors -c ajv-formats -s schema/payload.v1.json -d schema/testdata/payload.valid.json",
     "validate-schema:reject": "ajv validate --spec=draft2020 --all-errors -c ajv-formats -s schema/payload.v1.json -d schema/testdata/payload.invalid.json && exit 1 || exit 0"
   },
   "devDependencies": {
     "ajv-cli": "5.0.0",
-    "ajv-formats": "3.0.1"
+    "ajv-formats": "3.0.1",
+    "json-schema-to-typescript": "15.0.4"
   }
 }

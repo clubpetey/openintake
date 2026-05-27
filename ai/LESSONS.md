@@ -12,6 +12,20 @@ Patterns learned from corrections and mistakes. Review at session start.
 
 ---
 
+### L002: go-jsonschema v0.19.0 — correct module path, binary name, and flags
+
+The plan referenced `github.com/omissis/go-jsonschema/cmd/gojsonschema@v0.19.0` but at v0.19.0 the module's own `go.mod` declares `module github.com/atombender/go-jsonschema` and the `cmd/gojsonschema` subpackage does not exist.
+
+**Correct install command:** `go install github.com/atombender/go-jsonschema@v0.19.0`
+
+**Binary name:** `go-jsonschema` (not `gojsonschema`)
+
+**Flag to get `IntakePayload` as root struct name:** add `--struct-name-from-title`. Without it the generator derives the name from the filename (`PayloadV1Json`). Since the schema has `"title": "IntakePayload"`, this flag is required.
+
+**Rule:** When using omissis/go-jsonschema redirect in plans, verify the actual `go.mod` module path matches before using it. Always run `go-jsonschema --help` to confirm flag names after installing, and check the generated root struct name matches the schema title.
+
+---
+
 ### L001: `vue-tsc --noEmit` and `vue-tsc -b` catch different errors
 
 The `npm run type-check` script (configured as `vue-tsc --noEmit`) does NOT catch every error that `vue-tsc -b` (project-references / build mode, used by `npm run build` and by Quinoa's `./gradlew build`) catches. Specifically, dead-code TS2367 ("This comparison appears to be unintentional because the types have no overlap") slips through `--noEmit` but trips `-b`.

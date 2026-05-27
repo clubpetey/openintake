@@ -44,7 +44,7 @@ Exact versions. Confirm the latest patch at install time in sub-plan 0-i Task 1,
 | npm | 11.x | ships with Node 24.12.0. Confirmed installed: 11.6.2. |
 | typescript | 5.6.3 (exact) | compiles generated `payload.ts` in 0-iii smoke; exact to keep tsc diagnostics stable |
 | json-schema-to-typescript | 15.0.4 (exact) | TS codegen; **exact** — generator output is a committed artifact (PHASE_PLANNING §5) |
-| go-jsonschema (`github.com/omissis/go-jsonschema`) | v0.19.0 (exact) | Go codegen; installed via `go install ...@v0.19.0`; **exact** for the same reason |
+| go-jsonschema (`github.com/atombender/go-jsonschema`) | v0.19.0 (exact) | Go codegen; installed via `go install github.com/atombender/go-jsonschema@v0.19.0`; binary installed as `go-jsonschema` (not `gojsonschema`); use `--struct-name-from-title` to emit `IntakePayload` (not `PayloadV1Json`); **exact** for the same reason. NOTE: the omissis/go-jsonschema redirect at v0.19.0 does not contain the `cmd/gojsonschema` package — use the atombender module path directly. |
 | ajv-cli | 5.0.0 (exact) | validates sample payloads against the schema in 0-ii smoke |
 
 > If a pinned version above is unavailable or a newer patch is required at install, 0-i Task 1 records the actual installed version and updates this table in the same PR. The constraint is *exact pinning*, not these specific numbers.

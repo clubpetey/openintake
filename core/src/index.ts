@@ -1,2 +1,2 @@
 // @intake/core — shared TS engine. Populated in Phase 1.
-export {};
+export * from "./generated/payload.js";
