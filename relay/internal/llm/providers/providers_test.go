@@ -138,8 +138,12 @@ func TestNew_OpenAI_MissingKey(t *testing.T) {
 	}
 }
 
-// TestNew_Gemini_NotImplemented verifies that "gemini" returns the not-implemented placeholder.
-func TestNew_Gemini_NotImplemented(t *testing.T) {
+// TestNew_Gemini verifies that a valid gemini config + key env returns a provider
+// whose Name() is "gemini". Uses t.Setenv to avoid touching real environment state.
+// No real API call is made — the SDK client is constructed but not invoked.
+func TestNew_Gemini(t *testing.T) {
+	t.Setenv("GEMINI_API_KEY", "test-key-not-real")
+
 	cfg := config.LLMConfig{
 		Provider: "gemini",
 		Gemini: config.GeminiConfig{
@@ -150,14 +154,38 @@ func TestNew_Gemini_NotImplemented(t *testing.T) {
 	}
 
 	p, err := providers.New(cfg)
+	if err != nil {
+		t.Fatalf("providers.New() error: %v", err)
+	}
+	if p == nil {
+		t.Fatal("providers.New() returned nil provider with nil error")
+	}
+	if p.Name() != "gemini" {
+		t.Errorf("Name(): got %q, want %q", p.Name(), "gemini")
+	}
+}
+
+// TestNew_Gemini_MissingKey verifies that a missing GEMINI_API_KEY env returns
+// a non-nil error and a nil provider.
+func TestNew_Gemini_MissingKey(t *testing.T) {
+	// Ensure the env var is NOT set (empty value = missing for RequireSecret).
+	t.Setenv("GEMINI_API_KEY_MISSING_IN_TEST", "")
+
+	cfg := config.LLMConfig{
+		Provider: "gemini",
+		Gemini: config.GeminiConfig{
+			APIKeyEnv: "GEMINI_API_KEY_MISSING_IN_TEST",
+			Model:     "gemini-2.0-flash",
+			MaxTokens: 1024,
+		},
+	}
+
+	p, err := providers.New(cfg)
 	if err == nil {
-		t.Fatal("providers.New() for gemini returned nil error; want not-implemented error")
+		t.Fatal("expected error for missing GEMINI_API_KEY, got nil")
 	}
 	if p != nil {
-		t.Errorf("providers.New() for gemini returned non-nil provider; want nil")
-	}
-	if !strings.Contains(err.Error(), "not implemented") {
-		t.Errorf("error should contain 'not implemented'; got: %v", err)
+		t.Errorf("providers.New() returned non-nil provider with an error; want nil provider")
 	}
 }
 

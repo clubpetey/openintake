@@ -14,6 +14,7 @@ import (
 	"intake/internal/config"
 	"intake/internal/llm"
 	"intake/internal/llm/anthropic"
+	geminipkg "intake/internal/llm/gemini"
 	"intake/internal/llm/openai"
 )
 
@@ -45,7 +46,11 @@ func New(cfg config.LLMConfig) (llm.Provider, error) {
 		return openai.New(key, cfg.OpenAI.Model, cfg.OpenAI.MaxTokens), nil
 
 	case "gemini":
-		return nil, fmt.Errorf("llm provider %q not implemented in this build", cfg.Provider)
+		key, err := config.RequireSecret(cfg.Gemini.APIKeyEnv)
+		if err != nil {
+			return nil, fmt.Errorf("providers: gemini: %w", err)
+		}
+		return geminipkg.New(key, cfg.Gemini.Model, cfg.Gemini.MaxTokens), nil
 
 	case "ollama":
 		return nil, fmt.Errorf("llm provider %q not implemented in this build", cfg.Provider)
