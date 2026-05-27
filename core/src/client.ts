@@ -1,0 +1,115 @@
+import type { IntakeConfig, ChatMessage, SubmitResult } from './client-types.js';
+import type { InitResponse, SubmitRequest, SubmitResponse } from './types.js';
+import { consumeSSE } from './sse.js';
+import { captureClient, capturePageMetadata } from './context.js';
+
+export class IntakeClient {
+  private readonly config: IntakeConfig;
+  private readonly fetch: typeof globalThis.fetch;
+  private sessionId: string | null = null;
+
+  constructor(config: IntakeConfig, fetchImpl?: typeof globalThis.fetch) {
+    this.config = config;
+    this.fetch = fetchImpl ?? globalThis.fetch;
+  }
+
+  async init(): Promise<InitResponse> {
+    const url = `${this.config.relayUrl}/v1/intake/init`;
+    const res = await this.fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+
+    if (!res.ok) {
+      throw new Error(`init failed: ${res.status}`);
+    }
+
+    const data = (await res.json()) as InitResponse;
+    this.sessionId = data.session_id;
+    return data;
+  }
+
+  async turn(
+    messages: ChatMessage[],
+    onDelta: (delta: string) => void
+  ): Promise<{ input_tokens: number; output_tokens: number }> {
+    if (this.sessionId === null) {
+      throw new Error('IntakeClient: call init() before turn()');
+    }
+
+    const url = `${this.config.relayUrl}/v1/intake/turn`;
+    const res = await this.fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Intake-Session': this.sessionId,
+      },
+      body: JSON.stringify({ messages }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`turn failed: ${res.status}`);
+    }
+
+    if (!res.body) {
+      throw new Error('turn: response has no body');
+    }
+
+    return new Promise<{ input_tokens: number; output_tokens: number }>(
+      (resolve, reject) => {
+        consumeSSE(res.body as ReadableStream<Uint8Array>, (frame) => {
+          if ('error' in frame) {
+            reject(new Error(frame.error));
+          } else if ('done' in frame && frame.done) {
+            resolve({
+              input_tokens: frame.input_tokens,
+              output_tokens: frame.output_tokens,
+            });
+          } else if ('delta' in frame) {
+            onDelta(frame.delta);
+          }
+        }).catch(reject);
+      }
+    );
+  }
+
+  async submit(
+    messages: ChatMessage[],
+    routingHint?: string
+  ): Promise<SubmitResult> {
+    if (this.sessionId === null) {
+      throw new Error('IntakeClient: call init() before submit()');
+    }
+
+    const clientInfo = captureClient(this.config.widgetVersion);
+    const pageMetadata = capturePageMetadata();
+
+    const body: SubmitRequest = {
+      messages,
+      client: clientInfo,
+      user_claims: {},
+      context: {
+        app_context: this.config.appContext ?? {},
+        page_metadata: pageMetadata,
+      },
+      routing_hint: routingHint ?? null,
+    };
+
+    const url = `${this.config.relayUrl}/v1/intake/submit`;
+    const res = await this.fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Intake-Session': this.sessionId,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      throw new Error(`submit failed: ${res.status}`);
+    }
+
+    return (await res.json()) as SubmitResponse;
+  }
+}
