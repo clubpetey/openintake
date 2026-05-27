@@ -15,6 +15,7 @@ import (
 	"intake/internal/llm"
 	"intake/internal/llm/anthropic"
 	geminipkg "intake/internal/llm/gemini"
+	"intake/internal/llm/ollama"
 	"intake/internal/llm/openai"
 )
 
@@ -53,7 +54,12 @@ func New(cfg config.LLMConfig) (llm.Provider, error) {
 		return geminipkg.New(key, cfg.Gemini.Model, cfg.Gemini.MaxTokens), nil
 
 	case "ollama":
-		return nil, fmt.Errorf("llm provider %q not implemented in this build", cfg.Provider)
+		// bearer token is optional — empty string means no Authorization header
+		token, err := config.ResolveSecret(cfg.Ollama.BearerTokenEnv)
+		if err != nil {
+			return nil, fmt.Errorf("providers: ollama: bearer token: %w", err)
+		}
+		return ollama.New(cfg.Ollama.BaseURL, cfg.Ollama.Model, cfg.Ollama.MaxTokens, token), nil
 
 	default:
 		return nil, fmt.Errorf("unknown llm provider %q", cfg.Provider)
