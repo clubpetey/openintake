@@ -24,11 +24,11 @@ import (
 // if the provider name is unknown, the required secret is absent, or
 // construction fails. It returns a nil provider on any error.
 //
-// Switch cases:
-//   - "anthropic" — wired: resolves ANTHROPIC_API_KEY and calls anthropic.New.
-//   - "openai"    — wired: resolves OPENAI_API_KEY and calls openai.New (2-ii).
-//   - "gemini"    — placeholder until sub-plan 2-iii.
-//   - "ollama"    — placeholder until sub-plan 2-iv.
+// All four providers are fully implemented:
+//   - "anthropic" — resolves ANTHROPIC_API_KEY and calls anthropic.New.
+//   - "openai"    — resolves OPENAI_API_KEY and calls openai.New.
+//   - "gemini"    — resolves GEMINI_API_KEY (or configured env) and calls geminipkg.New.
+//   - "ollama"    — no API key required; optional bearer token via BearerTokenEnv.
 //   - default     — returns a clear "unknown provider" error.
 func New(cfg config.LLMConfig) (llm.Provider, error) {
 	switch cfg.Provider {

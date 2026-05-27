@@ -159,8 +159,9 @@ func activeModelConfig(cfg config.LLMConfig) (model string, maxTokens int) {
 	case "ollama":
 		return cfg.Ollama.Model, cfg.Ollama.MaxTokens
 	default:
-		// anthropic (default) and any future unknown provider: fall back to
-		// the anthropic block, which is the Phase-1 default.
+		// anthropic: the configured default provider. Unknown providers are
+		// already rejected by providers.New before this function is called,
+		// so this branch handles anthropic only — not future unknowns.
 		return cfg.Anthropic.Model, cfg.Anthropic.MaxTokens
 	}
 }

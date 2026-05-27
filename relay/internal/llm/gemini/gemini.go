@@ -38,7 +38,8 @@ func New(apiKey, model string, maxTokens int) *Provider {
 		// genai.NewClient only errors when the config is invalid (e.g. both
 		// APIKey and Credentials set). For a simple APIKey config it is safe to
 		// panic — the caller (providers.New) passes a validated key.
-		panic(fmt.Sprintf("gemini: NewClient: %v", err))
+		// Do NOT interpolate cfg/ClientConfig here — it holds the API key.
+		panic(fmt.Sprintf("gemini: failed to construct genai client (check GEMINI/Vertex configuration): %v", err))
 	}
 	return &Provider{client: c, model: model, maxTokens: maxTokens}
 }
@@ -56,7 +57,8 @@ func NewWithClient(apiKey, model string, maxTokens int, httpClient *http.Client,
 		},
 	})
 	if err != nil {
-		panic(fmt.Sprintf("gemini: NewWithClient: %v", err))
+		// Do NOT interpolate cfg/ClientConfig here — it holds the API key.
+		panic(fmt.Sprintf("gemini: failed to construct genai client in NewWithClient (check GEMINI/Vertex configuration): %v", err))
 	}
 	return &Provider{client: c, model: model, maxTokens: maxTokens}
 }
