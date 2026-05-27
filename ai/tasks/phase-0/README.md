@@ -15,6 +15,7 @@ The foundational phase. Establishes the monorepo, the canonical wire contract (`
 - **Generated files are committed AND CI-verified fresh.** Committing them keeps `go build` / `tsc` working without a codegen step in every consumer; the CI staleness gate (`git diff --exit-code` after regen) prevents the committed copy from drifting. **Triggers to revisit:** (a) generators become non-deterministic across machines (then generate-in-CI-only); (b) merge-conflict pain on generated files outweighs the convenience.
 - **Codegen tools are exact-pinned, not caret-pinned.** Codegen produces deploy-time-load-bearing artifacts; per PHASE_PLANNING §5 a silent generator change is a multi-hour failure class. **Triggers to revisit:** none planned; upgrades are deliberate one-PR bumps.
 - **Monorepo with an npm workspace (`core`, `vue`) + a separate Go module (`relay`) + a separate Go module (`license-tool`).** Two Go modules because `license-tool` is maintainer-only and excluded from release. **Triggers to revisit:** (a) `vue` and `core` version cadences diverge enough to want separate publishes (they already publish independently; this is about workspace tooling); (b) a shared Go module between relay and license-tool is wanted.
+- **`go-jsonschema` does not enforce JSON Schema `const` at the Go type level.** The generator emits a plain `string` for `{"type":"string","const":"1.0"}` fields (e.g. `schema_version` in `relay/internal/payload/types.go`) — `UnmarshalJSON` validators are only generated for `enum`. The TypeScript generator DOES emit a literal type. **Mitigation (Phase 1):** the relay must re-validate `schema_version` (and any `const`-constrained field) at the HTTP/request boundary; do not rely on the Go type to enforce this invariant.
 
 ## 3. Sub-plan index
 
@@ -40,7 +41,7 @@ Exact versions. Confirm the latest patch at install time in sub-plan 0-i Task 1,
 | Tool | Version | Reason |
 |---|---|---|
 | Go (toolchain) | 1.23.2 (exact) | relay + license-tool toolchain; `go.mod` `toolchain go1.23.2` pins it for reproducible CI. Confirmed installed: go1.23.2 (1.23.5 unavailable on this machine). |
-| Node.js | 24.12.x | CI runner + local; pinned via `.nvmrc` and `engines`. Confirmed installed: v24.12.0 (LTS 20.18 unavailable; engines lower bound kept at >=20.18). |
+| Node.js | 24.12.x | CI runner + local; pinned via `.nvmrc` and `engines`. Confirmed installed: v24.12.0 (engines lower bound set to `>=24` in root `package.json`). |
 | npm | 11.x | ships with Node 24.12.0. Confirmed installed: 11.6.2. |
 | typescript | 5.6.3 (exact) | compiles generated `payload.ts` in 0-iii smoke; exact to keep tsc diagnostics stable |
 | json-schema-to-typescript | 15.0.4 (exact) | TS codegen; **exact** — generator output is a committed artifact (PHASE_PLANNING §5) |

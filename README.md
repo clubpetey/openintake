@@ -16,6 +16,7 @@ AI-native, self-hostable feedback & support intake: an embeddable widget + a sin
 
 - Node 24.12.0 (`nvm use`)
 - Go 1.23.2
+- POSIX shell / bash (Git Bash or WSL on Windows) — required to run `scripts/codegen-go.sh`, `scripts/verify-contract.sh`, and `scripts/check-pins.sh`
 
 ## Build
 
