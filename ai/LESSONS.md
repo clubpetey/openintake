@@ -45,3 +45,15 @@ The `npm run type-check` script (configured as `vue-tsc --noEmit`) does NOT catc
 **Rule:** for local pre-commit verification on Vue work, run the build path that mirrors CI — `./gradlew build` (which invokes Quinoa's `vue-tsc -b`), or at minimum `cd src/main/webui && npm run build`. `npm run type-check` is a fast inner-loop check but not a complete pre-commit gate.
 
 ---
+
+### L004: Node smoke harnesses must stub browser globals; `navigator` is a read-only getter in Node 24
+
+`@intake/core`'s `captureClient()` is SSR-safe and returns empty defaults (`url: ""`, etc.) when `window` is undefined. Running the `core/smoke/drive.ts` smoke in Node therefore produced an empty `client.url`, which the relay's runtime schema validation **correctly 400-rejected** (`client.url` is `format: uri`; `""` is not a valid URI). This is the L003 mitigation working as designed in a live setting — not a relay bug.
+
+**Where it hit:** Phase 1 final smoke (2026-05-27). First run: `/submit` → 400 because the Node-captured `client.url` was empty.
+
+**Fix:** the Node smoke stubs minimal browser globals (`window.location.href`, `window.innerWidth/Height`, `navigator.userAgent/language`, `document.referrer/title/querySelectorAll`) before calling `submit()`. Use `Object.defineProperty(globalThis, name, { value, configurable: true, writable: true })` — **plain assignment to `globalThis.navigator` throws** `TypeError: Cannot set property navigator ... which has only a getter` in Node 24 (same quirk the 1-v context tests hit).
+
+**Rule:** when driving browser-targeted client code from Node (smokes, scripts), simulate the browser context with `Object.defineProperty` (not assignment) for `navigator`/`window`/`document`. And remember a green relay-side `400` on an invalid `client.url` is the schema gate doing its job.
+
+---

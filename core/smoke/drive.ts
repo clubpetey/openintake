@@ -18,6 +18,30 @@ const RELAY_URL = process.env['RELAY_URL'] ?? 'http://localhost:8080';
 const WIDGET_VERSION = '0.1.0-smoke';
 
 async function main(): Promise<void> {
+  // This smoke runs in Node, where there is no browser. captureClient() in
+  // @intake/core is SSR-safe and returns empty defaults without a window —
+  // but the relay schema requires client.url to be a valid URI, so an empty
+  // url is (correctly) rejected with 400. Stub the minimal browser globals the
+  // real widget supplies in a browser so the smoke exercises the success path.
+  // Node 24 defines `navigator` as a read-only getter, so plain assignment
+  // throws — use defineProperty for all three globals.
+  const define = (name: string, value: unknown): void => {
+    Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+  };
+  if (typeof (globalThis as { window?: unknown }).window === 'undefined') {
+    define('window', {
+      innerWidth: 1440,
+      innerHeight: 900,
+      location: { href: 'http://localhost:5173/smoke' },
+    });
+    define('navigator', { userAgent: 'intake-smoke/0.1 (node)', language: 'en-US' });
+    define('document', {
+      referrer: '',
+      title: 'Intake Smoke',
+      querySelectorAll: () => [] as unknown[],
+    });
+  }
+
   console.log(`[smoke] connecting to relay at ${RELAY_URL}`);
 
   const client = new IntakeClient({

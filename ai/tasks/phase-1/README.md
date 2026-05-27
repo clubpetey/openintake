@@ -24,12 +24,12 @@ This phase does NOT add: rate limiting / caps / spend cap / CAPTCHA (Phase 5 —
 
 | # | Plan | Driver | Effort | Status |
 |---|---|---|---|---|
-| 1-i | [Relay server skeleton](1-i-relay-skeleton-plan.md) | config + chi server | M | Not started |
-| 1-ii | [LLM Provider + Anthropic](1-ii-llm-provider-anthropic-plan.md) | provider seam | M | Not started |
-| 1-iii | [Session/auth + /init + /turn SSE](1-iii-session-turn-sse-plan.md) | auth + SSE seam | L | Not started |
-| 1-iv | [Adapter + webhook + /submit](1-iv-adapter-webhook-submit-plan.md) | adapter seam | L | Not started |
-| 1-v | [@intake/core TS client](1-v-core-client-plan.md) | client↔relay | M | Not started |
-| 1-vi | [@intake/vue widget + example](1-vi-vue-widget-example-plan.md) | widget + smoke | L | Not started |
+| 1-i | [Relay server skeleton](1-i-relay-skeleton-plan.md) | config + chi server | M | Complete |
+| 1-ii | [LLM Provider + Anthropic](1-ii-llm-provider-anthropic-plan.md) | provider seam | M | Complete |
+| 1-iii | [Session/auth + /init + /turn SSE](1-iii-session-turn-sse-plan.md) | auth + SSE seam | L | Complete |
+| 1-iv | [Adapter + webhook + /submit](1-iv-adapter-webhook-submit-plan.md) | adapter seam | L | Complete |
+| 1-v | [@intake/core TS client](1-v-core-client-plan.md) | client↔relay | M | Complete |
+| 1-vi | [@intake/vue widget + example](1-vi-vue-widget-example-plan.md) | widget + smoke | L | Complete |
 
 ## 4. Dependency graph
 
@@ -397,6 +397,17 @@ Proves the walking skeleton end-to-end against real Anthropic + a real local web
 ```
 
 A credential-free unit layer backs this: provider chunk-assembly (mock HTTP), webhook adapter (httptest receiver), handlers (httptest), classify() (mock provider), and the core serializer (TS unit) — all run without real keys in `go test ./...` and the TS test.
+
+### Smoke result (2026-05-27) — PASSED ✅
+
+Executed headlessly against **real Anthropic + a real webhook receiver** via the `@intake/core` Node smoke (`core/smoke/drive.ts`), which drives `init → turn (SSE) → submit` through the same relay endpoints the widget calls:
+
+- SSE streaming worked (live guided-triage response on `claude-sonnet-4-6`).
+- The receiver logged exactly one **schema-valid canonical payload** with server-side `classify()` fields populated (`classification:"bug"`, `severity_guess:"medium"`, summary, `title_suggestion`, `tags_suggested`, `language:"en"`), captured `client.*`, `user.auth_mode:"anonymous"`/`verified:false`, `schema_version:"1.0"`.
+- `SubmitResult` returned (`adapter_name:"webhook"`, `external_id`); **API key absent from all logs**.
+- Live confirmation of the L003 mitigation: an empty `client.url` (Node SSR default) is correctly **400-rejected** by the relay's runtime schema validation; the smoke supplies browser-context stubs to exercise the success path.
+
+The literal **browser widget click-through** (Vite `examples/vue-anonymous` at `:5173`) is the one piece not exercised headlessly — the widget's own logic is covered by its component tests + build, and `drive.ts` exercises the identical relay contract. Optional for a human to run for visual confirmation.
 
 ## 9. Notes carried from the design
 
