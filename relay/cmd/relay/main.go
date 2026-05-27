@@ -11,15 +11,15 @@ import (
 	"syscall"
 	"time"
 
+	"intake/internal/adapter/webhook"
 	"intake/internal/auth"
 	"intake/internal/classify"
 	"intake/internal/config"
-	"intake/internal/llm/anthropic"
+	"intake/internal/llm/providers"
 	"intake/internal/payloadbuild"
 	"intake/internal/server"
 	"intake/internal/triage"
 	"intake/internal/version"
-	"intake/internal/adapter/webhook"
 )
 
 func main() {
@@ -36,14 +36,24 @@ func main() {
 		os.Exit(1)
 	}
 
-	// --- LLM Provider ---
-	// API key is resolved from env OR a _FILE path; NEVER from config file or logs (security invariant §2).
-	apiKey, err := config.RequireSecret(cfg.LLM.Anthropic.APIKeyEnv)
+	// --- LLM Provider (via factory) ---
+	// providers.New resolves the required secret internally via config.RequireSecret /
+	// config.ResolveSecret. The key is NEVER logged or embedded in any error surfaced here.
+	provider, err := providers.New(cfg.LLM)
 	if err != nil {
-		logger.Error("LLM API key not set", "env_var", cfg.LLM.Anthropic.APIKeyEnv, "error", err)
+		logger.Error("relay: LLM provider init failed",
+			"provider", cfg.LLM.Provider,
+			"error", err,
+		)
 		os.Exit(1)
 	}
-	provider := anthropic.New(apiKey, cfg.LLM.Anthropic.Model, cfg.LLM.Anthropic.MaxTokens)
+	logger.Info("relay: LLM provider ready", "provider", provider.Name())
+
+	// --- Model / MaxTokens for classify (derived from the active provider config) ---
+	// The classify.New call still needs a model name and max_tokens. We read them
+	// from whichever sub-config block corresponds to the active provider.
+	// This mirrors the factory switch without constructing a second provider.
+	model, maxTokens := activeModelConfig(cfg.LLM)
 
 	// --- Session Store + Auth Middleware ---
 	store := auth.NewStore()
@@ -73,7 +83,7 @@ func main() {
 	}
 
 	// --- Classifier (1-iv) — reuses the same provider as /turn ---
-	classifier := classify.New(provider, cfg.LLM.Anthropic.Model, cfg.LLM.Anthropic.MaxTokens)
+	classifier := classify.New(provider, model, maxTokens)
 
 	// --- Payload Builder (1-iv) ---
 	builder := payloadbuild.New("0.1.0") // widget version default; Phase 5 may read from config
@@ -88,8 +98,8 @@ func main() {
 		Auth:         middleware,
 		Provider:     provider,
 		SystemPrompt: systemPrompt,
-		Model:        cfg.LLM.Anthropic.Model,
-		MaxTokens:    cfg.LLM.Anthropic.MaxTokens,
+		Model:        model,
+		MaxTokens:    maxTokens,
 		Adapter:      wh,
 		Classifier:   classifier,
 		Builder:      builder,
@@ -134,4 +144,23 @@ func main() {
 
 	<-idleConnsClosed
 	logger.Info("relay stopped")
+}
+
+// activeModelConfig returns the model name and maxTokens for the currently
+// configured provider. Used to populate server.Deps.Model and .MaxTokens for
+// the classifier — which mirrors the factory's provider selection without
+// constructing a second provider instance.
+func activeModelConfig(cfg config.LLMConfig) (model string, maxTokens int) {
+	switch cfg.Provider {
+	case "openai":
+		return cfg.OpenAI.Model, cfg.OpenAI.MaxTokens
+	case "gemini":
+		return cfg.Gemini.Model, cfg.Gemini.MaxTokens
+	case "ollama":
+		return cfg.Ollama.Model, cfg.Ollama.MaxTokens
+	default:
+		// anthropic (default) and any future unknown provider: fall back to
+		// the anthropic block, which is the Phase-1 default.
+		return cfg.Anthropic.Model, cfg.Anthropic.MaxTokens
+	}
 }
