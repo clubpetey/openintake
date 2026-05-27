@@ -1,0 +1,12 @@
+{
+  "name": "intake-monorepo",
+  "private": true,
+  "version": "0.0.0",
+  "workspaces": ["core", "vue"],
+  "engines": { "node": ">=20.18" },
+  "scripts": {
+    "type-check": "npm run -w @intake/core type-check",
+    "codegen": "echo \"codegen wired in sub-plan 0-iii\" && exit 1"
+  },
+  "devDependencies": {}
+}

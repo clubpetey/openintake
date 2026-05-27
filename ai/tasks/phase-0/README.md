@@ -39,9 +39,9 @@ Exact versions. Confirm the latest patch at install time in sub-plan 0-i Task 1,
 
 | Tool | Version | Reason |
 |---|---|---|
-| Go (toolchain) | 1.23.5 (exact) | relay + license-tool toolchain; `go.mod` `toolchain go1.23.5` pins it for reproducible CI |
-| Node.js | 20.18.x (LTS) | CI runner + local; pinned via `.nvmrc` and `engines` |
-| npm | 10.x | ships with Node 20.18 |
+| Go (toolchain) | 1.23.2 (exact) | relay + license-tool toolchain; `go.mod` `toolchain go1.23.2` pins it for reproducible CI. Confirmed installed: go1.23.2 (1.23.5 unavailable on this machine). |
+| Node.js | 24.12.x | CI runner + local; pinned via `.nvmrc` and `engines`. Confirmed installed: v24.12.0 (LTS 20.18 unavailable; engines lower bound kept at >=20.18). |
+| npm | 11.x | ships with Node 24.12.0. Confirmed installed: 11.6.2. |
 | typescript | 5.6.3 (exact) | compiles generated `payload.ts` in 0-iii smoke; exact to keep tsc diagnostics stable |
 | json-schema-to-typescript | 15.0.4 (exact) | TS codegen; **exact** — generator output is a committed artifact (PHASE_PLANNING §5) |
 | go-jsonschema (`github.com/omissis/go-jsonschema`) | v0.19.0 (exact) | Go codegen; installed via `go install ...@v0.19.0`; **exact** for the same reason |

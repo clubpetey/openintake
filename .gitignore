@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.local
+.DS_Store
+relay/intake-relay
+relay/relay
+relay/relay.exe
+relay/intake-relay.exe
+license-tool/intake-license
+license-tool/intake-license.exe
+*.out

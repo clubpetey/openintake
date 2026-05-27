@@ -1,0 +1,9 @@
+{
+  "name": "@intake/vue",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "type-check": "echo \"vue type-check added in Phase 1\""
+  }
+}
