@@ -7,7 +7,8 @@
   "scripts": {
     "type-check": "npm run -w @intake/core type-check",
     "codegen": "echo \"codegen wired in sub-plan 0-iii\" && exit 1",
-    "validate-schema": "ajv validate --spec=draft2020 --all-errors -c ajv-formats -s schema/payload.v1.json -d schema/testdata/payload.valid.json"
+    "validate-schema": "ajv validate --spec=draft2020 --all-errors -c ajv-formats -s schema/payload.v1.json -d schema/testdata/payload.valid.json",
+    "validate-schema:reject": "ajv validate --spec=draft2020 --all-errors -c ajv-formats -s schema/payload.v1.json -d schema/testdata/payload.invalid.json && exit 1 || exit 0"
   },
   "devDependencies": {
     "ajv-cli": "5.0.0",

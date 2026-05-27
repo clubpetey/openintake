@@ -6,8 +6,17 @@
   "additionalProperties": false,
   "required": ["schema_version", "submission", "client", "user", "conversation"],
   "properties": {
-    "schema_version": { "const": "1.0" },
-    "submission": {
+    "schema_version": { "type": "string", "const": "1.0" },
+    "submission": { "$ref": "#/$defs/Submission" },
+    "client": { "$ref": "#/$defs/Client" },
+    "user": { "$ref": "#/$defs/User" },
+    "conversation": { "$ref": "#/$defs/Conversation" },
+    "context": { "$ref": "#/$defs/Context" },
+    "attachments": { "type": "array", "items": { "$ref": "#/$defs/Attachment" } },
+    "routing_hint": { "type": ["string", "null"] }
+  },
+  "$defs": {
+    "Submission": {
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "submitted_at"],
@@ -17,7 +26,7 @@
         "tenant_id": { "type": ["string", "null"] }
       }
     },
-    "client": {
+    "Client": {
       "type": "object",
       "additionalProperties": false,
       "required": ["widget_version", "session_id", "url", "user_agent", "viewport", "locale"],
@@ -27,19 +36,20 @@
         "url": { "type": "string", "format": "uri" },
         "referrer": { "type": ["string", "null"] },
         "user_agent": { "type": "string" },
-        "viewport": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["w", "h"],
-          "properties": {
-            "w": { "type": "integer", "minimum": 0 },
-            "h": { "type": "integer", "minimum": 0 }
-          }
-        },
+        "viewport": { "$ref": "#/$defs/Viewport" },
         "locale": { "type": "string" }
       }
     },
-    "user": {
+    "Viewport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["w", "h"],
+      "properties": {
+        "w": { "type": "integer", "minimum": 0 },
+        "h": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "User": {
       "type": "object",
       "additionalProperties": false,
       "required": ["auth_mode", "verified"],
@@ -52,24 +62,12 @@
         "custom": { "type": "object", "additionalProperties": true }
       }
     },
-    "conversation": {
+    "Conversation": {
       "type": "object",
       "additionalProperties": false,
       "required": ["messages", "summary", "title_suggestion", "classification", "severity_guess", "tags_suggested", "language"],
       "properties": {
-        "messages": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["role", "content", "ts"],
-            "properties": {
-              "role": { "enum": ["user", "assistant"] },
-              "content": { "type": "string" },
-              "ts": { "type": "string", "format": "date-time" }
-            }
-          }
-        },
+        "messages": { "type": "array", "items": { "$ref": "#/$defs/Message" } },
         "summary": { "type": "string" },
         "title_suggestion": { "type": "string", "maxLength": 80 },
         "classification": { "enum": ["bug", "feature_request", "question", "other"] },
@@ -78,7 +76,17 @@
         "language": { "type": "string" }
       }
     },
-    "context": {
+    "Message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "content", "ts"],
+      "properties": {
+        "role": { "enum": ["user", "assistant"] },
+        "content": { "type": "string" },
+        "ts": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Context": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -86,21 +94,17 @@
         "page_metadata": { "type": "object", "additionalProperties": true }
       }
     },
-    "attachments": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["type", "mime_type", "size_bytes", "url"],
-        "properties": {
-          "type": { "enum": ["screenshot", "file"] },
-          "mime_type": { "type": "string" },
-          "size_bytes": { "type": "integer", "minimum": 0 },
-          "url": { "type": "string" },
-          "label": { "type": "string" }
-        }
+    "Attachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "mime_type", "size_bytes", "url"],
+      "properties": {
+        "type": { "enum": ["screenshot", "file"] },
+        "mime_type": { "type": "string" },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "url": { "type": "string" },
+        "label": { "type": "string" }
       }
-    },
-    "routing_hint": { "type": ["string", "null"] }
+    }
   }
 }
