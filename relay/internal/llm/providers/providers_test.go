@@ -189,25 +189,54 @@ func TestNew_Gemini_MissingKey(t *testing.T) {
 	}
 }
 
-// TestNew_Ollama_NotImplemented verifies that "ollama" returns the not-implemented placeholder.
-func TestNew_Ollama_NotImplemented(t *testing.T) {
+// TestNew_Ollama verifies that a valid ollama config returns a provider whose
+// Name() is "ollama" without requiring any API key. No real Ollama instance or
+// API key is needed — the provider is constructed but not invoked.
+func TestNew_Ollama(t *testing.T) {
 	cfg := config.LLMConfig{
 		Provider: "ollama",
 		Ollama: config.OllamaConfig{
-			BaseURL:   "http://localhost:11434",
-			Model:     "llama3.1",
-			MaxTokens: 1024,
+			BaseURL:        "http://localhost:11434",
+			Model:          "llama3.1",
+			BearerTokenEnv: "", // empty = no auth; ResolveSecret("") returns ("", nil)
+			MaxTokens:      1024,
+		},
+	}
+
+	p, err := providers.New(cfg)
+	if err != nil {
+		t.Fatalf("providers.New() returned error: %v", err)
+	}
+	if p == nil {
+		t.Fatal("providers.New() returned nil provider with nil error")
+	}
+	if p.Name() != "ollama" {
+		t.Errorf("provider.Name() = %q; want %q", p.Name(), "ollama")
+	}
+}
+
+// TestNew_Ollama_BearerEnvAmbiguity verifies that when BearerTokenEnv points to
+// an env var that has both the plain var and the _FILE var set, New returns an error.
+// This exercises the config.ResolveSecret ambiguity guard.
+func TestNew_Ollama_BearerEnvAmbiguity(t *testing.T) {
+	t.Setenv("TEST_OLLAMA_BEARER_AMBIG", "some-token")
+	t.Setenv("TEST_OLLAMA_BEARER_AMBIG_FILE", "/some/path")
+
+	cfg := config.LLMConfig{
+		Provider: "ollama",
+		Ollama: config.OllamaConfig{
+			BaseURL:        "http://localhost:11434",
+			Model:          "llama3.1",
+			BearerTokenEnv: "TEST_OLLAMA_BEARER_AMBIG",
+			MaxTokens:      1024,
 		},
 	}
 
 	p, err := providers.New(cfg)
 	if err == nil {
-		t.Fatal("providers.New() for ollama returned nil error; want not-implemented error")
+		t.Fatal("providers.New() returned nil error for ambiguous bearer env; want non-nil")
 	}
 	if p != nil {
-		t.Errorf("providers.New() for ollama returned non-nil provider; want nil")
-	}
-	if !strings.Contains(err.Error(), "not implemented") {
-		t.Errorf("error should contain 'not implemented'; got: %v", err)
+		t.Errorf("providers.New() returned non-nil provider with an error; want nil")
 	}
 }
