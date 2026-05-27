@@ -42,7 +42,7 @@ Verify exact latest at install (in the introducing sub-plan's first task), pin e
 | Tool | Version | Reason |
 |---|---|---|
 | github.com/openai/openai-go | v1.12.0 | OpenAI Chat Completions streaming + usage; **exact** |
-| google.golang.org/genai | verify+pin exact at install (2-iii) | Gemini GenerateContentStream + usageMetadata; **exact** |
+| google.golang.org/genai | v0.7.0 | Gemini GenerateContentStream + usageMetadata; **exact** (v0.x required — v1.x needs go 1.24) |
 | (ollama) | — (stdlib net/http) | local `/api/chat`; no SDK |
 
 ## 6. Build-fail checklist
