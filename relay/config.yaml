@@ -1,0 +1,21 @@
+server:
+  addr: ":18080"
+  external_url: "http://localhost:18080"
+  cors_origins:
+    - "http://localhost:5173"
+llm:
+  provider: "anthropic"
+  anthropic:
+    api_key_env: "ANTHROPIC_API_KEY"
+    model: "claude-sonnet-4-6"
+    max_tokens: 1024
+auth:
+  modes:
+    anonymous: true
+adapters:
+  webhook:
+    enabled: false
+    url: ""
+    retry:
+      max_attempts: 3
+      backoff: "exponential"
