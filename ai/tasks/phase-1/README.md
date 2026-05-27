@@ -47,7 +47,7 @@ New dependencies this phase introduces. Confirm exact latest patch at install (i
 | github.com/go-chi/chi/v5 | v5.3.0 | HTTP router/middleware; PROJECT.md §3 |
 | gopkg.in/yaml.v3 | v3.0.1 | YAML config file parsing (pure library; semver-stable) |
 | github.com/google/uuid | v1.6.0 (verify+pin at install) | session_id / submission.id generation |
-| github.com/anthropics/anthropic-sdk-go | verify+pin exact at install | Anthropic Messages API streaming + usage tokens; **exact** (response shape load-bearing) |
+| github.com/anthropics/anthropic-sdk-go | v1.45.0 | Anthropic Messages API streaming + usage tokens; **exact** (response shape load-bearing) |
 | github.com/santhosh-tekuri/jsonschema/v6 | verify+pin at install | server-side validation of the assembled payload against `schema/payload.v1.json` (Go-native draft 2020-12) |
 | vue | 3.5.x (verify+pin at install) | widget framework |
 | vite | 5.4.x (verify+pin exact at install) | widget + example build/dev; **exact** (bundle output) |
