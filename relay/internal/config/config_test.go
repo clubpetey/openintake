@@ -50,6 +50,36 @@ func TestLoad_ParsesSampleYAML(t *testing.T) {
 	if v, ok := cfg.Adapters.Webhook.Headers["X-Custom"]; !ok || v != "value" {
 		t.Errorf("Adapters.Webhook.Headers[X-Custom] = %q, ok=%v; want %q, true", v, ok, "value")
 	}
+	// OpenAI parsed from sample.yaml (explicit values, not defaults)
+	if cfg.LLM.OpenAI.APIKeyEnv != "OPENAI_API_KEY" {
+		t.Errorf("LLM.OpenAI.APIKeyEnv = %q; want %q", cfg.LLM.OpenAI.APIKeyEnv, "OPENAI_API_KEY")
+	}
+	if cfg.LLM.OpenAI.Model != "gpt-4o-mini" {
+		t.Errorf("LLM.OpenAI.Model = %q; want %q", cfg.LLM.OpenAI.Model, "gpt-4o-mini")
+	}
+	if cfg.LLM.OpenAI.MaxTokens != 512 {
+		t.Errorf("LLM.OpenAI.MaxTokens = %d; want 512", cfg.LLM.OpenAI.MaxTokens)
+	}
+	// Gemini parsed from sample.yaml
+	if cfg.LLM.Gemini.APIKeyEnv != "GEMINI_API_KEY" {
+		t.Errorf("LLM.Gemini.APIKeyEnv = %q; want %q", cfg.LLM.Gemini.APIKeyEnv, "GEMINI_API_KEY")
+	}
+	if cfg.LLM.Gemini.Model != "gemini-2.0-flash" {
+		t.Errorf("LLM.Gemini.Model = %q; want %q", cfg.LLM.Gemini.Model, "gemini-2.0-flash")
+	}
+	if cfg.LLM.Gemini.MaxTokens != 512 {
+		t.Errorf("LLM.Gemini.MaxTokens = %d; want 512", cfg.LLM.Gemini.MaxTokens)
+	}
+	// Ollama parsed from sample.yaml
+	if cfg.LLM.Ollama.BaseURL != "http://localhost:11434" {
+		t.Errorf("LLM.Ollama.BaseURL = %q; want %q", cfg.LLM.Ollama.BaseURL, "http://localhost:11434")
+	}
+	if cfg.LLM.Ollama.Model != "llama3.1" {
+		t.Errorf("LLM.Ollama.Model = %q; want %q", cfg.LLM.Ollama.Model, "llama3.1")
+	}
+	if cfg.LLM.Ollama.MaxTokens != 512 {
+		t.Errorf("LLM.Ollama.MaxTokens = %d; want 512", cfg.LLM.Ollama.MaxTokens)
+	}
 }
 
 func TestLoad_AppliesDefaults(t *testing.T) {

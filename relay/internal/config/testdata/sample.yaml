@@ -10,6 +10,19 @@ llm:
     api_key_env: "ANTHROPIC_API_KEY"
     model: "claude-sonnet-4-6"
     max_tokens: 2048
+  openai:
+    api_key_env: "OPENAI_API_KEY"
+    model: "gpt-4o-mini"
+    max_tokens: 512
+  gemini:
+    api_key_env: "GEMINI_API_KEY"
+    model: "gemini-2.0-flash"
+    max_tokens: 512
+  ollama:
+    base_url: "http://localhost:11434"
+    model: "llama3.1"
+    bearer_token_env: ""
+    max_tokens: 512
   system_prompt_file: ""
 auth:
   modes:
