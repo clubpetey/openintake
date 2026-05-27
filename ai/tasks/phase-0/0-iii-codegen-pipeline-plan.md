@@ -84,33 +84,41 @@ Expected: `tsc --noEmit` exits 0. The generated `payload.ts` compiles under `str
 
 - [ ] **Step 4: Write the Go codegen wrapper script**
 
-Create `scripts/codegen-go.sh`:
+> Corrected from the original omissis path during implementation — see ai/LESSONS.md L002.
+
+Create `scripts/codegen-go.sh` using module `github.com/atombender/go-jsonschema@v0.19.0`, binary `go-jsonschema`, and flag `--struct-name-from-title`:
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 
 # Pinned exactly — codegen output is a committed artifact (PHASE_PLANNING §5).
-# The omissis/go-jsonschema CLI installs as the binary 'gojsonschema'.
+# Module is github.com/atombender/go-jsonschema; the installed binary is 'go-jsonschema'.
 GOJSONSCHEMA_VERSION="v0.19.0"
-BIN="$(go env GOPATH)/bin/gojsonschema"
 
-if [ ! -x "$BIN" ]; then
-  echo "Installing gojsonschema ${GOJSONSCHEMA_VERSION}..."
-  go install "github.com/omissis/go-jsonschema/cmd/gojsonschema@${GOJSONSCHEMA_VERSION}"
-fi
+# Anchor to repo root so this works whether invoked via `npm run codegen:go`
+# (cwd = repo root) or via `go generate ./...` from inside the relay tree.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${REPO_ROOT}"
+
+# `go install` is idempotent and fast when the version is already in the module
+# cache; always running it guarantees the PINNED version is the one used.
+go install "github.com/atombender/go-jsonschema@${GOJSONSCHEMA_VERSION}"
+BIN="$(go env GOPATH)/bin/go-jsonschema"
 
 "$BIN" \
   --package payload \
+  --struct-name-from-title \
   --schema-output https://intake.dev/schema/payload.v1.json=relay/internal/payload/types.go \
   schema/payload.v1.json
 
 echo "Generated relay/internal/payload/types.go"
 ```
 
-> CI installs the pinned version fresh each run (no `$GOPATH/bin` cache), so the simple `-x` existence check is fine there. For repeated local runs after a version bump, delete `$(go env GOPATH)/bin/gojsonschema` first so the new version installs.
+> The correct module path is `github.com/atombender/go-jsonschema` (not `github.com/omissis/go-jsonschema/cmd/gojsonschema`); the installed binary is `go-jsonschema` (not `gojsonschema`). The `--struct-name-from-title` flag enables title-based struct naming. Always running `go install` (rather than a `-x` existence check) guarantees the pinned version is used even when a different version of the binary is already present.
 
-> The `--schema-output <$id>=<path>` form maps the schema's `$id` to the output file; `--package payload` sets the Go package. Confirm the exact flag names against `gojsonschema --help` at install (0-i recorded the version); adjust flag spelling if the pinned version differs, and note any change in the phase README §5.
+> The `--schema-output <$id>=<path>` form maps the schema's `$id` to the output file; `--package payload` sets the Go package.
 
 Make it executable:
 
