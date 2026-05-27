@@ -7,11 +7,11 @@
   "exports": {
     ".": {
       "import": "./dist/intake-vue.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/src/index.d.ts"
     }
   },
   "main": "./dist/intake-vue.js",
-  "types": "./dist/index.d.ts",
+  "types": "./dist/src/index.d.ts",
   "files": ["dist"],
   "scripts": {
     "build": "vite build && vue-tsc -b",
