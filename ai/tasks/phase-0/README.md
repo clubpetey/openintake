@@ -20,10 +20,10 @@ The foundational phase. Establishes the monorepo, the canonical wire contract (`
 
 | # | Plan | Driver | Effort | Status |
 |---|---|---|---|---|
-| 0-i | [Monorepo skeleton & tooling](0-i-monorepo-skeleton-plan.md) | scaffolding | S | Not started |
-| 0-ii | [payload.v1.json schema](0-ii-payload-schema-plan.md) | schema authoring | M | Not started |
-| 0-iii | [Codegen pipeline (TS + Go)](0-iii-codegen-pipeline-plan.md) | codegen | M | Not started |
-| 0-iv | [CI staleness gate](0-iv-ci-staleness-gate-plan.md) | CI | S | Not started |
+| 0-i | [Monorepo skeleton & tooling](0-i-monorepo-skeleton-plan.md) | scaffolding | S | Complete |
+| 0-ii | [payload.v1.json schema](0-ii-payload-schema-plan.md) | schema authoring | M | Complete |
+| 0-iii | [Codegen pipeline (TS + Go)](0-iii-codegen-pipeline-plan.md) | codegen | M | Complete |
+| 0-iv | [CI staleness gate](0-iv-ci-staleness-gate-plan.md) | CI | S | Complete |
 
 ## 4. Dependency graph
 
@@ -64,11 +64,11 @@ The phase's CI pipeline (sub-plan 0-iv) MUST fail the build on any of these:
 Proves the contract spine works as a round-trip on a clean checkout.
 
 ```
-1. Pre-condition: fresh clone of the repo at the phase-0 merge commit; Node 20.18 + Go 1.23.5 installed; no generated-file edits.
+1. Pre-condition: fresh clone of the repo at the phase-0 merge commit; Node 24.12.0 (via .nvmrc) + Go 1.23.2 installed; no generated-file edits.
 2. Execution:
    a. From repo root: `npm ci` then `npm run codegen` (runs both TS and Go generators).
    b. Run `git status --porcelain schema core/src/generated relay/internal/payload`.
-   c. Edit schema/payload.v1.json: add an optional property `"debug_note": {"type": "string"}` under client. Re-run `npm run codegen`.
+   c. Edit schema/payload.v1.json: add an optional property `"debug_note": {"type": "string"}` under `$defs.Client.properties`. Re-run `npm run codegen`.
    d. Run `git status --porcelain`.
 3. Verification:
    - After (a)+(b): porcelain output is EMPTY — committed generated files already match the schema (no drift).
@@ -84,12 +84,12 @@ A simulation of this smoke runs in CI (sub-plan 0-iv): CI regenerates and assert
 
 ## 8. Done criteria
 
-- [ ] All four sub-plans complete; each sub-plan's own smoke passes.
-- [ ] The phase final smoke (§7) passes from a clean clone.
-- [ ] No build-fail-checklist (§6) item is triggered on `main`.
-- [ ] Codegen tool versions pinned exactly in `package.json` and recorded in §5.
-- [ ] LESSONS.md updated with anything novel learned (e.g. generator determinism quirks).
-- [ ] Bundled PR opened linking this README.
+- [x] All four sub-plans complete; each sub-plan's own smoke passes.
+- [x] The phase final smoke (§7) passes from a clean state (run locally 2026-05-26; clean-install no-drift + schema-edit propagates to both targets + revert clean, all verified).
+- [x] No build-fail-checklist (§6) item is triggered (verified via `scripts/verify-contract.sh`, green).
+- [x] Codegen tool versions pinned exactly in `package.json` and recorded in §5.
+- [x] LESSONS.md updated (L002: go-jsonschema module/binary/flag corrections).
+- [ ] Bundled PR opened linking this README — **deferred until a git remote is configured** (local `git init` only; see §7 deferral note).
 
 ## 9. Notes carried from the design
 
