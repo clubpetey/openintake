@@ -45,7 +45,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23.5"
+          go-version: "1.23.2"
 
       - name: Install deps
         run: npm ci
@@ -128,7 +128,7 @@ jobs:
           cache: npm
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.23.5"
+          go-version: "1.23.2"
       - run: npm ci
 
       - name: Mutate schema WITHOUT regenerating

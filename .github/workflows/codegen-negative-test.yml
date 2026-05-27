@@ -4,11 +4,15 @@ on:
   schedule:
     - cron: "0 6 * * 1"   # weekly Monday 06:00 UTC
 
+permissions:
+  contents: read
+
 jobs:
   gate-catches-drift:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -42,3 +46,7 @@ jobs:
             exit 1
           fi
           echo "OK: gate correctly detects drift (diff is non-empty after schema mutation)."
+
+      - name: Restore mutated schema (defensive; no-op on ephemeral runners)
+        if: always()
+        run: git checkout -- schema/payload.v1.json
