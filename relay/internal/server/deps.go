@@ -1,20 +1,24 @@
 package server
 
-import "intake/internal/version"
+import (
+	"log/slog"
+
+	"intake/internal/auth"
+	"intake/internal/llm"
+	"intake/internal/version"
+)
 
 // Deps holds the dependencies injected into the HTTP server at startup.
 //
-// 1-i owns: Version, CORSOrigins.
-// Extended by 1-iii: Auth (session middleware), Provider (llm.Provider),
-//   SystemPrompt (string), Model (string), MaxTokens (int).
-// Extended by 1-iv: Adapter (adapter.Adapter), Classifier, Builder.
+// Deps is a VALUE type — always passed by value, never as *Deps.
+// Add new fields here rather than using global state.
 //
-// Later sub-plans assign their fields after constructing the relay server.
-// The struct is defined here in full so all sub-plans share one type without
-// circular imports — packages that are not yet created are NOT imported here;
-// their fields will be added to this struct by those sub-plans as interface{}
-// or concrete types once the packages exist.
+// 1-i owns: Version, CORSOrigins.
+// Extended by 1-iii: Logger, Auth, Provider, SystemPrompt, Model, MaxTokens.
+// Extended by 1-iv: Adapter, Classifier, Builder.
 type Deps struct {
+	// from 1-i (README §6.8):
+
 	// Version is populated from the binary's build-time ldflags.
 	Version version.BuildInfo
 
@@ -22,6 +26,25 @@ type Deps struct {
 	// requests. Populated from cfg.Server.CORSOrigins in main.go.
 	CORSOrigins []string
 
-	// extended by 1-iii (Auth, Provider, SystemPrompt, Model, MaxTokens)
-	// and 1-iv (Adapter, Classifier, Builder)
+	// from 1-iii (README §6.8):
+
+	// Logger is the structured logger for the server. Uses slog.Default() if nil.
+	Logger *slog.Logger
+
+	// Auth resolves per-request identity. nil = auth not wired (unit tests may omit).
+	Auth *auth.Middleware
+
+	// Provider is the LLM backend. nil = not wired (unit tests may stub).
+	Provider llm.Provider
+
+	// SystemPrompt is the triage system prompt text (loaded via triage.Load).
+	SystemPrompt string
+
+	// Model is the LLM model name, e.g. "claude-sonnet-4-6".
+	Model string
+
+	// MaxTokens is the maximum output tokens per turn.
+	MaxTokens int
+
+	// extended by 1-iv (Adapter, Classifier, Builder)
 }
