@@ -21,6 +21,9 @@ type Provider struct {
 	maxTokens int
 }
 
+// Compile-time assertion: *Provider must satisfy llm.Provider.
+var _ llm.Provider = (*Provider)(nil)
+
 // New creates a production Provider. apiKey is the raw API key value
 // (the caller resolves it from os.Getenv(config.LLM.Anthropic.APIKeyEnv)).
 // The key is passed to the SDK and never stored in a log-accessible field.
