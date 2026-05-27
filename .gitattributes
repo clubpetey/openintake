@@ -1,0 +1,12 @@
+* text=auto eol=lf
+
+# Generated codegen outputs MUST stay LF so the CI staleness gate
+# (git diff --exit-code after regen) is not tripped by CRLF/LF differences
+# between a Windows dev machine and Linux CI.
+core/src/generated/payload.ts text eol=lf
+relay/internal/payload/types.go text eol=lf
+
+# Binary / non-diffable
+*.png binary
+*.jpg binary
+*.webp binary
