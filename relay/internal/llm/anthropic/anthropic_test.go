@@ -7,9 +7,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
-	anthropicpkg "intake/internal/llm/anthropic"
 	"intake/internal/llm"
+	anthropicpkg "intake/internal/llm/anthropic"
 )
 
 // cannedSSE is a minimal Anthropic Messages API streaming response that emits
@@ -151,19 +152,18 @@ func TestChat_ContextCancellation(t *testing.T) {
 	}
 	cancel()
 
-	// Drain the channel; expect it to close (possibly with an Err chunk).
-	for range ch {
+	// Drain the channel with a timeout; a hang here means a goroutine leaked.
+	done := make(chan struct{})
+	go func() { for range ch {}; close(done) }()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("channel not closed within 3s after cancellation — possible goroutine leak")
 	}
-	// If we get here the channel closed — cancellation propagated.
 }
 
 func TestName(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	p := anthropicpkg.NewWithClient("key", "model", 1024, srv.Client(), srv.URL)
+	p := anthropicpkg.NewWithClient("key", "claude-sonnet-4-6", 1024, http.DefaultClient, "http://unused")
 	if p.Name() != "anthropic" {
 		t.Errorf("Name(): got %q, want %q", p.Name(), "anthropic")
 	}

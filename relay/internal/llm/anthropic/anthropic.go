@@ -16,7 +16,7 @@ import (
 
 // Provider implements llm.Provider for the Anthropic Messages API.
 type Provider struct {
-	client    *anthropicsdk.Client
+	client    anthropicsdk.Client
 	model     string
 	maxTokens int
 }
@@ -31,7 +31,7 @@ func New(apiKey, model string, maxTokens int) *Provider {
 	c := anthropicsdk.NewClient(
 		option.WithAPIKey(apiKey),
 	)
-	return &Provider{client: &c, model: model, maxTokens: maxTokens}
+	return &Provider{client: c, model: model, maxTokens: maxTokens}
 }
 
 // NewWithClient is used by tests. It injects a custom *http.Client and base URL
@@ -42,7 +42,7 @@ func NewWithClient(apiKey, model string, maxTokens int, httpClient *http.Client,
 		option.WithHTTPClient(httpClient),
 		option.WithBaseURL(baseURL),
 	)
-	return &Provider{client: &c, model: model, maxTokens: maxTokens}
+	return &Provider{client: c, model: model, maxTokens: maxTokens}
 }
 
 // Name returns the provider identifier string.
@@ -132,21 +132,19 @@ func (p *Provider) Chat(ctx context.Context, messages []llm.Message, opts llm.Ch
 						select {
 						case ch <- llm.ChatChunk{Delta: td.Text}:
 						case <-ctx.Done():
-							ch <- llm.ChatChunk{Err: ctx.Err(), Done: true}
+							select {
+							case ch <- llm.ChatChunk{Err: ctx.Err(), Done: true}:
+							default:
+							}
 							return
 						}
 					}
 				}
 
 			case "message_delta":
-				// Capture cumulative output tokens from message_delta usage.
-				// MessageDeltaUsage has both InputTokens and OutputTokens (cumulative).
+				// input tokens are reported once on message_start; message_delta carries the running output token count.
 				e := event.AsMessageDelta()
 				outputTokens = int(e.Usage.OutputTokens)
-				// Also update inputTokens with the cumulative value if non-zero.
-				if e.Usage.InputTokens > 0 {
-					inputTokens = int(e.Usage.InputTokens)
-				}
 
 			case "message_stop":
 				// Stream is complete; emit the terminal Done chunk.
@@ -160,12 +158,15 @@ func (p *Provider) Chat(ctx context.Context, messages []llm.Message, opts llm.Ch
 
 		if err := stream.Err(); err != nil {
 			// Redact the API key from the error before surfacing it.
-			ch <- llm.ChatChunk{Err: redactedErr(err), Done: true}
+			select {
+			case ch <- llm.ChatChunk{Err: redactedErr(err), Done: true}:
+			default:
+			}
 			return
 		}
 
 		// Stream ended without a message_stop (e.g. context cancelled mid-stream).
-		// Emit a terminal chunk with whatever tokens were accumulated.
+		// best-effort: if the consumer abandoned the channel, close(ch) still signals termination.
 		select {
 		case ch <- llm.ChatChunk{Done: true, InputTokens: inputTokens, OutputTokens: outputTokens}:
 		default:
@@ -175,15 +176,13 @@ func (p *Provider) Chat(ctx context.Context, messages []llm.Message, opts llm.Ch
 	return ch, nil
 }
 
-// redactedErr wraps an error, ensuring the Anthropic API key is never echoed.
+// redactedErr wraps the original error with %w (redacting nothing from the chain
+// but adding no key material), ensuring the Anthropic API key is never echoed.
 // The SDK errors do not embed the key, but this is a defensive belt-and-suspenders
 // guard required by the §2 security invariant and README §7 build-fail checklist.
 func redactedErr(err error) error {
 	if err == nil {
 		return nil
 	}
-	// Wrap with a sentinel message that does not include the original error's
-	// full chain if it might contain header values. In practice the SDK returns
-	// structured API errors; we just wrap.
 	return fmt.Errorf("anthropic provider error: %w", err)
 }
