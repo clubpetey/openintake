@@ -1,0 +1,5 @@
+# Build output from vue-tsc -b (composite mode emits alongside source)
+src/**/*.js
+src/**/*.d.ts
+vite.config.js
+vite.config.d.ts
