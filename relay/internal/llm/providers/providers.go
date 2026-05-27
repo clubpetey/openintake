@@ -14,6 +14,7 @@ import (
 	"intake/internal/config"
 	"intake/internal/llm"
 	"intake/internal/llm/anthropic"
+	"intake/internal/llm/openai"
 )
 
 // New constructs the provider selected by cfg.Provider, resolving the required
@@ -23,7 +24,7 @@ import (
 //
 // Switch cases:
 //   - "anthropic" — wired: resolves ANTHROPIC_API_KEY and calls anthropic.New.
-//   - "openai"    — placeholder until sub-plan 2-ii.
+//   - "openai"    — wired: resolves OPENAI_API_KEY and calls openai.New (2-ii).
 //   - "gemini"    — placeholder until sub-plan 2-iii.
 //   - "ollama"    — placeholder until sub-plan 2-iv.
 //   - default     — returns a clear "unknown provider" error.
@@ -37,7 +38,11 @@ func New(cfg config.LLMConfig) (llm.Provider, error) {
 		return anthropic.New(key, cfg.Anthropic.Model, cfg.Anthropic.MaxTokens), nil
 
 	case "openai":
-		return nil, fmt.Errorf("llm provider %q not implemented in this build", cfg.Provider)
+		key, err := config.RequireSecret(cfg.OpenAI.APIKeyEnv)
+		if err != nil {
+			return nil, fmt.Errorf("providers: openai: %w", err)
+		}
+		return openai.New(key, cfg.OpenAI.Model, cfg.OpenAI.MaxTokens), nil
 
 	case "gemini":
 		return nil, fmt.Errorf("llm provider %q not implemented in this build", cfg.Provider)

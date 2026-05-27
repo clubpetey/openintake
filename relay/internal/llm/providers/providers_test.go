@@ -83,13 +83,43 @@ func TestNew_UnknownProvider(t *testing.T) {
 	}
 }
 
-// TestNew_OpenAI_NotImplemented verifies that "openai" returns the expected
-// "not implemented in this build" placeholder error (until sub-plan 2-ii).
-func TestNew_OpenAI_NotImplemented(t *testing.T) {
+// TestNew_OpenAI verifies that a valid openai config + key env returns a provider
+// whose Name() is "openai". Uses t.Setenv to avoid touching real environment state.
+// No real API call is made — the SDK client is constructed but not invoked.
+func TestNew_OpenAI(t *testing.T) {
+	t.Setenv("TEST_OPENAI_KEY", "test-key-not-real")
+
 	cfg := config.LLMConfig{
 		Provider: "openai",
 		OpenAI: config.OpenAIConfig{
-			APIKeyEnv: "OPENAI_API_KEY",
+			APIKeyEnv: "TEST_OPENAI_KEY",
+			Model:     "gpt-4o-mini",
+			MaxTokens: 1024,
+		},
+	}
+
+	p, err := providers.New(cfg)
+	if err != nil {
+		t.Fatalf("providers.New() returned error: %v", err)
+	}
+	if p == nil {
+		t.Fatal("providers.New() returned nil provider with nil error")
+	}
+	if p.Name() != "openai" {
+		t.Errorf("provider.Name() = %q; want %q", p.Name(), "openai")
+	}
+}
+
+// TestNew_OpenAI_MissingKey verifies that a missing required OPENAI_API_KEY env
+// returns a non-nil error and a nil provider.
+func TestNew_OpenAI_MissingKey(t *testing.T) {
+	// Ensure the env var is NOT set (empty value = missing for RequireSecret).
+	t.Setenv("TEST_OPENAI_MISSING", "")
+
+	cfg := config.LLMConfig{
+		Provider: "openai",
+		OpenAI: config.OpenAIConfig{
+			APIKeyEnv: "TEST_OPENAI_MISSING",
 			Model:     "gpt-4o-mini",
 			MaxTokens: 1024,
 		},
@@ -97,13 +127,14 @@ func TestNew_OpenAI_NotImplemented(t *testing.T) {
 
 	p, err := providers.New(cfg)
 	if err == nil {
-		t.Fatal("providers.New() for openai returned nil error; want not-implemented error")
+		t.Fatal("providers.New() returned nil error for missing required key; want non-nil")
 	}
 	if p != nil {
-		t.Errorf("providers.New() for openai returned non-nil provider; want nil")
+		t.Errorf("providers.New() returned non-nil provider with an error; want nil")
 	}
-	if !strings.Contains(err.Error(), "not implemented") {
-		t.Errorf("error should contain 'not implemented'; got: %v", err)
+	// Error must mention the env var name to guide the operator — not the key value.
+	if !strings.Contains(err.Error(), "TEST_OPENAI_MISSING") {
+		t.Errorf("error should mention the env var name; got: %v", err)
 	}
 }
 
