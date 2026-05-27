@@ -9,7 +9,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 
 	"intake/internal/llm"
 )
@@ -140,8 +142,9 @@ func (p *Provider) Chat(ctx context.Context, messages []llm.Message, opts llm.Ch
 		return nil, fmt.Errorf("ollama: HTTP request: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		resp.Body.Close()
-		return nil, fmt.Errorf("ollama: unexpected status %d", resp.StatusCode)
+		return nil, fmt.Errorf("ollama: unexpected status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	ch := make(chan llm.ChatChunk, 32)
@@ -151,6 +154,7 @@ func (p *Provider) Chat(ctx context.Context, messages []llm.Message, opts llm.Ch
 		defer resp.Body.Close()
 
 		scanner := bufio.NewScanner(resp.Body)
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024) // up to 1 MB per line
 		for scanner.Scan() {
 			// Check for context cancellation before processing each line.
 			select {
