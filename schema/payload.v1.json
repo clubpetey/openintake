@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intake.dev/schema/payload.v1.json",
+  "title": "IntakePayload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "submission", "client", "user", "conversation"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "submission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "submitted_at"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "submitted_at": { "type": "string", "format": "date-time" },
+        "tenant_id": { "type": ["string", "null"] }
+      }
+    },
+    "client": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["widget_version", "session_id", "url", "user_agent", "viewport", "locale"],
+      "properties": {
+        "widget_version": { "type": "string" },
+        "session_id": { "type": "string", "format": "uuid" },
+        "url": { "type": "string", "format": "uri" },
+        "referrer": { "type": ["string", "null"] },
+        "user_agent": { "type": "string" },
+        "viewport": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["w", "h"],
+          "properties": {
+            "w": { "type": "integer", "minimum": 0 },
+            "h": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "locale": { "type": "string" }
+      }
+    },
+    "user": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["auth_mode", "verified"],
+      "properties": {
+        "auth_mode": { "enum": ["anonymous", "email", "sso"] },
+        "id": { "type": ["string", "null"] },
+        "email": { "type": ["string", "null"] },
+        "display_name": { "type": ["string", "null"] },
+        "verified": { "type": "boolean" },
+        "custom": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "conversation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["messages", "summary", "title_suggestion", "classification", "severity_guess", "tags_suggested", "language"],
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["role", "content", "ts"],
+            "properties": {
+              "role": { "enum": ["user", "assistant"] },
+              "content": { "type": "string" },
+              "ts": { "type": "string", "format": "date-time" }
+            }
+          }
+        },
+        "summary": { "type": "string" },
+        "title_suggestion": { "type": "string", "maxLength": 80 },
+        "classification": { "enum": ["bug", "feature_request", "question", "other"] },
+        "severity_guess": { "enum": ["low", "medium", "high", "critical", "unknown"] },
+        "tags_suggested": { "type": "array", "items": { "type": "string" } },
+        "language": { "type": "string" }
+      }
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "app_context": { "type": "object", "additionalProperties": true },
+        "page_metadata": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "attachments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "mime_type", "size_bytes", "url"],
+        "properties": {
+          "type": { "enum": ["screenshot", "file"] },
+          "mime_type": { "type": "string" },
+          "size_bytes": { "type": "integer", "minimum": 0 },
+          "url": { "type": "string" },
+          "label": { "type": "string" }
+        }
+      }
+    },
+    "routing_hint": { "type": ["string", "null"] }
+  }
+}

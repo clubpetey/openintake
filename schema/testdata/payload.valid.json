@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0",
+  "submission": {
+    "id": "3f9a2b7c-1d4e-4a6b-8c2d-9e0f1a2b3c4d",
+    "submitted_at": "2026-05-26T12:00:00Z",
+    "tenant_id": null
+  },
+  "client": {
+    "widget_version": "0.0.0",
+    "session_id": "7c1e2d3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
+    "url": "https://app.example.com/dashboard",
+    "referrer": null,
+    "user_agent": "Mozilla/5.0",
+    "viewport": { "w": 1440, "h": 900 },
+    "locale": "en-US"
+  },
+  "user": {
+    "auth_mode": "anonymous",
+    "id": null,
+    "email": null,
+    "display_name": null,
+    "verified": false,
+    "custom": {}
+  },
+  "conversation": {
+    "messages": [
+      { "role": "user", "content": "The export button does nothing.", "ts": "2026-05-26T11:59:00Z" },
+      { "role": "assistant", "content": "Which page were you on?", "ts": "2026-05-26T11:59:05Z" }
+    ],
+    "summary": "Export button unresponsive on dashboard.",
+    "title_suggestion": "Export button does nothing on dashboard",
+    "classification": "bug",
+    "severity_guess": "medium",
+    "tags_suggested": ["export", "dashboard"],
+    "language": "en"
+  },
+  "context": {
+    "app_context": { "plan": "pro" },
+    "page_metadata": { "title": "Dashboard" }
+  },
+  "attachments": [],
+  "routing_hint": null
+}
