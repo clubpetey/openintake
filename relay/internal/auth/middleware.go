@@ -43,7 +43,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		// The resolver should populate SessionContext{AuthMode:"email"|"sso",
 		// Verified:true, UserID, Email, DisplayName} and call WithSession before
 		// invoking next.
-		if authHeader := r.Header.Get("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
+		if authHeader := r.Header.Get("Authorization"); len(authHeader) >= 7 && strings.EqualFold(authHeader[:7], "bearer ") {
 			authWriteJSON(w, http.StatusNotImplemented, map[string]any{
 				"error": map[string]any{
 					"code":    "jwt_not_implemented",

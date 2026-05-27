@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -185,5 +186,81 @@ func TestTurnHandler_BearerToken_Returns501(t *testing.T) {
 
 	if rr.Code != http.StatusNotImplemented {
 		t.Fatalf("/turn with Bearer: status = %d; want 501", rr.Code)
+	}
+}
+
+// TestTurnHandler_SSEErrorFrame verifies that when the provider yields a chunk
+// with Err != nil, the handler emits a data: {"error":"..."} SSE frame and
+// then terminates (no subsequent frames).
+func TestTurnHandler_SSEErrorFrame(t *testing.T) {
+	store := auth.NewStore()
+	mw := auth.NewMiddleware(store)
+	provider := &testProvider{
+		chunks: []llm.ChatChunk{
+			{Delta: "partial"},
+			{Err: errors.New("boom"), Done: true},
+		},
+	}
+	deps := server.Deps{
+		Auth:         mw,
+		Provider:     provider,
+		SystemPrompt: "You are a test assistant.",
+		Model:        "test-model",
+		MaxTokens:    512,
+	}
+	sessionID := store.Issue()
+	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{"http://localhost:5173"}}}
+	router := server.New(cfg, deps)
+
+	body := `{"messages":[{"role":"user","content":"something broke"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/intake/turn", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Intake-Session", sessionID)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("/turn SSEError: status = %d; want 200 (SSE headers already sent)", rr.Code)
+	}
+
+	// Scan SSE frames; expect exactly one error frame and no done frame after it.
+	var errorPayload string
+	var afterError []string
+	foundError := false
+	scanner := bufio.NewScanner(bytes.NewReader(rr.Body.Bytes()))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		payload := strings.TrimPrefix(line, "data: ")
+		if foundError {
+			afterError = append(afterError, payload)
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(payload), &m); err != nil {
+			continue
+		}
+		if _, hasError := m["error"]; hasError {
+			errorPayload = payload
+			foundError = true
+		}
+	}
+
+	if !foundError {
+		t.Fatalf("no SSE error frame found in body:\n%s", rr.Body.String())
+	}
+	// Verify the error field is non-empty.
+	var errFrame map[string]any
+	if err := json.Unmarshal([]byte(errorPayload), &errFrame); err != nil {
+		t.Fatalf("unmarshal error frame: %v", err)
+	}
+	if errFrame["error"] == "" {
+		t.Errorf("error frame has empty error field: %s", errorPayload)
+	}
+	// Handler must stop after the error frame — no further frames expected.
+	if len(afterError) > 0 {
+		t.Errorf("got %d frames after error frame; want 0: %v", len(afterError), afterError)
 	}
 }

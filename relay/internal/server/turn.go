@@ -57,6 +57,11 @@ func turnHandler(deps Deps) http.HandlerFunc {
 			msgs = append(msgs, llm.Message{Role: m.Role, Content: m.Content})
 		}
 
+		if deps.Provider == nil {
+			writeError(w, http.StatusInternalServerError, "internal", "provider not configured")
+			return
+		}
+
 		opts := llm.ChatOptions{
 			Model:     deps.Model,
 			MaxTokens: deps.MaxTokens,
@@ -81,7 +86,12 @@ func turnHandler(deps Deps) http.HandlerFunc {
 		for {
 			select {
 			case <-ctx.Done():
-				// Client disconnected; stop proxying.
+				// Client disconnected. Drain so the provider goroutine never blocks on a send;
+				// ctx cancellation terminates the provider, which then closes ch.
+				go func() {
+					for range ch {
+					}
+				}()
 				return
 			case chunk, ok := <-ch:
 				if !ok {
