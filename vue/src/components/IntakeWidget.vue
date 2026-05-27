@@ -60,7 +60,7 @@ function handleKeydown(event: KeyboardEvent) {
     <button
       class="intake-widget__launcher"
       :class="{ 'intake-widget__launcher--open': isOpen }"
-      aria-label="Open support widget"
+      :aria-label="isOpen ? 'Close support widget' : 'Open support widget'"
       data-testid="launcher-button"
       @click="togglePanel"
     >
@@ -125,6 +125,7 @@ function handleKeydown(event: KeyboardEvent) {
             rows="2"
             :disabled="streaming || submitting"
             data-testid="message-input"
+            aria-label="Message"
             @keydown="handleKeydown"
           />
           <div class="intake-widget__actions">

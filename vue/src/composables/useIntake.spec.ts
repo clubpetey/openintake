@@ -124,4 +124,43 @@ describe('useIntake', () => {
     // First arg is the messages array
     expect(submitCall[0]).toContainEqual({ role: 'user', content: 'First message' });
   });
+
+  // --- Error-path tests ---
+
+  it('sendTurn() rejection: sets error, resets streaming, removes empty assistant placeholder', async () => {
+    mockInit.mockResolvedValue({ session_id: 'sess-abc', capabilities: { auth_modes: ['anonymous'], streaming: true } });
+    mockTurn.mockRejectedValue(new Error('relay down'));
+
+    const intake = useIntake({ relayUrl: 'http://localhost:8080', widgetVersion: '0.1.0' });
+    await intake.start();
+    await intake.sendTurn('hi');
+
+    expect(intake.error.value).toBeTruthy();
+    expect(intake.streaming.value).toBe(false);
+    // No empty assistant placeholder should remain
+    const emptyAssistant = intake.messages.value.find(
+      (m) => m.role === 'assistant' && m.content === '',
+    );
+    expect(emptyAssistant).toBeUndefined();
+  });
+
+  it('submit() rejection: sets error and resets submitting', async () => {
+    mockInit.mockResolvedValue({ session_id: 'sess-abc', capabilities: { auth_modes: ['anonymous'], streaming: true } });
+    mockSubmit.mockRejectedValue(new Error('submit failed'));
+
+    const intake = useIntake({ relayUrl: 'http://localhost:8080', widgetVersion: '0.1.0' });
+    await intake.start();
+    await intake.submit();
+
+    expect(intake.error.value).toBeTruthy();
+    expect(intake.submitting.value).toBe(false);
+  });
+
+  it('start() rejection: sets error and re-throws', async () => {
+    mockInit.mockRejectedValue(new Error('relay down'));
+
+    const intake = useIntake({ relayUrl: 'http://localhost:8080', widgetVersion: '0.1.0' });
+    await expect(intake.start()).rejects.toThrow('relay down');
+    expect(intake.error.value).toBeTruthy();
+  });
 });

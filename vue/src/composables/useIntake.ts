@@ -29,7 +29,12 @@ export function useIntake(options: UseIntakeOptions) {
 
   async function start() {
     error.value = null;
-    return client.init();
+    try {
+      return await client.init();
+    } catch (e) {
+      error.value = "Couldn't connect. Please try again.";
+      throw e;
+    }
   }
 
   async function sendTurn(text: string) {
@@ -54,6 +59,11 @@ export function useIntake(options: UseIntakeOptions) {
       });
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e);
+      // Remove the empty assistant placeholder left by a failed turn
+      const last = messages.value[messages.value.length - 1];
+      if (last && last.role === 'assistant' && last.content === '') {
+        messages.value = messages.value.slice(0, -1);
+      }
     } finally {
       streaming.value = false;
     }
