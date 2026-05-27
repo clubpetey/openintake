@@ -1,0 +1,28 @@
+# config.yaml — local dev relay config for Phase 1 smoke
+# Do NOT commit real secrets. ANTHROPIC_API_KEY is read from env only.
+server:
+  addr: ":8080"
+  external_url: "http://localhost:8080"
+  cors_origins:
+    - "http://localhost:5173"   # examples/vue-anonymous Vite dev server
+
+llm:
+  provider: "anthropic"
+  anthropic:
+    api_key_env: "ANTHROPIC_API_KEY"
+    model: "claude-sonnet-4-6"
+    max_tokens: 1024
+  system_prompt_file: ""        # empty = bundled default triage prompt
+
+auth:
+  modes:
+    anonymous: true
+
+adapters:
+  webhook:
+    enabled: true
+    url: "http://localhost:9099/intake"   # examples/webhook-receiver
+    headers: {}
+    retry:
+      max_attempts: 3
+      backoff: "exponential"
