@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"intake/internal/llm"
@@ -70,7 +71,8 @@ func turnHandler(deps Deps) http.HandlerFunc {
 
 		ch, err := deps.Provider.Chat(r.Context(), msgs, opts)
 		if err != nil {
-			writeError(w, http.StatusBadGateway, "provider_error", err.Error())
+			slog.ErrorContext(r.Context(), "provider chat failed", "error", err)
+			writeError(w, http.StatusBadGateway, "provider_error", "upstream provider unavailable")
 			return
 		}
 

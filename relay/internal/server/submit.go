@@ -31,14 +31,14 @@ func submitHandler(deps Deps) http.HandlerFunc {
 		// Decode request body.
 		var req SubmitRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid request body: malformed JSON or body too large")
+			writeError(w, http.StatusBadRequest, "bad_request", "invalid request body: malformed JSON or body too large")
 			return
 		}
 
 		// Extract session.
 		sess, ok := auth.FromContext(ctx)
 		if !ok {
-			writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing session context")
+			writeError(w, http.StatusUnauthorized, "unauthorized", "missing session context")
 			return
 		}
 
@@ -65,7 +65,7 @@ func submitHandler(deps Deps) http.HandlerFunc {
 
 		p, err := deps.Builder.Build(ctx, &req, classifyResult, sess, submissionID, submittedAt)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "PAYLOAD_INVALID", fmt.Sprintf("payload validation failed: %v", err))
+			writeError(w, http.StatusBadRequest, "payload_invalid", fmt.Sprintf("payload validation failed: %v", err))
 			return
 		}
 
@@ -74,7 +74,7 @@ func submitHandler(deps Deps) http.HandlerFunc {
 		if err != nil {
 			// Log full detail server-side (may include URLs/responses); client gets opaque message.
 			slog.ErrorContext(ctx, "adapter create failed", "adapter", deps.Adapter.Name(), "error", err)
-			writeError(w, http.StatusBadGateway, "ADAPTER_ERROR", "downstream adapter unavailable")
+			writeError(w, http.StatusBadGateway, "adapter_error", "downstream adapter unavailable")
 			return
 		}
 

@@ -99,6 +99,10 @@ func (p *Provider) Chat(ctx context.Context, messages []llm.Message, opts llm.Ch
 		}
 	}
 
+	// NOTE: this provider always uses the streaming Messages API; opts.Stream is
+	// advisory and not honoured (the <-chan ChatChunk interface is inherently a
+	// stream). A non-streaming fast path could be added in a later phase if a
+	// provider needs it. classify() calls this and simply drains the stream.
 	stream := p.client.Messages.NewStreaming(ctx, params)
 
 	ch := make(chan llm.ChatChunk, 32)
