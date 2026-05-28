@@ -338,6 +338,143 @@ func TestRS256_NotBeforeFuture_Rejected(t *testing.T) {
 	}
 }
 
+// rsaHarnessT bundles a verifier and mint helper for skew/shape boundary tests.
+type rsaHarnessT struct {
+	t        *testing.T
+	verifier *sso.RS256Verifier
+	fixture  *rsaFixture
+}
+
+func newRSAHarnessT(t *testing.T) rsaHarnessT {
+	t.Helper()
+	f := newRSAFixture(t)
+	t.Cleanup(f.close)
+	v, err := sso.NewRS256Verifier(cfgFor(f.jwksURL), silentLogger())
+	if err != nil {
+		t.Fatalf("newRSAHarnessT: NewRS256Verifier: %v", err)
+	}
+	return rsaHarnessT{t: t, verifier: v, fixture: f}
+}
+
+func (h rsaHarnessT) mint(claims map[string]any) string {
+	mc := jwt.MapClaims{}
+	for k, v := range claims {
+		mc[k] = v
+	}
+	return mintRS256(h.t, h.fixture.priv, rsaKid, mc)
+}
+
+// -- clock-skew boundary tests --
+
+func TestRS256_ExpiredWithinSkew_Accepted(t *testing.T) {
+	// Token expired 15 seconds ago — should be accepted under the 30s skew.
+	h := newRSAHarnessT(t)
+	tok := h.mint(map[string]any{
+		"iss": "https://issuer.test/",
+		"aud": "https://api.test",
+		"sub": "user-001",
+		"iat": time.Now().Add(-1 * time.Hour).Unix(),
+		"exp": time.Now().Add(-15 * time.Second).Unix(),
+	})
+	claims, err := h.verifier.Verify(context.Background(), tok)
+	if err != nil {
+		t.Fatalf("token within skew window should be accepted; got %v", err)
+	}
+	if claims.UserID != "user-001" {
+		t.Errorf("UserID = %q; want user-001", claims.UserID)
+	}
+}
+
+func TestRS256_ExpiredBeyondSkew_Rejected(t *testing.T) {
+	// Token expired 45 seconds ago — should be rejected (beyond 30s skew).
+	h := newRSAHarnessT(t)
+	tok := h.mint(map[string]any{
+		"iss": "https://issuer.test/",
+		"aud": "https://api.test",
+		"sub": "user-001",
+		"iat": time.Now().Add(-1 * time.Hour).Unix(),
+		"exp": time.Now().Add(-45 * time.Second).Unix(),
+	})
+	if _, err := h.verifier.Verify(context.Background(), tok); err == nil {
+		t.Fatal("token 45s expired should be rejected (beyond 30s skew)")
+	}
+}
+
+func TestRS256_NotBeforeWithinSkew_Accepted(t *testing.T) {
+	// Token nbf 15 seconds in the future — should be accepted under skew.
+	h := newRSAHarnessT(t)
+	tok := h.mint(map[string]any{
+		"iss": "https://issuer.test/",
+		"aud": "https://api.test",
+		"sub": "user-001",
+		"iat": time.Now().Unix(),
+		"exp": time.Now().Add(15 * time.Minute).Unix(),
+		"nbf": time.Now().Add(15 * time.Second).Unix(),
+	})
+	if _, err := h.verifier.Verify(context.Background(), tok); err != nil {
+		t.Fatalf("nbf within skew should be accepted; got %v", err)
+	}
+}
+
+func TestRS256_NotBeforeBeyondSkew_Rejected(t *testing.T) {
+	// Token nbf 45 seconds in the future — should be rejected.
+	h := newRSAHarnessT(t)
+	tok := h.mint(map[string]any{
+		"iss": "https://issuer.test/",
+		"aud": "https://api.test",
+		"sub": "user-001",
+		"iat": time.Now().Unix(),
+		"exp": time.Now().Add(15 * time.Minute).Unix(),
+		"nbf": time.Now().Add(45 * time.Second).Unix(),
+	})
+	if _, err := h.verifier.Verify(context.Background(), tok); err == nil {
+		t.Fatal("nbf 45s in future should be rejected (beyond 30s skew)")
+	}
+}
+
+// -- M2M shape test --
+
+func TestRS256_M2MShape_OnlySubPopulated(t *testing.T) {
+	h := newRSAHarnessT(t)
+	tok := h.mint(map[string]any{
+		"iss": "https://issuer.test/",
+		"aud": "https://api.test",
+		"sub": "m2m-client@clients",
+		"iat": time.Now().Unix(),
+		"exp": time.Now().Add(15 * time.Minute).Unix(),
+		// no "email", no "name"
+	})
+	claims, err := h.verifier.Verify(context.Background(), tok)
+	if err != nil {
+		t.Fatalf("M2M-shape token should verify; got %v", err)
+	}
+	if claims.UserID != "m2m-client@clients" {
+		t.Errorf("UserID = %q; want m2m-client@clients", claims.UserID)
+	}
+	if claims.Email != nil {
+		t.Errorf("Email = %v; want nil for M2M-shape token", *claims.Email)
+	}
+	if claims.DisplayName != nil {
+		t.Errorf("DisplayName = %v; want nil for M2M-shape token", *claims.DisplayName)
+	}
+}
+
+// -- empty-sub rejection test (validateAndExtract is shared, one file suffices) --
+
+func TestRS256_EmptySub_Rejected(t *testing.T) {
+	h := newRSAHarnessT(t)
+	tok := h.mint(map[string]any{
+		"iss": "https://issuer.test/",
+		"aud": "https://api.test",
+		"sub": "", // empty — required claim
+		"iat": time.Now().Unix(),
+		"exp": time.Now().Add(15 * time.Minute).Unix(),
+	})
+	if _, err := h.verifier.Verify(context.Background(), tok); err == nil {
+		t.Fatal("empty sub should be rejected (UserID is required)")
+	}
+}
+
 // TestRS256_JWKSUnreachable_Errors asserts that a JWKS URL that returns 500 at
 // construction fails fast — not deferred to first user request.
 func TestRS256_JWKSUnreachable_Errors(t *testing.T) {

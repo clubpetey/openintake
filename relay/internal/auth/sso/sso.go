@@ -27,7 +27,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 
@@ -89,13 +88,6 @@ func validateAndExtract(claims jwt.MapClaims, cfg config.SSOConfig) (*auth.SSOCl
 	// aud — RFC 7519 allows a string or an array of strings.
 	if !audienceContains(claims["aud"], cfg.Audience) {
 		return nil, errors.New("sso: aud claim does not contain configured audience")
-	}
-
-	// exp/nbf are already checked by golang-jwt with its own skew, but the
-	// spec mandates a 30s skew explicitly. We re-check with our skew to ensure
-	// the relay's policy holds regardless of golang-jwt's defaults.
-	if err := checkExpNbf(claims); err != nil {
-		return nil, err
 	}
 
 	// Pull the configured user_id claim (default "sub").
@@ -171,59 +163,3 @@ func audienceContains(aud any, want string) bool {
 	return false
 }
 
-// checkExpNbf applies the 30s clock-skew check explicitly. golang-jwt v5 also
-// validates exp/nbf during ParseWithClaims, but we re-check here to lock the
-// skew at exactly 30s regardless of the library's defaults.
-func checkExpNbf(claims jwt.MapClaims) error {
-	now := jwt.NewNumericDate(nowFunc()).Unix()
-
-	// exp must be > now - skew (i.e., not too far in the past).
-	if expRaw, ok := claims["exp"]; ok {
-		exp, err := numericClaim(expRaw)
-		if err != nil {
-			return fmt.Errorf("sso: invalid exp claim: %w", err)
-		}
-		if exp <= now-clockSkew {
-			return errors.New("sso: token is expired")
-		}
-	}
-
-	// nbf (if present) must be < now + skew (i.e., not too far in the future).
-	if nbfRaw, ok := claims["nbf"]; ok {
-		nbf, err := numericClaim(nbfRaw)
-		if err != nil {
-			return fmt.Errorf("sso: invalid nbf claim: %w", err)
-		}
-		if nbf >= now+clockSkew {
-			return errors.New("sso: token is not yet valid")
-		}
-	}
-	return nil
-}
-
-// numericClaim coerces a JWT numeric date claim (which json.Unmarshal decodes
-// as float64) to an int64 seconds-since-epoch.
-func numericClaim(v any) (int64, error) {
-	switch x := v.(type) {
-	case float64:
-		return int64(x), nil
-	case int64:
-		return x, nil
-	case int:
-		return int64(x), nil
-	case jwt.NumericDate:
-		return x.Unix(), nil
-	case *jwt.NumericDate:
-		if x == nil {
-			return 0, errors.New("nil NumericDate")
-		}
-		return x.Unix(), nil
-	}
-	return 0, fmt.Errorf("unexpected numeric type %T", v)
-}
-
-// nowFunc is the clock used by checkExpNbf. Production: time.Now. Tests
-// override this to mint deterministic expired/future tokens.
-var nowFunc = defaultNow
-
-func defaultNow() time.Time { return time.Now() }

@@ -175,6 +175,104 @@ func TestHS256_NotBeforeFuture_Rejected(t *testing.T) {
 	}
 }
 
+// -- clock-skew boundary tests --
+
+func TestHS256_ExpiredWithinSkew_Accepted(t *testing.T) {
+	// Token expired 15 seconds ago — should be accepted under the 30s skew.
+	v, err := sso.NewHS256Verifier(cfgForHS256(), hs256Secret)
+	if err != nil {
+		t.Fatalf("NewHS256Verifier: %v", err)
+	}
+	tok := mintHS256(t, hs256Secret, jwt.MapClaims{
+		"iss": "https://issuer.test/",
+		"aud": "https://api.test",
+		"sub": "user-001",
+		"iat": time.Now().Add(-1 * time.Hour).Unix(),
+		"exp": time.Now().Add(-15 * time.Second).Unix(),
+	})
+	claims, err := v.Verify(context.Background(), tok)
+	if err != nil {
+		t.Fatalf("token within skew window should be accepted; got %v", err)
+	}
+	if claims.UserID != "user-001" {
+		t.Errorf("UserID = %q; want user-001", claims.UserID)
+	}
+}
+
+func TestHS256_ExpiredBeyondSkew_Rejected(t *testing.T) {
+	// Token expired 45 seconds ago — should be rejected (beyond 30s skew).
+	v, _ := sso.NewHS256Verifier(cfgForHS256(), hs256Secret)
+	tok := mintHS256(t, hs256Secret, jwt.MapClaims{
+		"iss": "https://issuer.test/",
+		"aud": "https://api.test",
+		"sub": "user-001",
+		"iat": time.Now().Add(-1 * time.Hour).Unix(),
+		"exp": time.Now().Add(-45 * time.Second).Unix(),
+	})
+	if _, err := v.Verify(context.Background(), tok); err == nil {
+		t.Fatal("token 45s expired should be rejected (beyond 30s skew)")
+	}
+}
+
+func TestHS256_NotBeforeWithinSkew_Accepted(t *testing.T) {
+	// Token nbf 15 seconds in the future — should be accepted under skew.
+	v, _ := sso.NewHS256Verifier(cfgForHS256(), hs256Secret)
+	tok := mintHS256(t, hs256Secret, jwt.MapClaims{
+		"iss": "https://issuer.test/",
+		"aud": "https://api.test",
+		"sub": "user-001",
+		"iat": time.Now().Unix(),
+		"exp": time.Now().Add(15 * time.Minute).Unix(),
+		"nbf": time.Now().Add(15 * time.Second).Unix(),
+	})
+	if _, err := v.Verify(context.Background(), tok); err != nil {
+		t.Fatalf("nbf within skew should be accepted; got %v", err)
+	}
+}
+
+func TestHS256_NotBeforeBeyondSkew_Rejected(t *testing.T) {
+	// Token nbf 45 seconds in the future — should be rejected.
+	v, _ := sso.NewHS256Verifier(cfgForHS256(), hs256Secret)
+	tok := mintHS256(t, hs256Secret, jwt.MapClaims{
+		"iss": "https://issuer.test/",
+		"aud": "https://api.test",
+		"sub": "user-001",
+		"iat": time.Now().Unix(),
+		"exp": time.Now().Add(15 * time.Minute).Unix(),
+		"nbf": time.Now().Add(45 * time.Second).Unix(),
+	})
+	if _, err := v.Verify(context.Background(), tok); err == nil {
+		t.Fatal("nbf 45s in future should be rejected (beyond 30s skew)")
+	}
+}
+
+// -- M2M shape test --
+
+func TestHS256_M2MShape_OnlySubPopulated(t *testing.T) {
+	v, _ := sso.NewHS256Verifier(cfgForHS256(), hs256Secret)
+	tok := mintHS256(t, hs256Secret, jwt.MapClaims{
+		"iss": "https://issuer.test/",
+		"aud": "https://api.test",
+		"sub": "m2m-client@clients",
+		"iat": time.Now().Unix(),
+		"exp": time.Now().Add(15 * time.Minute).Unix(),
+		// no "email", no "name"
+	})
+	claims, err := v.Verify(context.Background(), tok)
+	if err != nil {
+		t.Fatalf("M2M-shape token should verify; got %v", err)
+	}
+	if claims.UserID != "m2m-client@clients" {
+		t.Errorf("UserID = %q; want m2m-client@clients", claims.UserID)
+	}
+	if claims.Email != nil {
+		t.Errorf("Email = %v; want nil for M2M-shape token", *claims.Email)
+	}
+	if claims.DisplayName != nil {
+		t.Errorf("DisplayName = %v; want nil for M2M-shape token", *claims.DisplayName)
+	}
+}
+
 // TestHS256_SecretTooShort_Rejected asserts the constructor enforces the
 // 32-byte minimum on the resolved secret.
 func TestHS256_SecretTooShort_Rejected(t *testing.T) {

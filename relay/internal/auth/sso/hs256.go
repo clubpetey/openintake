@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 
@@ -33,8 +34,8 @@ func NewHS256Verifier(cfg config.SSOConfig, secret []byte) (*HS256Verifier, erro
 	return &HS256Verifier{cfg: cfg, secret: secret}, nil
 }
 
-// Verify parses the token (with HS256 pinning), then runs the shared
-// iss/aud/exp/nbf checks and claim mapping.
+// Verify parses the token (with HS256 pinning and 30s clock-skew leeway), then
+// runs the shared iss/aud and claim-mapping checks.
 func (v *HS256Verifier) Verify(ctx context.Context, token string) (*auth.SSOClaims, error) {
 	claims := jwt.MapClaims{}
 	parsed, err := jwt.ParseWithClaims(
@@ -44,6 +45,7 @@ func (v *HS256Verifier) Verify(ctx context.Context, token string) (*auth.SSOClai
 			return v.secret, nil
 		},
 		jwt.WithValidMethods([]string{"HS256"}),
+		jwt.WithLeeway(clockSkew*time.Second),
 	)
 	if err != nil {
 		// golang-jwt v5 error strings are safe (e.g. "signature is invalid")

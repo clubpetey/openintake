@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/MicahParks/keyfunc/v3"
 	"github.com/golang-jwt/jwt/v5"
@@ -19,9 +20,9 @@ import (
 // Algorithm pinning: jwt.WithValidMethods([]string{"RS256"}) ensures an HS256
 // token presented to this verifier is rejected (alg-confusion mitigation).
 type RS256Verifier struct {
-	cfg     config.SSOConfig
-	keyfunc jwt.Keyfunc
-	logger  *slog.Logger
+	cfg    config.SSOConfig
+	kf     keyfunc.Keyfunc // full interface; KeyfuncCtx forwards per-request ctx
+	logger *slog.Logger
 }
 
 // NewRS256Verifier fetches the JWKS at construction time and returns an error
@@ -46,27 +47,34 @@ func NewRS256Verifier(cfg config.SSOConfig, logger *slog.Logger) (*RS256Verifier
 	failFast := false
 	kf, err := keyfunc.NewDefaultOverrideCtx(context.Background(), []string{cfg.JWKSURL}, keyfunc.Override{
 		NoErrorReturnFirstHTTPReq: &failFast,
+		// Log JWKS background-refresh errors via the relay's structured logger.
+		RefreshErrorHandlerFunc: func(u string) func(ctx context.Context, err error) {
+			return func(ctx context.Context, err error) {
+				logger.Warn("sso: JWKS refresh error", "url", u, "error", err)
+			}
+		},
 	})
 	if err != nil {
 		// The error from keyfunc may include the URL but not any secrets.
 		return nil, fmt.Errorf("sso: fetch JWKS at startup: %w", err)
 	}
 	return &RS256Verifier{
-		cfg:     cfg,
-		keyfunc: kf.Keyfunc,
-		logger:  logger,
+		cfg:    cfg,
+		kf:     kf, // store full interface; Verify uses KeyfuncCtx to forward request ctx
+		logger: logger,
 	}, nil
 }
 
-// Verify parses the token (with RS256 pinning), then runs the shared
-// iss/aud/exp/nbf checks and claim mapping.
+// Verify parses the token (with RS256 pinning and 30s clock-skew leeway), then
+// runs the shared iss/aud and claim-mapping checks.
 func (v *RS256Verifier) Verify(ctx context.Context, token string) (*auth.SSOClaims, error) {
 	claims := jwt.MapClaims{}
 	parsed, err := jwt.ParseWithClaims(
 		token,
 		claims,
-		v.keyfunc,
+		v.kf.KeyfuncCtx(ctx), // forwards per-request ctx into JWKS refresh-on-unknown-kid
 		jwt.WithValidMethods([]string{"RS256"}),
+		jwt.WithLeeway(clockSkew*time.Second),
 	)
 	if err != nil {
 		// golang-jwt v5 error strings are safe ("signature is invalid",
