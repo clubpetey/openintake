@@ -453,15 +453,16 @@ func Load(path string) (*Config, error) {
 //   - DailyLLMBudget.ActionOnExceeded must be "reject" (v0 only ships reject;
 //     "queue" is documented as v1+ per PROJECT.md §10).
 //
-// Returns an error wrapping every problem; callers (main.go) typically append
-// this to the Q9 consolidated startup-gate slice.
+// Returns the first invariant violation as an error. Callers (main.go) append
+// this to the Q9 consolidated startup-gate slice. If future rules require
+// surfacing multiple violations at once, switch to errors.Join over a []error.
 func (c *Config) Validate() error {
 	switch c.RateLimit.DailyLLMBudget.ActionOnExceeded {
 	case "reject":
 		return nil
 	case "":
 		// applyDefaults should have populated this; treat as a programmer error.
-		return fmt.Errorf("ratelimit.daily_llm_budget.action_on_exceeded is empty; Load must have applied default \"reject\"")
+		return fmt.Errorf("ratelimit.daily_llm_budget.action_on_exceeded is empty; if constructing Config directly, set it explicitly, otherwise Load should have defaulted to \"reject\"")
 	default:
 		return fmt.Errorf("ratelimit.daily_llm_budget.action_on_exceeded=%q is not supported in v0; only \"reject\" is supported (\"queue\" is documented as v1+)", c.RateLimit.DailyLLMBudget.ActionOnExceeded)
 	}

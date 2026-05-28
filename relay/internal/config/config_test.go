@@ -367,13 +367,9 @@ func TestLoad_AppliesPhase5DefaultsForServerTrustedProxies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Server.TrustedProxies == nil {
-		// nil and empty slice are equivalent at the wire; either is fine. The
-		// invariant is that the field is loadable and ranges-over-empty safely.
-		return
-	}
+	// nil slice and empty slice are equivalent at the wire; len handles both.
 	if len(cfg.Server.TrustedProxies) != 0 {
-		t.Errorf("default TrustedProxies = %v; want empty", cfg.Server.TrustedProxies)
+		t.Errorf("default TrustedProxies = %v; want empty (len 0)", cfg.Server.TrustedProxies)
 	}
 }
 
