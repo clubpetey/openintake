@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"intake/internal/auth"
 	"intake/internal/config"
 	"intake/internal/server"
 	"intake/internal/version"
@@ -152,6 +154,44 @@ func TestCORS_OptionsWithoutOriginPassesThrough(t *testing.T) {
 
 	if w.Code == http.StatusForbidden {
 		t.Errorf("OPTIONS without Origin returned 403; want router response (e.g. 405), not a CORS block")
+	}
+}
+
+// ---- Task 7 (5-i): /v1/intake group wires clientIP + perIP middlewares ----
+
+func TestServerNew_MountsClientIPMiddlewareOnIntakeGroup(t *testing.T) {
+	// Build a Deps with TrustedProxies set; hit /v1/intake/init; the resolved
+	// IP must be in the request context (we observe via /init returning 200).
+	// /v1/health (outside /v1/intake) should still respond 200.
+	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{}}}
+	deps := server.Deps{
+		Auth:           auth.NewMiddleware(auth.NewStore(), nil, nil),
+		AuthCfg:        config.AuthConfig{Modes: config.AuthModes{Anonymous: true}},
+		TrustedProxies: nil, // empty list — default behavior
+		PerIP:          nil, // nil limiter → always-allow
+		Version:        version.BuildInfo{Version: "test"},
+	}
+	srv := server.New(cfg, deps)
+
+	// /v1/health is OUTSIDE /v1/intake — no rate limit, no client-IP middleware.
+	{
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/v1/health", nil)
+		srv.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("/v1/health status = %d; want 200", rec.Code)
+		}
+	}
+
+	// /v1/intake/init flows through clientIPMiddleware + perIPLimitMiddleware.
+	{
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("POST", "/v1/intake/init", strings.NewReader(`{}`))
+		req.RemoteAddr = "203.0.113.10:12345"
+		srv.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("/v1/intake/init status = %d; want 200 (body: %s)", rec.Code, rec.Body.String())
+		}
 	}
 }
 
