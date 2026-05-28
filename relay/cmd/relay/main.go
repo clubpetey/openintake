@@ -15,6 +15,7 @@ import (
 
 	"intake/internal/adapter"
 	"intake/internal/adapter/chatwoot"
+	"intake/internal/adapter/fider"
 	"intake/internal/adapter/webhook"
 	"intake/internal/auth"
 	"intake/internal/classify"
@@ -226,7 +227,24 @@ func buildRegistry(cfg *config.Config, logger *slog.Logger) (map[string]adapter.
 		logger.Info("relay: adapter enabled", "adapter", cw.Name())
 	}
 
-	// 3-iii fider, 3-iv zendesk, 3-v linear are added here.
+	// fider (3-iii) — free.
+	if cfg.Adapters.Fider.Enabled {
+		key, err := config.RequireSecret(cfg.Adapters.Fider.APIKeyEnv)
+		if err != nil {
+			return nil, fmt.Errorf("fider adapter: %w", err)
+		}
+		fd := fider.New()
+		if err := fd.Configure(map[string]any{
+			"base_url": cfg.Adapters.Fider.BaseURL,
+			"api_key":  key,
+		}); err != nil {
+			return nil, fmt.Errorf("fider adapter: %w", err)
+		}
+		reg[fd.Name()] = fd
+		logger.Info("relay: adapter enabled", "adapter", fd.Name())
+	}
+
+	// 3-iv zendesk, 3-v linear are added here.
 
 	return reg, nil
 }
