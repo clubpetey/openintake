@@ -247,6 +247,31 @@ func TestFiderConfigure_ErrorNeverLeaksKey(t *testing.T) {
 	}
 }
 
+// TestFiderCreate_EmptyResponseBodyTolerated asserts that a 200 response with body
+// `{}` (no id, no number) is not an error: ExternalID and ExternalURL are both
+// empty strings. This documents the tolerated contract — the relay does not treat
+// an empty ExternalID as failure.
+func TestFiderCreate_EmptyResponseBodyTolerated(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	a := configure(t, srv.URL)
+	result, err := a.Create(context.Background(), minimalPayload())
+	if err != nil {
+		t.Fatalf("Create: expected no error on empty 2xx body, got %v", err)
+	}
+	if result.ExternalID != "" {
+		t.Errorf("ExternalID = %q; want empty string", result.ExternalID)
+	}
+	if result.ExternalURL != "" {
+		t.Errorf("ExternalURL = %q; want empty string", result.ExternalURL)
+	}
+}
+
 // TestFiderHealthCheck_OK asserts a non-5xx response (with the Bearer header set)
 // is healthy.
 func TestFiderHealthCheck_OK(t *testing.T) {

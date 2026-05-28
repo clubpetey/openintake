@@ -116,7 +116,10 @@ func (a *Adapter) Create(ctx context.Context, p *payload.IntakePayload) (*adapte
 	}
 
 	var parsed createResponse
-	_ = json.Unmarshal(respBody, &parsed) // tolerate an empty/odd body; fields default to 0
+	// A non-JSON or empty 2xx body is tolerated: id/number stay 0, yielding a
+	// CreateResult with empty ExternalID/ExternalURL. The relay stores it as-is;
+	// there is no upstream assertion that ExternalID is non-empty.
+	_ = json.Unmarshal(respBody, &parsed)
 
 	externalID := ""
 	if parsed.ID != 0 {
@@ -161,8 +164,9 @@ func (a *Adapter) HealthCheck(ctx context.Context) error {
 	return nil
 }
 
-// renderBody concatenates the summary, a blank line, then each message as
-// "<Role>: <Content>" (README §8.2 recommended shared approach).
+// renderBody builds the post description: the summary, a blank line, then each
+// message as "<Role>: <Content>". Unlike chatwoot, the title is a separate Fider
+// API field (the `title` POST field) and is deliberately NOT repeated here.
 func renderBody(p *payload.IntakePayload) string {
 	var b strings.Builder
 	b.WriteString(p.Conversation.Summary)
