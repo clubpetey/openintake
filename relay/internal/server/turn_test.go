@@ -406,3 +406,49 @@ func TestInitHandler_NoCaptchaConfig_MintsSessionAsBefore(t *testing.T) {
 		t.Errorf("capabilities.requires_captcha = %v; want nil/omitted", body.Capabilities.RequiresCaptcha)
 	}
 }
+
+func TestInitHandler_CaptchaEnabledButNoModeIntersection_MintsSession(t *testing.T) {
+	// captcha is enabled and configured for "email", but only anonymous mode
+	// is on. The intersection is empty → no captcha gate, no captcha hint,
+	// session minted normally.
+	deps := server.Deps{
+		Auth: auth.NewMiddleware(auth.NewStore(), nil, nil),
+		AuthCfg: config.AuthConfig{
+			Modes: config.AuthModes{Anonymous: true}, // only anonymous
+		},
+		CaptchaCfg: config.CaptchaConfig{
+			Enabled:     true,
+			Provider:    "turnstile",
+			SiteKey:     "0x4AAA000000Test",
+			RequiredFor: []string{"email"}, // excludes anonymous
+		},
+	}
+
+	// Wire through server.New so the routing is honored (same pattern as
+	// the existing init handler tests).
+	cfg := &config.Config{
+		Server: config.ServerConfig{CORSOrigins: []string{}},
+	}
+	srv := server.New(cfg, deps)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/intake/init", strings.NewReader(`{}`))
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200 (intersection is empty → no captcha gate)\nbody: %s", rec.Code, rec.Body.String())
+	}
+	var body server.InitResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.SessionID == "" {
+		t.Error("session_id is empty; want a UUID")
+	}
+	if body.Captcha != nil {
+		t.Errorf("body.captcha = %+v; want nil (RequiredFor excludes anonymous → no hint emitted)", body.Captcha)
+	}
+	if body.Capabilities.RequiresCaptcha != nil {
+		t.Errorf("capabilities.requires_captcha = %v; want nil (empty intersection)", body.Capabilities.RequiresCaptcha)
+	}
+}

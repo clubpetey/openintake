@@ -2,7 +2,9 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -28,14 +30,12 @@ func initHandler(deps Deps) http.HandlerFunc {
 			return
 		}
 
-		// Decode optional InitRequest. Empty body is allowed (and is the Phase 1
-		// behavior); a malformed body (non-empty + bad JSON) returns 400.
+		// Decode optional InitRequest. Empty body is allowed (Phase 1 behavior);
+		// a malformed body returns 400. io.EOF on empty body is normal — not an error.
 		var initReq InitRequest
-		if r.ContentLength > 0 {
-			if err := json.NewDecoder(r.Body).Decode(&initReq); err != nil {
-				writeError(w, http.StatusBadRequest, "bad_request", "invalid request body: "+err.Error())
-				return
-			}
+		if err := json.NewDecoder(r.Body).Decode(&initReq); err != nil && !errors.Is(err, io.EOF) {
+			writeError(w, http.StatusBadRequest, "bad_request", "invalid request body: "+err.Error())
+			return
 		}
 
 		// Compute the auth modes list (4-ii).
