@@ -124,6 +124,11 @@ func (s *Store) CheckSession(id string) (ok bool, retryAfter time.Duration, code
 		}
 	}
 
+	// Note: cap check uses >= because meta.turns is the count of COMPLETED
+	// turns (RecordTurn already fired after the previous SSEDone). budget.Tracker
+	// uses > because Reserve adds a not-yet-charged estimate. Both reject one
+	// turn over the policy cap; the operator differs because the counter timing
+	// differs.
 	if s.maxTurns > 0 && meta.turns >= s.maxTurns {
 		return false, retryAfter, "session_turns_exhausted"
 	}
@@ -135,7 +140,15 @@ func (s *Store) CheckSession(id string) (ok bool, retryAfter time.Duration, code
 
 // RecordTurn increments turns by 1 and adds inputTokens to cumInputTokens
 // for session id. No-op if id is unknown.
+//
+// Negative inputTokens are clamped to 0 — a per-session token accumulator
+// must not be decrementable by a buggy or compromised caller, which would
+// silently increase the available headroom under the maxInputTokens cap
+// (a rate-limit-bypass primitive). Mirrors budget.Tracker.Commit's clamp.
 func (s *Store) RecordTurn(id string, inputTokens int) {
+	if inputTokens < 0 {
+		inputTokens = 0
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

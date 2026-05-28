@@ -139,6 +139,36 @@ func TestStoreWithCaps_RecordTurnOnUnknownIDIsNoOp(t *testing.T) {
 	s.RecordTurn("not-a-real-id", 100) // must not panic
 }
 
+func TestStoreWithCaps_RecordTurnClampsNegativeTokens(t *testing.T) {
+	// A negative inputTokens must clamp to 0; otherwise the per-session
+	// accumulator could be decremented, silently extending headroom under
+	// the maxInputTokens cap (rate-limit bypass).
+	c := newFakeClock()
+	s := auth.NewStoreWithCaps(0, 100, time.Hour, c.Now)
+	id := s.Issue()
+
+	s.RecordTurn(id, 50)     // cumInputTokens = 50
+	s.RecordTurn(id, -1000)  // would decrement to -950 without the clamp
+
+	// After two RecordTurns, turns should be exactly 2 (the clamp doesn't suppress
+	// the turn increment).
+	// We assert via CheckSession: cumInputTokens is 50, under cap of 100 → ok.
+	ok, _, _ := s.CheckSession(id)
+	if !ok {
+		t.Fatal("CheckSession after clamped negative RecordTurn rejected; cumInputTokens should still be 50")
+	}
+
+	// One more 60-token turn: cumInputTokens = 50+60 = 110, over cap of 100.
+	s.RecordTurn(id, 60)
+	ok, _, code := s.CheckSession(id)
+	if ok {
+		t.Fatal("CheckSession after 110 cum tokens allowed; want reject (cap=100)")
+	}
+	if code != "session_tokens_exhausted" {
+		t.Errorf("code = %q; want session_tokens_exhausted", code)
+	}
+}
+
 func TestStoreWithCaps_CheckSessionOnUnknownIDIsExpired(t *testing.T) {
 	c := newFakeClock()
 	s := auth.NewStoreWithCaps(20, 8000, time.Hour, c.Now)
