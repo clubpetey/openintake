@@ -76,6 +76,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Parse trusted-proxy CIDRs once (Q9 gate already validated them; this just rebuilds the prefix list for the middleware).
+	trustedProxies := make([]netip.Prefix, 0, len(cfg.Server.TrustedProxies))
+	for _, raw := range cfg.Server.TrustedProxies {
+		p, _ := netip.ParsePrefix(raw) // already validated; ignore err
+		trustedProxies = append(trustedProxies, p)
+	}
+
 	// --- LLM Provider (via factory) ---
 	// providers.New resolves the required secret internally via config.RequireSecret /
 	// config.ResolveSecret. The key is NEVER logged or embedded in any error surfaced here.
@@ -192,7 +199,9 @@ func main() {
 	// 4-i: middleware accepts optional email + sso verifiers.
 	// 4-ii: emailVerifier is nil-OK when email mode disabled.
 	// 4-iii: ssoVerifier is nil-OK when sso mode disabled.
-	middleware := auth.NewMiddleware(store, emailVerifier, ssoVerifier)
+	// Phase 5: switch to the modes-aware constructor; modesAnonymous is read directly
+	// from cfg so the dispatcher rejects anonymous when the operator disabled the mode.
+	middleware := auth.NewMiddlewareWithModes(store, emailVerifier, ssoVerifier, cfg.Auth.Modes.Anonymous)
 
 	// --- Triage System Prompt ---
 	// Loads from cfg.LLM.SystemPromptFile if set; else uses bundled prompt.txt.
@@ -252,6 +261,15 @@ func main() {
 		Builder:      builder,
 		AuthCfg:      cfg.Auth,
 		EmailService: emailSvc,
+
+		// Phase 5 (5-i): config + parsed prefixes wired in; the actual
+		// Limiter, Budget, and CaptchaVerifier are nil here — 5-ii and 5-iii
+		// replace nil with the real instances.
+		CaptchaCfg:      cfg.Captcha,
+		CaptchaVerifier: nil,
+		Budget:          nil,
+		PerIP:           nil,
+		TrustedProxies:  trustedProxies,
 	}
 
 	// --- HTTP Server ---
