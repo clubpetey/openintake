@@ -166,3 +166,18 @@ func TestClientIP_MultipleTrustedCIDRs(t *testing.T) {
 		t.Errorf("ClientIP = %q; want 203.0.113.7 (RTL skips both trusted-CIDR hops)", captured)
 	}
 }
+
+func TestPerIPLimit_NilLimiter_AllowsAll(t *testing.T) {
+	hit := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hit = true })
+	mw := perIPLimitMiddleware(nil) // nil → "no limiter wired" → always allow
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	mw(next).ServeHTTP(rec, req)
+	if !hit {
+		t.Fatal("next handler not invoked when limiter is nil")
+	}
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d; want 200 (default OK when next does not write)", rec.Code)
+	}
+}
