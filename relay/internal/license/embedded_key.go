@@ -3,6 +3,7 @@ package license
 import (
 	"crypto/ed25519"
 	"encoding/base64"
+	"fmt"
 )
 
 // EmbeddedPublicKeyBase64 is the maintainer's Ed25519 public key (standard base64
@@ -12,16 +13,23 @@ import (
 // license as an error until the maintainer embeds the real key.
 const EmbeddedPublicKeyBase64 = ""
 
-// embeddedPublicKey decodes EmbeddedPublicKeyBase64, or returns nil if unset/invalid.
-func embeddedPublicKey() ed25519.PublicKey {
+// embeddedPublicKey decodes EmbeddedPublicKeyBase64.
+//
+//   - empty constant → (nil, nil)  — no embed; normal pre-keygen state
+//   - non-empty + valid (correct base64, 32 bytes) → (key, nil)
+//   - non-empty + invalid (bad base64 or wrong length) → (nil, error)
+func embeddedPublicKey() (ed25519.PublicKey, error) {
 	if EmbeddedPublicKeyBase64 == "" {
-		return nil
+		return nil, nil
 	}
 	b, err := base64Decode(EmbeddedPublicKeyBase64)
-	if err != nil || len(b) != ed25519.PublicKeySize {
-		return nil
+	if err != nil {
+		return nil, fmt.Errorf("embedded public key is set but invalid: %w", err)
 	}
-	return ed25519.PublicKey(b)
+	if len(b) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("embedded public key is set but invalid: decoded length %d, want %d", len(b), ed25519.PublicKeySize)
+	}
+	return ed25519.PublicKey(b), nil
 }
 
 func base64Decode(s string) ([]byte, error) { return base64.StdEncoding.DecodeString(s) }

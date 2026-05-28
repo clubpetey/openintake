@@ -9,7 +9,9 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"fmt"
+	"math"
 	"os"
+	"path/filepath"
 	"time"
 
 	pubkglicense "intake/license"
@@ -52,9 +54,16 @@ func (s *State) Permits(name string) bool {
 	}
 }
 
-// Load resolves the license using the embedded public key.
+// Load resolves the license using the embedded public key. A corrupt (non-empty
+// but invalid) embedded key is fatal; an absent key (empty constant) is normal
+// pre-keygen state.
 func Load(cfg config.LicenseConfig, statePath string, now time.Time) (*State, error) {
-	return loadWithKey(embeddedPublicKey(), cfg, statePath, now)
+	pub, err := embeddedPublicKey()
+	if err != nil {
+		// Non-empty but invalid embedded key → fatal; never masquerade as "no key".
+		return nil, fmt.Errorf("license: %w", err)
+	}
+	return loadWithKey(pub, cfg, statePath, now)
 }
 
 // loadWithKey is the testable core: pub is injected (production passes the embedded
@@ -84,7 +93,7 @@ func loadWithKey(pub ed25519.PublicKey, cfg config.LicenseConfig, statePath stri
 				Message:   fmt.Sprintf("license expired %s — running in FREE mode (paid adapters disabled); renew at %s", lic.ExpiresAt.Format("2006-01-02"), PricingURL),
 			}, nil
 		}
-		days := int(lic.ExpiresAt.Sub(now).Hours() / 24)
+		days := int(math.Ceil(lic.ExpiresAt.Sub(now).Hours() / 24))
 		return &State{
 			Mode:      "licensed",
 			Adapters:  lic.Adapters,
@@ -118,7 +127,7 @@ func loadWithKey(pub ed25519.PublicKey, cfg config.LicenseConfig, statePath stri
 
 	expiry := st.TrialStartedAt.Add(trialDuration)
 	if now.Before(expiry) {
-		days := int(expiry.Sub(now).Hours()/24) + 1
+		days := int(math.Ceil(expiry.Sub(now).Hours() / 24))
 		return &State{
 			Mode:      "trial",
 			ExpiresAt: expiry,
@@ -177,7 +186,7 @@ func findLicense(cfg config.LicenseConfig) ([]byte, bool, error) {
 func defaultLicensePaths() []string {
 	paths := []string{"/etc/intake/license.json"}
 	if dir, err := os.UserConfigDir(); err == nil {
-		paths = append(paths, dir+string(os.PathSeparator)+"intake"+string(os.PathSeparator)+"license.json")
+		paths = append(paths, filepath.Join(dir, "intake", "license.json"))
 	}
 	return paths
 }
