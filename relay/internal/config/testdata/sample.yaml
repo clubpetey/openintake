@@ -36,3 +36,34 @@ adapters:
     retry:
       max_attempts: 5
       backoff: "fixed"
+  chatwoot:
+    enabled: true
+    base_url: "https://chatwoot.example.com"
+    account_id: 1
+    inbox_id: 3
+    api_token_env: "CHATWOOT_TOKEN"
+  fider:
+    enabled: true
+    base_url: "https://feedback.example.com"
+    api_key_env: "FIDER_API_KEY"
+  zendesk:
+    enabled: false
+    subdomain: "example"
+    email: "agent@example.com"
+    api_token_env: "ZENDESK_API_TOKEN"
+    default_priority: "normal"
+  linear:
+    enabled: false
+    api_key_env: "LINEAR_API_KEY"
+    team_id: "TEAM_ID"
+routing:
+  default_adapter: "chatwoot"
+  rules:
+    - when:
+        classification: "bug"
+      to: "chatwoot"
+    - when:
+        classification: ["question", "other"]
+      to: "chatwoot"
+license:
+  file: "/etc/intake/license.json"
