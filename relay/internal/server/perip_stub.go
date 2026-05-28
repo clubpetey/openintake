@@ -2,7 +2,6 @@ package server
 
 import (
 	"net/http"
-	"strconv"
 
 	"intake/internal/ratelimit/perip"
 )
@@ -28,11 +27,7 @@ func perIPLimitMiddleware(limiter *perip.Limiter) func(http.Handler) http.Handle
 				next.ServeHTTP(w, r)
 				return
 			}
-			secs := int(retryAfter.Seconds())
-			if secs < 1 {
-				secs = 1
-			}
-			w.Header().Set("Retry-After", strconv.Itoa(secs))
+			setRetryAfter(w, retryAfter)
 			writeError(w, http.StatusTooManyRequests, "rate_limited", "too many requests; slow down")
 		})
 	}

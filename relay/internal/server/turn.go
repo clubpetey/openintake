@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"time"
 
 	"intake/internal/auth"
@@ -150,6 +149,9 @@ func turnHandler(deps Deps) http.HandlerFunc {
 
 		sess, _ := auth.FromContext(r.Context())
 		if sess == nil {
+			// 500 here means the auth middleware wasn't wired — a server misconfig.
+			// Log so ops can find this in their dashboards.
+			slog.ErrorContext(r.Context(), "turn: session context missing from request — auth middleware not wired?")
 			writeError(w, http.StatusInternalServerError, "internal", "session context missing")
 			return
 		}
@@ -162,11 +164,12 @@ func turnHandler(deps Deps) http.HandlerFunc {
 					writeError(w, http.StatusUnauthorized, "session_expired", "session expired; call POST /v1/intake/init again")
 					return
 				}
-				secs := int(retryAfter.Seconds())
-				if secs < 1 {
-					secs = 1
-				}
-				w.Header().Set("Retry-After", strconv.Itoa(secs))
+				// Note: when retryAfter is close to the TTL boundary, the floored 1s
+				// advertised here can race into a 401 session_expired on the next call.
+				// That is the intended behavior — the client should re-init when the
+				// TTL has elapsed. Observability dashboards plotting "429→success"
+				// funnels will see expected drops at this race window.
+				setRetryAfter(w, retryAfter)
 				var msg string
 				if code == "session_turns_exhausted" {
 					msg = "session turn limit reached"
@@ -185,11 +188,7 @@ func turnHandler(deps Deps) http.HandlerFunc {
 		if deps.Budget != nil {
 			ok, retryAfter := deps.Budget.Reserve(tenantKey, estIn, estOut)
 			if !ok {
-				secs := int(retryAfter.Seconds())
-				if secs < 1 {
-					secs = 1
-				}
-				w.Header().Set("Retry-After", strconv.Itoa(secs))
+				setRetryAfter(w, retryAfter)
 				writeError(w, http.StatusServiceUnavailable, "daily_budget_exhausted", "relay daily LLM budget reached")
 				return
 			}
