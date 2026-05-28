@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"intake/license"
@@ -39,9 +41,13 @@ func main() {
 			err = fmt.Errorf("sign: --in and --key are required")
 			break
 		}
-		var d int
-		if _, e := fmt.Sscanf(days, "%d", &d); e != nil {
-			err = fmt.Errorf("sign: --days must be an integer: %v", e)
+		d, perr := strconv.Atoi(days)
+		if perr != nil {
+			err = fmt.Errorf("sign: --days must be an integer: %w", perr)
+			break
+		}
+		if d <= 0 {
+			err = fmt.Errorf("sign: --days must be a positive integer, got %d", d)
 			break
 		}
 		err = doSign(in, key, out, d, os.Stdout)
@@ -68,13 +74,26 @@ const usage = `intake-license (maintainer-only)
   sign   --in template.json --key priv.key [--out license.json] [--days 365]
   verify --in license.json --pubkey <base64>`
 
-// parseFlags is a tiny --name value parser (avoids a flag.FlagSet per subcommand).
+// parseFlags parses --name value and --name=value forms into dst.
 func parseFlags(args []string, dst map[string]*string) {
-	for i := 0; i+1 < len(args); i += 2 {
-		name := args[i]
-		if len(name) > 2 && name[:2] == "--" {
-			if p, ok := dst[name[2:]]; ok {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if len(a) < 3 || a[:2] != "--" {
+			continue
+		}
+		name := a[2:]
+		if eq := strings.IndexByte(name, '='); eq >= 0 {
+			// --name=value form
+			if p, ok := dst[name[:eq]]; ok {
+				*p = name[eq+1:]
+			}
+			continue
+		}
+		// --name value form
+		if i+1 < len(args) {
+			if p, ok := dst[name]; ok {
 				*p = args[i+1]
+				i++
 			}
 		}
 	}
@@ -90,6 +109,8 @@ func doKeygen(keyPath, pubPath string, out io.Writer) error {
 	}
 	privB64 := base64.StdEncoding.EncodeToString(priv)
 	pubB64 := base64.StdEncoding.EncodeToString(pub)
+	// Remove any pre-existing file so the fresh write always creates it at 0600.
+	_ = os.Remove(keyPath)
 	if err := os.WriteFile(keyPath, []byte(privB64), 0o600); err != nil {
 		return fmt.Errorf("keygen: writing private key: %w", err)
 	}
@@ -119,7 +140,7 @@ func doSign(inPath, keyPath, outPath string, days int, out io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("sign: reading private key %s: %w", keyPath, err)
 	}
-	privBytes, err := base64.StdEncoding.DecodeString(string(trimSpace(privB64)))
+	privBytes, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(privB64)))
 	if err != nil {
 		return fmt.Errorf("sign: private key not valid base64: %w", err)
 	}
@@ -146,7 +167,7 @@ func doSign(inPath, keyPath, outPath string, days int, out io.Writer) error {
 
 // doVerify checks a signed license file against a base64 public key.
 func doVerify(inPath, pubB64 string, out io.Writer) error {
-	pubBytes, err := base64.StdEncoding.DecodeString(string(trimSpace([]byte(pubB64))))
+	pubBytes, err := base64.StdEncoding.DecodeString(strings.TrimSpace(pubB64))
 	if err != nil {
 		return fmt.Errorf("verify: public key not valid base64: %w", err)
 	}
@@ -159,24 +180,9 @@ func doVerify(inPath, pubB64 string, out io.Writer) error {
 	}
 	lic, err := license.Verify(ed25519.PublicKey(pubBytes), blob)
 	if err != nil {
-		return err
+		return fmt.Errorf("verify: %w", err)
 	}
 	fmt.Fprintf(out, "OK — license %s, tier=%s, adapters=%v, expires=%s\n",
 		lic.LicenseID, lic.Tier, lic.Adapters, lic.ExpiresAt.Format("2006-01-02"))
 	return nil
 }
-
-// trimSpace trims leading/trailing ASCII whitespace from a byte slice (avoids a
-// strings import for one call).
-func trimSpace(b []byte) []byte {
-	start, end := 0, len(b)
-	for start < end && isSpace(b[start]) {
-		start++
-	}
-	for end > start && isSpace(b[end-1]) {
-		end--
-	}
-	return b[start:end]
-}
-
-func isSpace(c byte) bool { return c == ' ' || c == '\n' || c == '\r' || c == '\t' }
