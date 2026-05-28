@@ -205,76 +205,98 @@ func activeModelConfig(cfg config.LLMConfig) (model string, maxTokens int) {
 	}
 }
 
+// licensed reports whether an adapter may be registered under the current license
+// state. Free adapters (RequiresLicense()==false) always pass. A paid adapter passes
+// only when the state permits its name; otherwise it is skipped with a clear warning.
+// This makes "paid ⇒ gated" structural rather than a per-adapter convention.
+func licensed(ad adapter.Adapter, st *licensemgr.State, logger *slog.Logger) bool {
+	if !ad.RequiresLicense() {
+		return true
+	}
+	if st.Permits(ad.Name()) {
+		return true
+	}
+	logger.Warn(`relay: adapter requires a license — disabled`,
+		"adapter", ad.Name(), "mode", st.Mode, "see", licensemgr.PricingURL)
+	return false
+}
+
 // buildRegistry constructs the set of enabled adapters. Each Phase-3 adapter
-// sub-plan (3-ii…3-v) adds its block here; 3-vi wraps paid adapters with the
-// license gate. Tokens resolve via config.ResolveSecret and are passed into
-// Configure — never read from the environment by the adapter, never logged.
+// sub-plan (3-ii…3-v) adds its block here. The license gate is applied uniformly
+// via licensed() (3-vi hardening): construct, gate, then resolve token + configure.
+// This ordering ensures a paid adapter in free mode is silently skipped — never a
+// fatal missing-token error. Tokens resolve via config.RequireSecret and are passed
+// into Configure — never read from the environment by the adapter, never logged.
 func buildRegistry(cfg *config.Config, licState *licensemgr.State, logger *slog.Logger) (map[string]adapter.Adapter, error) {
 	reg := make(map[string]adapter.Adapter)
 
 	// webhook (1-iv) — free.
 	if cfg.Adapters.Webhook.Enabled {
 		wh := webhook.New()
-		if err := wh.Configure(map[string]any{
-			"url":     cfg.Adapters.Webhook.URL,
-			"headers": cfg.Adapters.Webhook.Headers,
-			"retry": map[string]any{
-				"max_attempts": cfg.Adapters.Webhook.Retry.MaxAttempts,
-				"backoff":      cfg.Adapters.Webhook.Retry.Backoff,
-			},
-		}); err != nil {
-			return nil, fmt.Errorf("webhook adapter: %w", err)
+		if licensed(wh, licState, logger) {
+			if err := wh.Configure(map[string]any{
+				"url":     cfg.Adapters.Webhook.URL,
+				"headers": cfg.Adapters.Webhook.Headers,
+				"retry": map[string]any{
+					"max_attempts": cfg.Adapters.Webhook.Retry.MaxAttempts,
+					"backoff":      cfg.Adapters.Webhook.Retry.Backoff,
+				},
+			}); err != nil {
+				return nil, fmt.Errorf("webhook adapter: %w", err)
+			}
+			reg[wh.Name()] = wh
+			logger.Info("relay: adapter enabled", "adapter", wh.Name())
 		}
-		reg[wh.Name()] = wh
-		logger.Info("relay: adapter enabled", "adapter", wh.Name())
 	}
 
 	// chatwoot (3-ii) — free.
 	if cfg.Adapters.Chatwoot.Enabled {
-		token, err := config.RequireSecret(cfg.Adapters.Chatwoot.APITokenEnv)
-		if err != nil {
-			return nil, fmt.Errorf("chatwoot adapter: %w", err)
-		}
 		cw := chatwoot.New()
-		if err := cw.Configure(map[string]any{
-			"base_url":   cfg.Adapters.Chatwoot.BaseURL,
-			"account_id": cfg.Adapters.Chatwoot.AccountID,
-			"inbox_id":   cfg.Adapters.Chatwoot.InboxID,
-			"api_token":  token,
-		}); err != nil {
-			return nil, fmt.Errorf("chatwoot adapter: %w", err)
+		if licensed(cw, licState, logger) {
+			token, err := config.RequireSecret(cfg.Adapters.Chatwoot.APITokenEnv)
+			if err != nil {
+				return nil, fmt.Errorf("chatwoot adapter: %w", err)
+			}
+			if err := cw.Configure(map[string]any{
+				"base_url":   cfg.Adapters.Chatwoot.BaseURL,
+				"account_id": cfg.Adapters.Chatwoot.AccountID,
+				"inbox_id":   cfg.Adapters.Chatwoot.InboxID,
+				"api_token":  token,
+			}); err != nil {
+				return nil, fmt.Errorf("chatwoot adapter: %w", err)
+			}
+			reg[cw.Name()] = cw
+			logger.Info("relay: adapter enabled", "adapter", cw.Name())
 		}
-		reg[cw.Name()] = cw
-		logger.Info("relay: adapter enabled", "adapter", cw.Name())
 	}
 
 	// fider (3-iii) — free.
 	if cfg.Adapters.Fider.Enabled {
-		key, err := config.RequireSecret(cfg.Adapters.Fider.APIKeyEnv)
-		if err != nil {
-			return nil, fmt.Errorf("fider adapter: %w", err)
-		}
 		fd := fider.New()
-		if err := fd.Configure(map[string]any{
-			"base_url": cfg.Adapters.Fider.BaseURL,
-			"api_key":  key,
-		}); err != nil {
-			return nil, fmt.Errorf("fider adapter: %w", err)
+		if licensed(fd, licState, logger) {
+			key, err := config.RequireSecret(cfg.Adapters.Fider.APIKeyEnv)
+			if err != nil {
+				return nil, fmt.Errorf("fider adapter: %w", err)
+			}
+			if err := fd.Configure(map[string]any{
+				"base_url": cfg.Adapters.Fider.BaseURL,
+				"api_key":  key,
+			}); err != nil {
+				return nil, fmt.Errorf("fider adapter: %w", err)
+			}
+			reg[fd.Name()] = fd
+			logger.Info("relay: adapter enabled", "adapter", fd.Name())
 		}
-		reg[fd.Name()] = fd
-		logger.Info("relay: adapter enabled", "adapter", fd.Name())
 	}
 
-	// zendesk (3-iv) — PAID; gated (3-vi).
+	// zendesk (3-iv) — PAID; gated generically via RequiresLicense() (3-vi hardening).
 	if cfg.Adapters.Zendesk.Enabled {
-		if !licState.Permits("zendesk") {
-			logger.Warn(`relay: adapter "zendesk" requires a license — disabled`, "mode", licState.Mode, "see", licensemgr.PricingURL)
-		} else {
+		zd := zendesk.New()
+		if licensed(zd, licState, logger) {
 			token, err := config.RequireSecret(cfg.Adapters.Zendesk.APITokenEnv)
 			if err != nil {
 				return nil, fmt.Errorf("zendesk adapter: %w", err)
 			}
-			zd := zendesk.New()
 			if err := zd.Configure(map[string]any{
 				"subdomain":        cfg.Adapters.Zendesk.Subdomain,
 				"email":            cfg.Adapters.Zendesk.Email,
@@ -288,16 +310,14 @@ func buildRegistry(cfg *config.Config, licState *licensemgr.State, logger *slog.
 		}
 	}
 
-	// linear (3-v) — PAID; gated (3-vi).
+	// linear (3-v) — PAID; gated generically via RequiresLicense() (3-vi hardening).
 	if cfg.Adapters.Linear.Enabled {
-		if !licState.Permits("linear") {
-			logger.Warn(`relay: adapter "linear" requires a license — disabled`, "mode", licState.Mode, "see", licensemgr.PricingURL)
-		} else {
+		ln := linear.New()
+		if licensed(ln, licState, logger) {
 			key, err := config.RequireSecret(cfg.Adapters.Linear.APIKeyEnv)
 			if err != nil {
 				return nil, fmt.Errorf("linear adapter: %w", err)
 			}
-			ln := linear.New()
 			if err := ln.Configure(map[string]any{
 				"api_key": key,
 				"team_id": cfg.Adapters.Linear.TeamID,

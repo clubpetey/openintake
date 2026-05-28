@@ -127,6 +127,9 @@ func doKeygen(keyPath, pubPath string, out io.Writer) error {
 // doSign reads a license template JSON, loads the base64 private key from keyPath,
 // stamps issued_at=now and expires_at=now+days (UTC, second precision), signs with
 // the shared relay/license.Sign, and writes the signed license to outPath.
+// NOTE: sign ALWAYS overwrites any issued_at/expires_at present in the template JSON
+// with freshly computed values (now and now+--days). There is no way to preserve
+// or supply custom timestamps via the template; the stamp is authoritative.
 func doSign(inPath, keyPath, outPath string, days int, out io.Writer) error {
 	tmpl, err := os.ReadFile(inPath)
 	if err != nil {
