@@ -73,14 +73,49 @@ type OllamaConfig struct {
 	MaxTokens      int    `yaml:"max_tokens"`
 }
 
-// AuthConfig selects which auth modes are enabled.
+// AuthConfig selects which auth modes are enabled and configures email/SSO.
 type AuthConfig struct {
-	Modes AuthModes `yaml:"modes"`
+	Modes AuthModes   `yaml:"modes"`
+	Email EmailConfig `yaml:"email"`
+	SSO   SSOConfig   `yaml:"sso"`
 }
 
 // AuthModes enables or disables specific auth strategies.
 type AuthModes struct {
 	Anonymous bool `yaml:"anonymous"`
+	Email     bool `yaml:"email"`
+	SSO       bool `yaml:"sso"`
+}
+
+// EmailConfig configures the email magic-link mode.
+// All secrets reference an env var name; the value resolves via ResolveSecret in main.go.
+type EmailConfig struct {
+	SMTPHost     string `yaml:"smtp_host"`
+	SMTPPort     int    `yaml:"smtp_port"`
+	SMTPUser     string `yaml:"smtp_user"`
+	SMTPPassEnv  string `yaml:"smtp_pass_env"`  // env var holding the SMTP password
+	From         string `yaml:"from"`           // RFC 5322 From address
+	CodeTTL      string `yaml:"code_ttl"`       // default "10m"
+	JWTTTL       string `yaml:"jwt_ttl"`        // default "15m"
+	JWTSecretEnv string `yaml:"jwt_secret_env"` // env var; resolved value must be ≥32 bytes
+}
+
+// SSOConfig configures host-app SSO. Exactly one of JWKSURL (RS256) or
+// HS256SecretEnv (HS256) must be set; both-set or neither-set is a startup error.
+type SSOConfig struct {
+	Issuer         string    `yaml:"issuer"`           // expected `iss` claim
+	Audience       string    `yaml:"audience"`         // expected `aud` claim
+	JWKSURL        string    `yaml:"jwks_url"`         // RS256 path
+	HS256SecretEnv string    `yaml:"hs256_secret_env"` // HS256 path; env var name
+	Claims         SSOClaims `yaml:"claims"`
+}
+
+// SSOClaims maps SessionContext fields to JWT claim names.
+// Defaults: sub/email/name (standard OIDC).
+type SSOClaims struct {
+	UserID      string `yaml:"user_id"`
+	Email       string `yaml:"email"`
+	DisplayName string `yaml:"display_name"`
 }
 
 // AdaptersConfig holds per-adapter configuration. Webhook is Phase 1; the other
@@ -250,6 +285,22 @@ func applyDefaults(c *Config) {
 	// else router.New fails fast at startup — that is the intended §4.4 guard.
 	if c.Routing.DefaultAdapter == "" {
 		c.Routing.DefaultAdapter = "chatwoot"
+	}
+	// Auth (4-i): email/SSO sub-structs gain sensible defaults.
+	if c.Auth.Email.CodeTTL == "" {
+		c.Auth.Email.CodeTTL = "10m"
+	}
+	if c.Auth.Email.JWTTTL == "" {
+		c.Auth.Email.JWTTTL = "15m"
+	}
+	if c.Auth.SSO.Claims.UserID == "" {
+		c.Auth.SSO.Claims.UserID = "sub"
+	}
+	if c.Auth.SSO.Claims.Email == "" {
+		c.Auth.SSO.Claims.Email = "email"
+	}
+	if c.Auth.SSO.Claims.DisplayName == "" {
+		c.Auth.SSO.Claims.DisplayName = "name"
 	}
 	if c.Adapters.Webhook.Retry.MaxAttempts == 0 {
 		c.Adapters.Webhook.Retry.MaxAttempts = 3

@@ -221,3 +221,46 @@ func TestLoad_ParsesAdapterBlocks(t *testing.T) {
 		t.Errorf("license.file = %q; want /etc/intake/license.json", cfg.License.File)
 	}
 }
+
+func TestLoad_AppliesAuthEmailDefaults(t *testing.T) {
+	cfg, err := config.Load("testdata/minimal.yaml")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Auth.Email.CodeTTL != "10m" {
+		t.Errorf("default Email.CodeTTL = %q; want 10m", cfg.Auth.Email.CodeTTL)
+	}
+	if cfg.Auth.Email.JWTTTL != "15m" {
+		t.Errorf("default Email.JWTTTL = %q; want 15m", cfg.Auth.Email.JWTTTL)
+	}
+}
+
+func TestLoad_AppliesSSOClaimDefaults(t *testing.T) {
+	cfg, err := config.Load("testdata/minimal.yaml")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Auth.SSO.Claims.UserID != "sub" {
+		t.Errorf("default SSO.Claims.UserID = %q; want sub", cfg.Auth.SSO.Claims.UserID)
+	}
+	if cfg.Auth.SSO.Claims.Email != "email" {
+		t.Errorf("default SSO.Claims.Email = %q; want email", cfg.Auth.SSO.Claims.Email)
+	}
+	if cfg.Auth.SSO.Claims.DisplayName != "name" {
+		t.Errorf("default SSO.Claims.DisplayName = %q; want name", cfg.Auth.SSO.Claims.DisplayName)
+	}
+}
+
+func TestLoad_AuthModesDefaultOnlyAnonymousTrue(t *testing.T) {
+	cfg, err := config.Load("testdata/minimal.yaml")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	// Phase 1 default: anonymous only. Phase 4 adds the two flags, both default false.
+	if cfg.Auth.Modes.Email {
+		t.Error("default AuthModes.Email = true; want false (opt-in)")
+	}
+	if cfg.Auth.Modes.SSO {
+		t.Error("default AuthModes.SSO = true; want false (opt-in)")
+	}
+}
