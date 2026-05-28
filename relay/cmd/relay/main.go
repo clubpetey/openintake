@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -11,12 +12,14 @@ import (
 	"syscall"
 	"time"
 
+	"intake/internal/adapter"
 	"intake/internal/adapter/webhook"
 	"intake/internal/auth"
 	"intake/internal/classify"
 	"intake/internal/config"
 	"intake/internal/llm/providers"
 	"intake/internal/payloadbuild"
+	"intake/internal/router"
 	"intake/internal/server"
 	"intake/internal/triage"
 	"intake/internal/version"
@@ -67,20 +70,32 @@ func main() {
 		os.Exit(1)
 	}
 
-	// --- Webhook Adapter (1-iv) ---
-	wh := webhook.New()
-	whCfg := map[string]any{
-		"url":     cfg.Adapters.Webhook.URL,
-		"headers": cfg.Adapters.Webhook.Headers,
-		"retry": map[string]any{
-			"max_attempts": cfg.Adapters.Webhook.Retry.MaxAttempts,
-			"backoff":      cfg.Adapters.Webhook.Retry.Backoff,
-		},
-	}
-	if err := wh.Configure(whCfg); err != nil {
-		logger.Error("webhook adapter: configure failed", "error", err)
+	// --- Adapter registry (3-i; 3-ii…3-v add adapters; 3-vi adds the license gate) ---
+	registry, err := buildRegistry(cfg, logger)
+	if err != nil {
+		logger.Error("relay: adapter registry build failed", "error", err)
 		os.Exit(1)
 	}
+	if len(registry) == 0 {
+		logger.Error("relay: no adapters enabled — enable at least one in config.adapters")
+		os.Exit(1)
+	}
+
+	// --- Router (3-i) ---
+	rules := make([]router.Rule, 0, len(cfg.Routing.Rules))
+	for _, rc := range cfg.Routing.Rules {
+		rules = append(rules, router.Rule{
+			Classification: []string(rc.When.Classification),
+			Severity:       []string(rc.When.Severity),
+			To:             rc.To,
+		})
+	}
+	rtr, err := router.New(registry, rules, cfg.Routing.DefaultAdapter, logger)
+	if err != nil {
+		logger.Error("relay: router init failed", "default_adapter", cfg.Routing.DefaultAdapter, "error", err)
+		os.Exit(1)
+	}
+	logger.Info("relay: router ready", "default_adapter", cfg.Routing.DefaultAdapter, "adapters", adapterNames(registry))
 
 	// --- Classifier (1-iv) — reuses the same provider as /turn ---
 	classifier := classify.New(provider, model, maxTokens)
@@ -100,7 +115,7 @@ func main() {
 		SystemPrompt: systemPrompt,
 		Model:        model,
 		MaxTokens:    maxTokens,
-		Adapter:      wh,
+		Router:       rtr,
 		Classifier:   classifier,
 		Builder:      builder,
 	}
@@ -164,4 +179,42 @@ func activeModelConfig(cfg config.LLMConfig) (model string, maxTokens int) {
 		// so this branch handles anthropic only — not future unknowns.
 		return cfg.Anthropic.Model, cfg.Anthropic.MaxTokens
 	}
+}
+
+// buildRegistry constructs the set of enabled adapters. Each Phase-3 adapter
+// sub-plan (3-ii…3-v) adds its block here; 3-vi wraps paid adapters with the
+// license gate. Tokens resolve via config.ResolveSecret and are passed into
+// Configure — never read from the environment by the adapter, never logged.
+func buildRegistry(cfg *config.Config, logger *slog.Logger) (map[string]adapter.Adapter, error) {
+	reg := make(map[string]adapter.Adapter)
+
+	// webhook (1-iv) — free.
+	if cfg.Adapters.Webhook.Enabled {
+		wh := webhook.New()
+		if err := wh.Configure(map[string]any{
+			"url":     cfg.Adapters.Webhook.URL,
+			"headers": cfg.Adapters.Webhook.Headers,
+			"retry": map[string]any{
+				"max_attempts": cfg.Adapters.Webhook.Retry.MaxAttempts,
+				"backoff":      cfg.Adapters.Webhook.Retry.Backoff,
+			},
+		}); err != nil {
+			return nil, fmt.Errorf("webhook adapter: %w", err)
+		}
+		reg[wh.Name()] = wh
+		logger.Info("relay: adapter enabled", "adapter", wh.Name())
+	}
+
+	// 3-ii chatwoot, 3-iii fider, 3-iv zendesk, 3-v linear are added here.
+
+	return reg, nil
+}
+
+// adapterNames returns the sorted-insertion-order keys of the registry for logging.
+func adapterNames(reg map[string]adapter.Adapter) []string {
+	names := make([]string, 0, len(reg))
+	for n := range reg {
+		names = append(names, n)
+	}
+	return names
 }
