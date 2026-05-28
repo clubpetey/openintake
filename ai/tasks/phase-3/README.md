@@ -25,13 +25,13 @@ This phase does NOT add: attachment forwarding (Phase 6), multi-adapter dispatch
 
 | # | Plan | Driver | Effort | Status |
 |---|---|---|---|---|
-| 3-i | [Adapter config + registry + router](3-i-adapter-config-registry-router-plan.md) | routing seam | M | Not started |
-| 3-ii | [Chatwoot adapter](3-ii-chatwoot-adapter-plan.md) | free / Chatwoot REST | M | Not started |
-| 3-iii | [Fider adapter](3-iii-fider-adapter-plan.md) | free / Fider REST | S | Not started |
-| 3-iv | [Zendesk adapter](3-iv-zendesk-adapter-plan.md) | paid / Zendesk REST | M | Not started |
-| 3-v | [Linear adapter](3-v-linear-adapter-plan.md) | paid / Linear GraphQL | M | Not started |
-| 3-vi | [License verify + gate](3-vi-license-verify-gate-plan.md) | Ed25519 + trial/free + gate | L | Not started |
-| 3-vii | [intake-license CLI](3-vii-intake-license-cli-plan.md) | maintainer tool | M | Not started |
+| 3-i | [Adapter config + registry + router](3-i-adapter-config-registry-router-plan.md) | routing seam | M | Complete |
+| 3-ii | [Chatwoot adapter](3-ii-chatwoot-adapter-plan.md) | free / Chatwoot REST | M | Complete |
+| 3-iii | [Fider adapter](3-iii-fider-adapter-plan.md) | free / Fider REST | S | Complete |
+| 3-iv | [Zendesk adapter](3-iv-zendesk-adapter-plan.md) | paid / Zendesk REST | M | Complete |
+| 3-v | [Linear adapter](3-v-linear-adapter-plan.md) | paid / Linear GraphQL | M | Complete |
+| 3-vi | [License verify + gate](3-vi-license-verify-gate-plan.md) | Ed25519 + trial/free + gate | L | Complete |
+| 3-vii | [intake-license CLI](3-vii-intake-license-cli-plan.md) | maintainer tool | M | Complete |
 
 ## 4. Dependency graph
 
@@ -105,6 +105,12 @@ Proves the Phase 3 deliverable end-to-end. The unit layer (mock HTTP via `httpte
 ```
 
 A phase is NOT done until this smoke passes from a clean state. Steps 1–2 (keygen/sign), 3 (live Chatwoot), and any Zendesk/Linear token use are maintainer/paid/external and require explicit go-ahead.
+
+### Smoke status (2026-05-27)
+
+- **Credit-free unit + integration layer — ✅ COMPLETE.** All 7 sub-plans implemented on `phase-3`, each through a two-stage (spec + code-quality) subagent review. `go build/vet/test ./...` green in both `relay/` and `license-tool/`; `scripts/verify-contract.sh` + `scripts/check-pins.sh` green; `go mod tidy` a no-op (stdlib-only, the only go.mod change is `license-tool`'s local `replace`). Covered credit-free: every adapter's wire mapping + auth + token-redaction via `httptest`; the router resolution matrix; Ed25519 sign/verify (tamper/wrong-key/expiry); the trial/free/licensed/bad-sig/hosted state machine with an ephemeral keypair + injected clock; the `Permits` gate; and the CLI keygen→sign→`relay/license.Verify` round-trip with a throwaway key. Final whole-implementation review: **READY TO MERGE** (gate traced airtight; frozen seam untouched).
+- **Step 6 (free-mode startup log) — ✅ confirmed** via a local relay boot with zendesk enabled + an expired trial: logged `mode=free` + `adapter "zendesk" requires a license — disabled`, zendesk absent from the router.
+- **Live steps 1–5 — ⏸ DEFERRED, pending maintainer (paid/external/secret).** Requires: the maintainer keygen pause (generate the real Ed25519 keypair, embed the public key in `relay/internal/license/embedded_key.go`, sign a short-lived zendesk+linear test license), a running Chatwoot instance + `CHATWOOT_TOKEN` for the live ticket, and (optionally) real Zendesk/Linear tokens. These run only with explicit maintainer go-ahead per the credit/secret guard.
 
 ## 8. Shared Contracts (SINGLE SOURCE OF TRUTH)
 
