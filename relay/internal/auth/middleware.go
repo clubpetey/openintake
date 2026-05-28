@@ -17,10 +17,10 @@ import (
 //          Verified:true, UserID, Email?, DisplayName?, Custom}.
 //       c. Bearer present but no verifier accepted → 401 unauthorized.
 //          (A present-but-invalid bearer is NEVER silently downgraded to anonymous.)
-//  2. No Authorization header:
-//       a. modesAnonymous=true AND X-Intake-Session present + store.Validate →
+//  2. No Authorization header (in runtime order):
+//       a. modesAnonymous=false → 401 (Phase 5 Q9 strict enforcement).
+//       b. modesAnonymous=true AND X-Intake-Session present + store.Validate →
 //          SessionContext{AuthMode:"anonymous"}.
-//       b. modesAnonymous=false → 401 (Phase 5 Q9 strict enforcement).
 //       c. otherwise → 401.
 //
 // The /init endpoint is NOT behind this middleware (it issues anonymous sessions).

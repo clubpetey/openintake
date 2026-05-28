@@ -359,12 +359,11 @@ func TestDispatcher_AnonymousFallthrough_Preserved(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("status = %d; want 200", status)
 	}
-	if sess.AuthMode != "anonymous" || sess.Verified {
-		t.Errorf("session = %+v; want AuthMode=anonymous Verified=false", sess)
-	}
-	if sess.SessionID != sid {
-		t.Errorf("session.SessionID = %q; want %q", sess.SessionID, sid)
-	}
+	requireFullSessionContext(t, sess, auth.SessionContext{
+		SessionID: sid,
+		AuthMode:  "anonymous",
+		Verified:  false,
+	})
 }
 
 func TestDispatcher_StrictAnonymous_RejectsValidSessionWhenModesAnonymousFalse(t *testing.T) {
@@ -393,15 +392,14 @@ func TestDispatcher_StrictAnonymous_PreservedPhase1DefaultBehavior(t *testing.T)
 
 	m := auth.NewMiddleware(store, nil, nil)
 	hit := false
+	var captured *auth.SessionContext
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hit = true
 		sess, ok := auth.FromContext(r.Context())
 		if !ok {
 			t.Fatal("SessionContext not attached")
 		}
-		if sess.AuthMode != "anonymous" {
-			t.Errorf("AuthMode = %q; want anonymous", sess.AuthMode)
-		}
+		captured = sess
 	})
 	req := httptest.NewRequest("POST", "/v1/intake/turn", nil)
 	req.Header.Set("X-Intake-Session", sessionID)
@@ -414,4 +412,9 @@ func TestDispatcher_StrictAnonymous_PreservedPhase1DefaultBehavior(t *testing.T)
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d; want 200 (default OK when next does not write)", rec.Code)
 	}
+	requireFullSessionContext(t, captured, auth.SessionContext{
+		SessionID: sessionID,
+		AuthMode:  "anonymous",
+		Verified:  false,
+	})
 }
