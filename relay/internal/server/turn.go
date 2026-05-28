@@ -11,18 +11,34 @@ import (
 )
 
 // initHandler handles POST /v1/intake/init.
-// Response: InitResponse{SessionID, Capabilities, Auth?}.
+// Response: InitResponse{SessionID, Capabilities, Auth?, Captcha?}.
 //
 // Phase 4: AuthModes includes "anonymous"/"email"/"sso" based on cfg.Auth.Modes;
 // InitResponse.Auth carries hints (currently just email.code_ttl_seconds).
+//
+// Phase 5 (5-i): when captcha gates one of the enabled auth modes, the response
+// also carries Capabilities.RequiresCaptcha + Captcha. The body may carry
+// captcha_token. If captcha is required but the token is missing, returns
+// 400 captcha_required with the same discovery fields so the widget can render
+// the challenge. (5-iii adds the actual verifier call.)
 func initHandler(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Auth == nil {
 			writeError(w, http.StatusInternalServerError, "internal", "auth not configured")
 			return
 		}
-		sessionID := deps.Auth.Store().Issue()
 
+		// Decode optional InitRequest. Empty body is allowed (and is the Phase 1
+		// behavior); a malformed body (non-empty + bad JSON) returns 400.
+		var initReq InitRequest
+		if r.ContentLength > 0 {
+			if err := json.NewDecoder(r.Body).Decode(&initReq); err != nil {
+				writeError(w, http.StatusBadRequest, "bad_request", "invalid request body: "+err.Error())
+				return
+			}
+		}
+
+		// Compute the auth modes list (4-ii).
 		modes := make([]string, 0, 3)
 		if deps.AuthCfg.Modes.Anonymous {
 			modes = append(modes, "anonymous")
@@ -33,20 +49,68 @@ func initHandler(deps Deps) http.HandlerFunc {
 		if deps.AuthCfg.Modes.SSO {
 			modes = append(modes, "sso")
 		}
-		// Backward compat: if no flag was set (somehow), preserve Phase-1 default.
 		if len(modes) == 0 {
 			modes = []string{"anonymous"}
 		}
 
+		// Compute the captcha discovery hint (5-i).
+		var captchaHint *InitCaptcha
+		var requiresCaptcha []string
+		if deps.CaptchaCfg.Enabled {
+			// requires_captcha = intersection(modes, deps.CaptchaCfg.RequiredFor)
+			rfSet := make(map[string]struct{}, len(deps.CaptchaCfg.RequiredFor))
+			for _, m := range deps.CaptchaCfg.RequiredFor {
+				rfSet[m] = struct{}{}
+			}
+			for _, m := range modes {
+				if _, ok := rfSet[m]; ok {
+					requiresCaptcha = append(requiresCaptcha, m)
+				}
+			}
+			if len(requiresCaptcha) > 0 {
+				captchaHint = &InitCaptcha{
+					Provider: deps.CaptchaCfg.Provider,
+					SiteKey:  deps.CaptchaCfg.SiteKey,
+				}
+			}
+		}
+
+		// If captcha is required and the body omits captcha_token, return 400
+		// captcha_required with the discovery fields (5-i shape; 5-iii adds
+		// the actual Verify call when the token IS present).
+		if len(requiresCaptcha) > 0 && initReq.CaptchaToken == "" {
+			writeJSON(w, http.StatusBadRequest, CaptchaRequiredResponse{
+				Error: ErrorBody{
+					Code:    "captcha_required",
+					Message: "call /init again with a solved captcha_token",
+				},
+				Capabilities: Capabilities{
+					AuthModes:       modes,
+					Streaming:       true,
+					RequiresCaptcha: requiresCaptcha,
+				},
+				Captcha: captchaHint,
+			})
+			return
+		}
+
+		// 5-iii: verify the captcha token now that we know it's present and required.
+		// (5-i leaves this as a one-line marker comment that 5-iii extends with the
+		// actual deps.CaptchaVerifier.Verify call; the missing-token branch above
+		// is what 5-i covers.)
+
+		sessionID := deps.Auth.Store().Issue()
+
 		resp := InitResponse{
 			SessionID: sessionID,
 			Capabilities: Capabilities{
-				AuthModes: modes,
-				Streaming: true,
+				AuthModes:       modes,
+				Streaming:       true,
+				RequiresCaptcha: requiresCaptcha,
 			},
+			Captcha: captchaHint,
 		}
 
-		// Per-mode hints: email's code_ttl_seconds (parsed from cfg).
 		if deps.AuthCfg.Modes.Email {
 			d, err := time.ParseDuration(deps.AuthCfg.Email.CodeTTL)
 			if err != nil {

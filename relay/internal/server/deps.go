@@ -2,12 +2,16 @@ package server
 
 import (
 	"log/slog"
+	"net/netip"
 
 	"intake/internal/auth"
+	"intake/internal/budget"
+	"intake/internal/captcha"
 	"intake/internal/classify"
 	"intake/internal/config"
 	"intake/internal/llm"
 	"intake/internal/payloadbuild"
+	"intake/internal/ratelimit/perip"
 	"intake/internal/router"
 	"intake/internal/version"
 )
@@ -70,4 +74,26 @@ type Deps struct {
 	// EmailService is the orchestrator for /auth/email/start and /auth/email/verify.
 	// nil when auth.modes.email is false (handlers respond 404 in that case).
 	EmailService *EmailService
+
+	// from 5-i (Phase 5):
+
+	// CaptchaCfg is the captcha section of the loaded config. initHandler reads
+	// it to decide whether to emit RequiresCaptcha + InitCaptcha hints and (with
+	// CaptchaVerifier) whether to demand a captcha_token in the request body.
+	CaptchaCfg config.CaptchaConfig
+
+	// CaptchaVerifier is the verifier instance. nil → "no captcha required"
+	// (initHandler treats nil + CaptchaCfg.Enabled=false the same way).
+	CaptchaVerifier captcha.Verifier
+
+	// Budget tracks the daily LLM spend. nil → no budget gate (unit tests of /init).
+	Budget *budget.Tracker
+
+	// PerIP is the per-IP rate limiter (used by perIPLimitMiddleware in server.New).
+	// nil → no per-IP gate.
+	PerIP *perip.Limiter
+
+	// TrustedProxies is the parsed CIDR list (parsed once at startup in main.go;
+	// consumed by clientIPMiddleware in server.New).
+	TrustedProxies []netip.Prefix
 }

@@ -15,12 +15,14 @@ type InitResponse struct {
 	SessionID    string       `json:"session_id"`
 	Capabilities Capabilities `json:"capabilities"`
 	Auth         *InitAuth    `json:"auth,omitempty"`
+	Captcha      *InitCaptcha `json:"captcha,omitempty"` // 5-i: nil when captcha disabled
 }
 
 // Capabilities advertises relay feature flags to the widget.
 type Capabilities struct {
-	AuthModes []string `json:"auth_modes"`
-	Streaming bool     `json:"streaming"`
+	AuthModes       []string `json:"auth_modes"`
+	Streaming       bool     `json:"streaming"`
+	RequiresCaptcha []string `json:"requires_captcha,omitempty"` // 5-i: subset of AuthModes; only when captcha gates ≥1 mode
 }
 
 // InitAuth carries per-mode initialization hints. Only emitted when at least
@@ -32,6 +34,29 @@ type InitAuth struct {
 // InitAuthEmail is the email-mode capability hint.
 type InitAuthEmail struct {
 	CodeTTLSeconds int `json:"code_ttl_seconds"`
+}
+
+// InitCaptcha carries the public CAPTCHA hint so the widget can render the
+// challenge. Phase 5.
+type InitCaptcha struct {
+	Provider string `json:"provider"` // "turnstile" | "hcaptcha"
+	SiteKey  string `json:"site_key"` // public; safe to commit
+}
+
+// InitRequest is the body of POST /v1/intake/init. Empty in v0 except for
+// the optional captcha token. Phase 5.
+type InitRequest struct {
+	CaptchaToken string `json:"captcha_token,omitempty"`
+}
+
+// CaptchaRequiredResponse is the 400 body shape returned when captcha is
+// required for the anonymous mode but the request omitted captcha_token.
+// Carries the same `capabilities` + `captcha` discovery fields as the success
+// path so the widget can render the challenge without a separate call. Phase 5.
+type CaptchaRequiredResponse struct {
+	Error        ErrorBody    `json:"error"`
+	Capabilities Capabilities `json:"capabilities"`
+	Captcha      *InitCaptcha `json:"captcha,omitempty"`
 }
 
 // TurnMessage is a single conversation turn (user or assistant).
