@@ -3,11 +3,11 @@ package server
 import (
 	"log/slog"
 
-	"intake/internal/adapter"
 	"intake/internal/auth"
 	"intake/internal/classify"
 	"intake/internal/llm"
 	"intake/internal/payloadbuild"
+	"intake/internal/router"
 	"intake/internal/version"
 )
 
@@ -49,10 +49,10 @@ type Deps struct {
 	// MaxTokens is the maximum output tokens per turn.
 	MaxTokens int
 
-	// from 1-iv (README §6.8):
+	// from 1-iv, generalized in 3-i:
 
-	// Adapter is the downstream ticket-system adapter (webhook in Phase 1).
-	Adapter adapter.Adapter
+	// Router resolves a submission to one downstream adapter (routing_hint→rules→default).
+	Router *router.Router
 
 	// Classifier runs the server-side triage LLM call at submit time.
 	Classifier *classify.Classifier

@@ -69,11 +69,18 @@ func submitHandler(deps Deps) http.HandlerFunc {
 			return
 		}
 
-		// Dispatch to adapter.
-		result, err := deps.Adapter.Create(ctx, p)
+		// Resolve the adapter for this submission, then dispatch.
+		ad, err := deps.Router.Route(p)
+		if err != nil {
+			slog.ErrorContext(ctx, "router: no adapter resolved", "error", err)
+			writeError(w, http.StatusBadGateway, "adapter_error", "no adapter available")
+			return
+		}
+
+		result, err := ad.Create(ctx, p)
 		if err != nil {
 			// Log full detail server-side (may include URLs/responses); client gets opaque message.
-			slog.ErrorContext(ctx, "adapter create failed", "adapter", deps.Adapter.Name(), "error", err)
+			slog.ErrorContext(ctx, "adapter create failed", "adapter", ad.Name(), "error", err)
 			writeError(w, http.StatusBadGateway, "adapter_error", "downstream adapter unavailable")
 			return
 		}

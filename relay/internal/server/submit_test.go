@@ -17,6 +17,7 @@ import (
 	"intake/internal/llm"
 	"intake/internal/payload"
 	"intake/internal/payloadbuild"
+	"intake/internal/router"
 	"intake/internal/server"
 
 	"intake/internal/adapter"
@@ -68,9 +69,13 @@ func buildSubmitDeps(fa adapter.Adapter) server.Deps {
 	provider := &fakeProviderSubmit{response: submitClassifyJSON}
 	classifier := classify.New(provider, "claude-sonnet-4-6", 512)
 	builder := payloadbuild.New("0.1.0")
+	rtr, err := router.New(map[string]adapter.Adapter{fa.Name(): fa}, nil, fa.Name(), nil)
+	if err != nil {
+		panic("buildSubmitDeps: router.New: " + err.Error())
+	}
 	return server.Deps{
 		Auth:       mw,
-		Adapter:    fa,
+		Router:     rtr,
 		Classifier: classifier,
 		Builder:    builder,
 	}
@@ -201,9 +206,13 @@ func TestSubmitHandler_IntegrationWithHttptestWebhook(t *testing.T) {
 	provider := &fakeProviderSubmit{response: submitClassifyJSON}
 	classifier := classify.New(provider, "claude-sonnet-4-6", 512)
 	builder := payloadbuild.New("0.1.0")
+	rtr, err := router.New(map[string]adapter.Adapter{wh.Name(): wh}, nil, wh.Name(), nil)
+	if err != nil {
+		t.Fatalf("router.New: %v", err)
+	}
 	deps := server.Deps{
 		Auth:       mw,
-		Adapter:    wh,
+		Router:     rtr,
 		Classifier: classifier,
 		Builder:    builder,
 	}
