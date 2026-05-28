@@ -22,6 +22,7 @@ import (
 	"intake/internal/auth"
 	"intake/internal/classify"
 	"intake/internal/config"
+	licensemgr "intake/internal/license"
 	"intake/internal/llm/providers"
 	"intake/internal/payloadbuild"
 	"intake/internal/router"
@@ -32,6 +33,7 @@ import (
 
 func main() {
 	configPath := flag.String("config", "config.yaml", "path to the relay config file")
+	licenseFile := flag.String("license-file", "", "path to license.json (overrides config license.file)")
 	flag.Parse()
 
 	// --- Logger (structured JSON to stdout) ---
@@ -43,6 +45,23 @@ func main() {
 		logger.Error("relay: config load failed", "error", err)
 		os.Exit(1)
 	}
+
+	// --- License (3-vi): flag overrides config.license.file, then env/default paths ---
+	if *licenseFile != "" {
+		cfg.License.File = *licenseFile
+	}
+	statePath, sperr := licensemgr.DefaultStatePath()
+	if sperr != nil {
+		logger.Warn("relay: cannot resolve trial-state path; trial will be ephemeral", "error", sperr)
+		statePath = ""
+	}
+	licState, err := licensemgr.Load(cfg.License, statePath, time.Now().UTC())
+	if err != nil {
+		// Bad signature / unreadable explicit license / present-license-but-no-embedded-key → fatal.
+		logger.Error("relay: license verification failed", "error", err)
+		os.Exit(1)
+	}
+	logger.Info("relay: license", "mode", licState.Mode, "detail", licState.Message)
 
 	// --- LLM Provider (via factory) ---
 	// providers.New resolves the required secret internally via config.RequireSecret /
@@ -76,7 +95,7 @@ func main() {
 	}
 
 	// --- Adapter registry (3-i; 3-ii…3-v add adapters; 3-vi adds the license gate) ---
-	registry, err := buildRegistry(cfg, logger)
+	registry, err := buildRegistry(cfg, licState, logger)
 	if err != nil {
 		logger.Error("relay: adapter registry build failed", "error", err)
 		os.Exit(1)
@@ -190,7 +209,7 @@ func activeModelConfig(cfg config.LLMConfig) (model string, maxTokens int) {
 // sub-plan (3-ii…3-v) adds its block here; 3-vi wraps paid adapters with the
 // license gate. Tokens resolve via config.ResolveSecret and are passed into
 // Configure — never read from the environment by the adapter, never logged.
-func buildRegistry(cfg *config.Config, logger *slog.Logger) (map[string]adapter.Adapter, error) {
+func buildRegistry(cfg *config.Config, licState *licensemgr.State, logger *slog.Logger) (map[string]adapter.Adapter, error) {
 	reg := make(map[string]adapter.Adapter)
 
 	// webhook (1-iv) — free.
@@ -246,40 +265,48 @@ func buildRegistry(cfg *config.Config, logger *slog.Logger) (map[string]adapter.
 		logger.Info("relay: adapter enabled", "adapter", fd.Name())
 	}
 
-	// zendesk (3-iv) — PAID. Registered ungated here; 3-vi wraps with the license gate.
+	// zendesk (3-iv) — PAID; gated (3-vi).
 	if cfg.Adapters.Zendesk.Enabled {
-		token, err := config.RequireSecret(cfg.Adapters.Zendesk.APITokenEnv)
-		if err != nil {
-			return nil, fmt.Errorf("zendesk adapter: %w", err)
+		if !licState.Permits("zendesk") {
+			logger.Warn(`relay: adapter "zendesk" requires a license — disabled`, "mode", licState.Mode, "see", licensemgr.PricingURL)
+		} else {
+			token, err := config.RequireSecret(cfg.Adapters.Zendesk.APITokenEnv)
+			if err != nil {
+				return nil, fmt.Errorf("zendesk adapter: %w", err)
+			}
+			zd := zendesk.New()
+			if err := zd.Configure(map[string]any{
+				"subdomain":        cfg.Adapters.Zendesk.Subdomain,
+				"email":            cfg.Adapters.Zendesk.Email,
+				"api_token":        token,
+				"default_priority": cfg.Adapters.Zendesk.DefaultPriority,
+			}); err != nil {
+				return nil, fmt.Errorf("zendesk adapter: %w", err)
+			}
+			reg[zd.Name()] = zd
+			logger.Info("relay: adapter enabled", "adapter", zd.Name())
 		}
-		zd := zendesk.New()
-		if err := zd.Configure(map[string]any{
-			"subdomain":        cfg.Adapters.Zendesk.Subdomain,
-			"email":            cfg.Adapters.Zendesk.Email,
-			"api_token":        token,
-			"default_priority": cfg.Adapters.Zendesk.DefaultPriority,
-		}); err != nil {
-			return nil, fmt.Errorf("zendesk adapter: %w", err)
-		}
-		reg[zd.Name()] = zd
-		logger.Info("relay: adapter enabled", "adapter", zd.Name())
 	}
 
-	// linear (3-v) — PAID. Registered ungated here; 3-vi wraps with the license gate.
+	// linear (3-v) — PAID; gated (3-vi).
 	if cfg.Adapters.Linear.Enabled {
-		key, err := config.RequireSecret(cfg.Adapters.Linear.APIKeyEnv)
-		if err != nil {
-			return nil, fmt.Errorf("linear adapter: %w", err)
+		if !licState.Permits("linear") {
+			logger.Warn(`relay: adapter "linear" requires a license — disabled`, "mode", licState.Mode, "see", licensemgr.PricingURL)
+		} else {
+			key, err := config.RequireSecret(cfg.Adapters.Linear.APIKeyEnv)
+			if err != nil {
+				return nil, fmt.Errorf("linear adapter: %w", err)
+			}
+			ln := linear.New()
+			if err := ln.Configure(map[string]any{
+				"api_key": key,
+				"team_id": cfg.Adapters.Linear.TeamID,
+			}); err != nil {
+				return nil, fmt.Errorf("linear adapter: %w", err)
+			}
+			reg[ln.Name()] = ln
+			logger.Info("relay: adapter enabled", "adapter", ln.Name())
 		}
-		ln := linear.New()
-		if err := ln.Configure(map[string]any{
-			"api_key": key,
-			"team_id": cfg.Adapters.Linear.TeamID,
-		}); err != nil {
-			return nil, fmt.Errorf("linear adapter: %w", err)
-		}
-		reg[ln.Name()] = ln
-		logger.Info("relay: adapter enabled", "adapter", ln.Name())
 	}
 
 	return reg, nil
