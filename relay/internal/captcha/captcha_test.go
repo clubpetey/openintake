@@ -3,7 +3,6 @@ package captcha_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -206,7 +205,6 @@ func TestTurnstile_HTTPClientTimeout_ReturnsErr(t *testing.T) {
 	}
 	// Don't pin the specific error type — Go's http client may wrap the deadline
 	// as net.Error, context.DeadlineExceeded, etc.
-	_ = errors.Is(verr, context.DeadlineExceeded) // not asserted, just confirm import is used
 }
 
 func TestTurnstile_RemoteIPForwarded(t *testing.T) {

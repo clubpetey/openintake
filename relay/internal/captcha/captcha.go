@@ -107,7 +107,12 @@ func (v *providerVerifier) Verify(ctx context.Context, token, remoteIP string) (
 		return false, "missing-input-response", nil
 	}
 
-	// Replay-protection: pre-check + eager eviction.
+	// Replay-protection: pre-check + eager eviction. The token is marked BEFORE
+	// the siteverify call so a transient 5xx outage burns the token (the client
+	// must request a fresh one). This is intentional: it prevents an attacker
+	// from spamming siteverify with the same token to bypass per-IP rate limits,
+	// and Cloudflare/hCaptcha tokens are single-use server-side anyway, so a
+	// reissue is the correct UX response to any siteverify failure.
 	if !v.markUnseenOrEvict(token) {
 		return false, "duplicate", nil
 	}
@@ -145,8 +150,11 @@ func (v *providerVerifier) Verify(ctx context.Context, token, remoteIP string) (
 	}
 
 	if !body.Success {
-		// Return the first error code as `reason`; if there are none, return a generic.
-		reason := "siteverify-rejected"
+		// Return the first provider-supplied error code as `reason`; if there are
+		// none, return a generic. Use "unknown-error" so a handler-side enumeration
+		// of known reasons covers this path naturally without a "siteverify-*"
+		// special case.
+		reason := "unknown-error"
 		if len(body.ErrorCodes) > 0 {
 			reason = body.ErrorCodes[0]
 		}
