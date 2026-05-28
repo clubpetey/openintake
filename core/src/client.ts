@@ -7,10 +7,16 @@ export class IntakeClient {
   private readonly config: IntakeConfig;
   private readonly fetch: typeof globalThis.fetch;
   private sessionId: string | null = null;
+  private bearerToken: string | null = null;
 
   constructor(config: IntakeConfig, fetchImpl?: typeof globalThis.fetch) {
     this.config = config;
     this.fetch = fetchImpl ?? globalThis.fetch;
+  }
+
+  /** Set (or clear) the bearer token sent in Authorization headers for turn() and submit(). */
+  setBearerToken(token: string | null): void {
+    this.bearerToken = token;
   }
 
   async init(): Promise<InitResponse> {
@@ -39,12 +45,16 @@ export class IntakeClient {
     }
 
     const url = `${this.config.relayUrl}/v1/intake/turn`;
+    const turnHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-Intake-Session': this.sessionId,
+    };
+    if (this.bearerToken !== null) {
+      turnHeaders['Authorization'] = `Bearer ${this.bearerToken}`;
+    }
     const res = await this.fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Intake-Session': this.sessionId,
-      },
+      headers: turnHeaders,
       body: JSON.stringify({ messages }),
     });
 
@@ -112,12 +122,16 @@ export class IntakeClient {
     };
 
     const url = `${this.config.relayUrl}/v1/intake/submit`;
+    const submitHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-Intake-Session': this.sessionId,
+    };
+    if (this.bearerToken !== null) {
+      submitHeaders['Authorization'] = `Bearer ${this.bearerToken}`;
+    }
     const res = await this.fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Intake-Session': this.sessionId,
-      },
+      headers: submitHeaders,
       body: JSON.stringify(body),
     });
 
