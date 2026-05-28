@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"intake/internal/adapter"
+	"intake/internal/adapter/chatwoot"
 	"intake/internal/adapter/webhook"
 	"intake/internal/auth"
 	"intake/internal/classify"
@@ -206,7 +207,26 @@ func buildRegistry(cfg *config.Config, logger *slog.Logger) (map[string]adapter.
 		logger.Info("relay: adapter enabled", "adapter", wh.Name())
 	}
 
-	// 3-ii chatwoot, 3-iii fider, 3-iv zendesk, 3-v linear are added here.
+	// chatwoot (3-ii) — free.
+	if cfg.Adapters.Chatwoot.Enabled {
+		token, err := config.RequireSecret(cfg.Adapters.Chatwoot.APITokenEnv)
+		if err != nil {
+			return nil, fmt.Errorf("chatwoot adapter: %w", err)
+		}
+		cw := chatwoot.New()
+		if err := cw.Configure(map[string]any{
+			"base_url":   cfg.Adapters.Chatwoot.BaseURL,
+			"account_id": cfg.Adapters.Chatwoot.AccountID,
+			"inbox_id":   cfg.Adapters.Chatwoot.InboxID,
+			"api_token":  token,
+		}); err != nil {
+			return nil, fmt.Errorf("chatwoot adapter: %w", err)
+		}
+		reg[cw.Name()] = cw
+		logger.Info("relay: adapter enabled", "adapter", cw.Name())
+	}
+
+	// 3-iii fider, 3-iv zendesk, 3-v linear are added here.
 
 	return reg, nil
 }
