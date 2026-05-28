@@ -366,3 +366,52 @@ func TestDispatcher_AnonymousFallthrough_Preserved(t *testing.T) {
 		t.Errorf("session.SessionID = %q; want %q", sess.SessionID, sid)
 	}
 }
+
+func TestDispatcher_StrictAnonymous_RejectsValidSessionWhenModesAnonymousFalse(t *testing.T) {
+	store := auth.NewStore()
+	sessionID := store.Issue()
+
+	m := auth.NewMiddlewareWithModes(store, nil, nil, false) // modesAnonymous=false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("next handler should not be invoked when modesAnonymous=false")
+	})
+
+	req := httptest.NewRequest("POST", "/v1/intake/turn", nil)
+	req.Header.Set("X-Intake-Session", sessionID)
+	rec := httptest.NewRecorder()
+	m.Handler(next).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d; want 401 (Q9 strict anonymous reject)", rec.Code)
+	}
+}
+
+func TestDispatcher_StrictAnonymous_PreservedPhase1DefaultBehavior(t *testing.T) {
+	// NewMiddleware (the Phase 1+4 constructor) must default modesAnonymous=true.
+	store := auth.NewStore()
+	sessionID := store.Issue()
+
+	m := auth.NewMiddleware(store, nil, nil)
+	hit := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit = true
+		sess, ok := auth.FromContext(r.Context())
+		if !ok {
+			t.Fatal("SessionContext not attached")
+		}
+		if sess.AuthMode != "anonymous" {
+			t.Errorf("AuthMode = %q; want anonymous", sess.AuthMode)
+		}
+	})
+	req := httptest.NewRequest("POST", "/v1/intake/turn", nil)
+	req.Header.Set("X-Intake-Session", sessionID)
+	rec := httptest.NewRecorder()
+	m.Handler(next).ServeHTTP(rec, req)
+
+	if !hit {
+		t.Fatal("next handler not invoked (Phase 1 regression!)")
+	}
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d; want 200 (default OK when next does not write)", rec.Code)
+	}
+}
