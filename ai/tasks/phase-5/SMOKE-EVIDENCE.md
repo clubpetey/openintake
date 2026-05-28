@@ -347,3 +347,46 @@ turn 3 = 503  {"error":{"code":"daily_budget_exhausted","message":"relay daily L
 This is a fixture/expectation mismatch in the task spec (Step 2 asserts turns 1-3 = 200 under a 100/100 budget with a 50/50 LLM — incompatible). The script-as-authored is the deliverable; the driver source compiles cleanly (`npx tsc --noEmit smoke/drive-abuse.ts` → no output), the YAML fixture loads cleanly (relay starts and logs `rate limits configured` with the expected values), and Smoke 1 demonstrates the per-IP gate end-to-end. The per-session gate and daily-budget gate were independently verified in 5-iv Tasks 5 and 6 (using isolated fixtures that pin one gate at a time).
 
 **Operator note:** to make `drive-abuse.ts` pass end-to-end without modifying the script, raise the budget cap in `abuse-driver.yaml` (e.g. `max_input_tokens: 1000, max_output_tokens: 1000`) so Smoke 2 completes all four turns before any budget consideration, then have Smoke 3 explicitly drain the budget on a tenant-keyed pre-pass. The minimal-change fix is left to a follow-up because Phase 5-iv's frozen-seams rule forbids modifying the driver script (the deliverable) and the per-gate isolation already passes in Tasks 4-6.
+
+## 5-iv Task 7 (re-run after fixture fix) — drive-abuse.ts (2026-05-28)
+
+**Fixture fix:** `relay/cmd/relay/smoke/abuse-driver.yaml` daily_llm_budget raised from (100, 100) to (150, 150) so per-session cap (max_turns=3) fires before budget on turn 4 of Smoke 2.
+
+Math justification (estIn=1, estOut=50, fake-llm reports in=50/out=50 per Commit):
+- T1: Reserve at (0,0) → 0+50=50 ≤ 150, allow. Commit → (50,50). turns=1.
+- T2: Reserve at (50,50) → 50+50=100 ≤ 150, allow. Commit → (100,100). turns=2.
+- T3: Reserve at (100,100) → 100+50=150 ≤ 150, allow. Commit → (150,150). turns=3.
+- T4: per-session gate (turns=3 ≥ max_turns=3) rejects with 429 `session_turns_exhausted` before budget is consulted.
+- Smoke 3 fresh session, T1: Reserve at (150,150) → 150+50=200 > 150 → 503 `daily_budget_exhausted`.
+
+**Driver output:**
+```
+abuse smoke: RELAY_URL=http://127.0.0.1:18080
+
+=== Smoke 1: per-IP burst (10 inits) ===
+init status codes: [
+  200, 200, 200, 200,
+  200, 429, 429, 429,
+  429, 429
+]
+OK: per-IP burst produces some 200 and some 429
+waiting 6s for per-IP bucket to refill...
+
+=== Smoke 2: per-session cap (4 turns; cap=3) ===
+session: 6627030b-9860-4714-acf4-4c4b1d8f604a
+OK: turn 1 returns 200
+OK: turn 2 returns 200
+OK: turn 3 returns 200
+OK: turn 4 returns 429
+OK: body contains session_turns_exhausted
+OK: Retry-After header present and >=1
+
+=== Smoke 3: daily budget exhaust ===
+OK: turn 1 of fresh session returns 503 or 429 (got 503)
+OK: body contains daily_budget_exhausted
+OK: Retry-After header present and >=1
+
+✓ All Phase 5 abuse smokes passed.
+```
+
+**Verdict:** PASS — all three abuse gates verified end-to-end via the @intake/core-style fetch driver.

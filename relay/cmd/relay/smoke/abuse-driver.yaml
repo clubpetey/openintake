@@ -23,8 +23,8 @@ ratelimit:
     max_input_tokens: 1000
     session_ttl: "1h"
   daily_llm_budget:
-    max_input_tokens: 100
-    max_output_tokens: 100
+    max_input_tokens: 150
+    max_output_tokens: 150
     action_on_exceeded: "reject"
 adapters:
   webhook:
