@@ -152,3 +152,27 @@ Linear's GraphQL `IssueCreateInput.teamId` requires a UUID like `9ddb7234-31d1-4
 Reference: `relay/internal/adapter/linear/linear.go` `resolveTeamKey` + `Configure`; tests `TestLinearConfigure_UUIDPassthrough`, `_KeyResolved_HappyPath`, `_KeyNotFound`, `_ResolveGraphQLErrors`, `_ResolveNon2xx`, `_ResolveNetworkError`.
 
 ---
+
+### L013: When verifying JWTs, ALWAYS pin the algorithm via `WithValidMethods` to mitigate alg-confusion attacks
+
+The classic JWT alg-confusion attack: an attacker takes a token expected to be RS256 (verifier holds the public key), changes the header `alg` to HS256, and signs the modified token using the RS256 public key as the HMAC secret. If the verifier passes the RS256 public key into the HMAC verification path without checking `alg`, the signature validates. Result: the attacker forges arbitrary claims with only the public key.
+
+**Where it hit:** Phase 4 SSO design. Both `RS256Verifier` and `HS256Verifier` in `relay/internal/auth/sso/` consume tokens via the same `golang-jwt/jwt/v5` parser. Without explicit alg-pinning the parser would accept either alg.
+
+**Rule:** every `jwt.ParseWithClaims` (or `jwt.Parse`) call MUST pass `jwt.WithValidMethods([]string{"<expected-alg>"})`. Test the rejection explicitly — for an RS256 verifier, mint an HS256 token using the RSA public-key bytes as the HMAC secret and assert rejection. Same in reverse for HS256. The rejection test is a load-bearing security assertion; if it ever flakes or gets disabled, the verifier is broken.
+
+Reference: `relay/internal/auth/sso/{rs256.go,hs256.go}`; tests `TestRS256Verifier_RejectsHS256Token`, `TestHS256Verifier_RejectsRS256Token`.
+
+---
+
+### L014: In-memory rate-limiters (per-key TTL + sliding window cap) need an injectable clock for testable semantics
+
+A naive in-memory rate-limiter that reads `time.Now()` directly inside `Issue`/`Verify` cannot be tested deterministically — TTL expiry and sliding-window resets require either real wall-clock waits (`time.Sleep` makes tests slow and racy) or compromising the production code path with conditional test hooks. The clean answer is a single injectable `now func() time.Time` field set at construction.
+
+**Where it hit:** Phase 4 `relay/internal/auth/emailcode`. The Store has a 10-min code TTL + a 3-codes-per-10-min sliding window. Tests need to advance virtual time past the window to assert reset, past the TTL to assert eviction, and to a specific instant to assert single-use post-verify. With `now func() time.Time` injected, the test passes a closure that returns a controlled `time.Time`; production passes `time.Now`.
+
+**Rule:** any in-memory TTL/window primitive must take `now func() time.Time` (or equivalent) at construction. The internal code path always calls `s.now()` rather than `time.Now()` directly. Eager-eviction (prune on Issue/Verify) is preferred over a background goroutine for v0 — simpler, no race surface, and the per-op cost is trivial for the small key counts we expect (one entry per pending email).
+
+Reference: `relay/internal/auth/emailcode/store.go`; tests in `relay/internal/auth/emailcode/store_test.go`.
+
+---
