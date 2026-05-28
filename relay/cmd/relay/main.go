@@ -16,6 +16,7 @@ import (
 	"intake/internal/adapter"
 	"intake/internal/adapter/chatwoot"
 	"intake/internal/adapter/fider"
+	"intake/internal/adapter/linear"
 	"intake/internal/adapter/webhook"
 	"intake/internal/adapter/zendesk"
 	"intake/internal/auth"
@@ -264,7 +265,22 @@ func buildRegistry(cfg *config.Config, logger *slog.Logger) (map[string]adapter.
 		logger.Info("relay: adapter enabled", "adapter", zd.Name())
 	}
 
-	// 3-v linear is added here.
+	// linear (3-v) — PAID. Registered ungated here; 3-vi wraps with the license gate.
+	if cfg.Adapters.Linear.Enabled {
+		key, err := config.RequireSecret(cfg.Adapters.Linear.APIKeyEnv)
+		if err != nil {
+			return nil, fmt.Errorf("linear adapter: %w", err)
+		}
+		ln := linear.New()
+		if err := ln.Configure(map[string]any{
+			"api_key": key,
+			"team_id": cfg.Adapters.Linear.TeamID,
+		}); err != nil {
+			return nil, fmt.Errorf("linear adapter: %w", err)
+		}
+		reg[ln.Name()] = ln
+		logger.Info("relay: adapter enabled", "adapter", ln.Name())
+	}
 
 	return reg, nil
 }
