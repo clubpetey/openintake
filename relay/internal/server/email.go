@@ -63,7 +63,7 @@ func emailStartHandler(deps Deps) http.HandlerFunc {
 				seconds = 1
 			}
 			w.Header().Set("Retry-After", strconv.Itoa(seconds))
-			writeError(w, http.StatusTooManyRequests, "rate_limited", "too many requests; retry later")
+			writeError(w, http.StatusTooManyRequests, "rate_limited", "too many codes requested for this email; retry later")
 			return
 		case errors.Is(err, ErrSMTP):
 			// Log the underlying detail server-side; the body stays generic.

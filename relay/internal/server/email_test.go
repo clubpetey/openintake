@@ -138,6 +138,9 @@ func TestEmailStart_RateLimited_429_WithRetryAfter(t *testing.T) {
 	if !strings.Contains(body, "rate_limited") {
 		t.Errorf("429 body missing error.code rate_limited: %s", body)
 	}
+	if !strings.Contains(body, "too many codes requested for this email") {
+		t.Errorf("429 body missing frozen-contract message text: %s", body)
+	}
 	if strings.Contains(body, "4") || strings.Contains(body, "count") || strings.Contains(body, "window") {
 		t.Errorf("429 body must not expose count/window detail: %s", body)
 	}
