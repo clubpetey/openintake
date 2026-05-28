@@ -109,3 +109,68 @@ Content-Length: 74
 **Verdict:** PASS — Retry-After header present with value `1` (rounded-up seconds; floor 1 per RFC 9110 / `setRetryAfter` helper from 5-ii Task 4 commit `99a9e1b`).
 
 **Overall:** Phase 5-ii Task 1's `perip.Limiter` verified at runtime. The /v1/intake-only routing (5-i Task 7) confirmed via the /v1/health control returning 10×200 against the identical burst pattern that produced 5×429 on /v1/intake/init.
+
+## 5-iv Task 5 — Per-session cap smoke (2026-05-28)
+
+**Config:** `relay/cmd/relay/smoke/session-cap-test.yaml`
+
+**Setup:**
+- `ratelimit.per_session.max_turns: 3`, `session_ttl: 1h`
+- `llm.provider: "ollama"` pointing at the fake-llm on `127.0.0.1:11434` (`--input-tokens 50 --output-tokens 25`) — no LLM credit consumed.
+- `ratelimit.per_ip.requests_per_second: 100.0`, `burst: 1000` (intentionally very high so the per-IP gate cannot interfere — this smoke isolates the per-session gate).
+- `auth.modes.anonymous: true`, `allow_without_captcha: true`.
+- No env vars required (provider=ollama; `ollama.bearer_token_env` is empty so `config.ResolveSecret("")` returns `("", nil)`).
+
+**Smoke (4 turns against the same session):**
+- Turn 1: `HTTP/1.1 200` SSE stream completes
+- Turn 2: 200
+- Turn 3: 200
+- Turn 4: `HTTP/1.1 429` with body `{"error":{"code":"session_turns_exhausted","message":"session turn limit reached"}}` + `Retry-After: 3599`
+
+```
+$ SESSION=$(curl -s -X POST http://127.0.0.1:18080/v1/intake/init -d '{}' | grep -oE '"session_id":"[^"]+"' | sed 's/"session_id":"//; s/"//')
+$ echo "Session: $SESSION"
+Session: f303484c-13e3-4651-b5c7-b5c50bd93a25
+
+$ for i in 1 2 3 4; do
+    HEADERS_AND_BODY=$(curl -s -D- -X POST http://127.0.0.1:18080/v1/intake/turn \
+      -H "X-Intake-Session: $SESSION" \
+      -H "Accept: text/event-stream" \
+      -d '{"messages":[{"role":"user","content":"hi"}]}')
+    ...
+  done
+
+=== Turn 1 ===
+HTTP/1.1 200 OK
+Cache-Control: no-cache
+Connection: keep-alive
+Content-Type: text/event-stream
+Vary: Origin
+Transfer-Encoding: chunked
+
+data: {"delta":"ok"}
+
+data: {"done":true,"input_tokens":50,"output_tokens":25}
+
+=== Turn 2 ===
+HTTP/1.1 200 OK
+...same SSE shape as Turn 1...
+
+=== Turn 3 ===
+HTTP/1.1 200 OK
+...same SSE shape as Turn 1...
+
+=== Turn 4 ===
+HTTP/1.1 429 Too Many Requests
+Content-Type: application/json
+Retry-After: 3599
+Vary: Origin
+Content-Length: 83
+
+{"error":{"code":"session_turns_exhausted","message":"session turn limit reached"}}
+```
+
+**Verdict:** PASS — per-session cap correctly rejects the 4th turn (max_turns=3). `Retry-After: 3599` is the remaining session TTL (session_ttl=1h, smoke completed in <1s), matching the `setRetryAfter` (5-ii Task 4) round-up behavior.
+
+**Overall:** Phase 5-ii Task 3's `auth.Store.CheckSession` + Task 4's `turnHandler` integration verified at runtime against a real `intake-relay` binary + the credit-free fake-llm (5-iv Task 1). The full LLM streaming path was exercised on turns 1-3 (SSE delta + done frames present), and the cap check correctly fires BEFORE provider.Chat on turn 4 (no upstream call to the fake-llm).
+
