@@ -126,8 +126,8 @@ func (a *Adapter) Create(ctx context.Context, p *payload.IntakePayload) (*adapte
 	respBody, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		// Non-2xx: surface status + a truncated body, NEVER the api key.
-		return nil, fmt.Errorf("linear: graphql endpoint returned %d: %s", resp.StatusCode, truncate(string(respBody), 200))
+		// Non-2xx: redact first so a key in the body can't survive, then truncate.
+		return nil, fmt.Errorf("linear: graphql endpoint returned %d: %s", resp.StatusCode, truncate(a.redact(string(respBody)), 200))
 	}
 
 	var parsed issueCreateResponse
@@ -135,10 +135,8 @@ func (a *Adapter) Create(ctx context.Context, p *payload.IntakePayload) (*adapte
 		return nil, fmt.Errorf("linear: decode response: %w", err)
 	}
 	if len(parsed.Errors) > 0 {
-		// Redact the api key from GraphQL error messages before surfacing them.
-		// GraphQL errors can echo request context; we must never let the key appear.
-		msg := truncate(joinErrors(parsed.Errors), 200)
-		msg = a.redact(msg)
+		// Redact BEFORE truncate: truncation could split the key and defeat redaction.
+		msg := truncate(a.redact(joinErrors(parsed.Errors)), 200)
 		return nil, fmt.Errorf("linear: graphql errors: %s", msg)
 	}
 	ic := parsed.Data.IssueCreate
@@ -149,6 +147,9 @@ func (a *Adapter) Create(ctx context.Context, p *payload.IntakePayload) (*adapte
 	externalID := ic.Issue.ID
 	if externalID == "" {
 		externalID = ic.Issue.Identifier
+	}
+	if externalID == "" {
+		return nil, fmt.Errorf("linear: issueCreate returned an issue with no id or identifier")
 	}
 	return &adapter.CreateResult{
 		ExternalID:  externalID,
@@ -187,8 +188,8 @@ func (a *Adapter) HealthCheck(ctx context.Context) error {
 		} `json:"errors"`
 	}
 	if err := json.Unmarshal(respBody, &parsed); err == nil && len(parsed.Errors) > 0 {
-		msg := truncate(joinErrors(parsed.Errors), 200)
-		msg = a.redact(msg)
+		// Redact BEFORE truncate: truncation could split the key and defeat redaction.
+		msg := truncate(a.redact(joinErrors(parsed.Errors)), 200)
 		return fmt.Errorf("linear health: graphql errors: %s", msg)
 	}
 	return nil

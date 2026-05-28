@@ -224,6 +224,86 @@ func TestLinearRequiresLicense(t *testing.T) {
 	}
 }
 
+// TestLinearCreate_SuccessTrueNilIssue asserts that success:true with a null issue
+// is treated as a failure (the ic.Issue == nil arm).
+func TestLinearCreate_SuccessTrueNilIssue(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"data":{"issueCreate":{"success":true,"issue":null}}}`))
+	}))
+	defer srv.Close()
+
+	a := configured(t, srv.URL)
+	_, err := a.Create(context.Background(), minimalPayload())
+	if err == nil {
+		t.Fatal("expected error when issueCreate returns success:true but issue is null")
+	}
+}
+
+// TestLinearCreate_KeyNeverLeaks_LongPrefix locks the redact-before-truncate ordering.
+// The server echoes a message where the api key is preceded by 180 chars of filler,
+// so truncate-then-redact would clip the key out of range and let it survive in the error.
+func TestLinearCreate_KeyNeverLeaks_LongPrefix(t *testing.T) {
+	longPrefix := strings.Repeat("x", 180)
+	echoMsg := longPrefix + " token " + testAPIKey + " is invalid"
+	body, _ := json.Marshal(map[string]any{
+		"errors": []map[string]any{{"message": echoMsg}},
+	})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+
+	a := configured(t, srv.URL)
+	_, err := a.Create(context.Background(), minimalPayload())
+	if err == nil {
+		t.Fatal("expected error on GraphQL errors response")
+	}
+	if strings.Contains(err.Error(), testAPIKey) {
+		t.Errorf("api key leaked after long-prefix truncation; got error: %v", err)
+	}
+}
+
+// TestLinearHealthCheck_OK asserts a 200 with a valid viewer response returns nil,
+// and also verifies the raw Authorization header equals the api key.
+func TestLinearHealthCheck_OK(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"data":{"viewer":{"id":"u1"}}}`))
+	}))
+	defer srv.Close()
+
+	a := configured(t, srv.URL)
+	if err := a.HealthCheck(context.Background()); err != nil {
+		t.Fatalf("HealthCheck returned unexpected error: %v", err)
+	}
+	if gotAuth != testAPIKey {
+		t.Errorf("Authorization = %q; want raw api key %q", gotAuth, testAPIKey)
+	}
+}
+
+// TestLinearHealthCheck_GraphQLError asserts that a 200 response containing a
+// non-empty GraphQL errors array causes HealthCheck to return an error.
+func TestLinearHealthCheck_GraphQLError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"errors":[{"message":"nope"}]}`))
+	}))
+	defer srv.Close()
+
+	a := configured(t, srv.URL)
+	if err := a.HealthCheck(context.Background()); err == nil {
+		t.Fatal("expected error when HealthCheck response contains GraphQL errors")
+	}
+}
+
 // TestLinearCreate_KeyNeverLeaks is the explicit redaction assertion: across the
 // GraphQL-error and non-2xx failure paths, the api key must never appear in the
 // returned error string.
