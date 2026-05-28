@@ -1,6 +1,8 @@
 package auth_test
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -22,7 +24,7 @@ func sentinelHandler(called *bool, captured **auth.SessionContext) http.Handler 
 func TestMiddleware_ValidSession_AttachesContext(t *testing.T) {
 	store := auth.NewStore()
 	id := store.Issue()
-	mw := auth.NewMiddleware(store)
+	mw := auth.NewMiddleware(store, nil, nil)
 
 	var called bool
 	var captured *auth.SessionContext
@@ -56,7 +58,7 @@ func TestMiddleware_ValidSession_AttachesContext(t *testing.T) {
 
 func TestMiddleware_MissingSession_Returns401(t *testing.T) {
 	store := auth.NewStore()
-	mw := auth.NewMiddleware(store)
+	mw := auth.NewMiddleware(store, nil, nil)
 
 	var called bool
 	var captured *auth.SessionContext
@@ -77,7 +79,7 @@ func TestMiddleware_MissingSession_Returns401(t *testing.T) {
 
 func TestMiddleware_InvalidSession_Returns401(t *testing.T) {
 	store := auth.NewStore()
-	mw := auth.NewMiddleware(store)
+	mw := auth.NewMiddleware(store, nil, nil)
 
 	var called bool
 	var captured *auth.SessionContext
@@ -97,24 +99,225 @@ func TestMiddleware_InvalidSession_Returns401(t *testing.T) {
 	}
 }
 
-func TestMiddleware_BearerToken_Returns501(t *testing.T) {
-	store := auth.NewStore()
-	mw := auth.NewMiddleware(store)
+// --- stubs for the new dispatcher tests (4-i) ---
 
-	var called bool
-	var captured *auth.SessionContext
-	next := sentinelHandler(&called, &captured)
+type stubEmailVerifier struct {
+	wantToken string
+	email     string
+	err       error
+}
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/intake/turn", nil)
-	req.Header.Set("Authorization", "Bearer eyJhbGciOiJSUzI1NiJ9.fake.token")
-	rr := httptest.NewRecorder()
-
-	mw.Handler(next).ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusNotImplemented {
-		t.Fatalf("status = %d; want 501", rr.Code)
+func (s *stubEmailVerifier) Verify(token string) (string, error) {
+	if s.err != nil {
+		return "", s.err
 	}
-	if called {
-		t.Error("next handler was called; should not have been for Bearer 501 seam")
+	if s.wantToken != "" && token != s.wantToken {
+		return "", errors.New("stub: token mismatch")
+	}
+	return s.email, nil
+}
+
+type stubSSOVerifier struct {
+	wantToken string
+	claims    *auth.SSOClaims
+	err       error
+}
+
+func (s *stubSSOVerifier) Verify(_ context.Context, token string) (*auth.SSOClaims, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	if s.wantToken != "" && token != s.wantToken {
+		return nil, errors.New("stub: token mismatch")
+	}
+	return s.claims, nil
+}
+
+// alwaysFail satisfies the EmailJWTVerifier interface and always returns an error.
+type alwaysFail struct{}
+
+func (alwaysFail) Verify(string) (string, error) { return "", errors.New("stub: always fails") }
+
+type alwaysFailSSO struct{}
+
+func (alwaysFailSSO) Verify(context.Context, string) (*auth.SSOClaims, error) {
+	return nil, errors.New("stub: always fails")
+}
+
+// runRequest is a small helper that runs an http.Request through a middleware
+// and a no-op `next` handler that captures the resolved SessionContext.
+func runRequest(t *testing.T, mw *auth.Middleware, r *http.Request) (status int, sess *auth.SessionContext) {
+	t.Helper()
+	rr := httptest.NewRecorder()
+	mw.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sess, _ = auth.FromContext(r.Context())
+		w.WriteHeader(http.StatusOK)
+	})).ServeHTTP(rr, r)
+	return rr.Code, sess
+}
+
+// --- New dispatcher tests (4-i) ---
+
+func TestDispatcher_EmailModeOnly_ValidToken(t *testing.T) {
+	store := auth.NewStore()
+	email := &stubEmailVerifier{wantToken: "valid-token", email: "user@example.com"}
+	mw := auth.NewMiddleware(store, email, nil)
+
+	r := httptest.NewRequest(http.MethodPost, "/v1/intake/turn", nil)
+	r.Header.Set("Authorization", "Bearer valid-token")
+
+	status, sess := runRequest(t, mw, r)
+
+	if status != http.StatusOK {
+		t.Fatalf("status = %d; want 200", status)
+	}
+	if sess == nil {
+		t.Fatal("session not attached")
+	}
+	if sess.AuthMode != "email" || !sess.Verified {
+		t.Errorf("session = %+v; want AuthMode=email Verified=true", sess)
+	}
+	if sess.Email == nil || *sess.Email != "user@example.com" {
+		t.Errorf("session.Email = %v; want user@example.com", sess.Email)
+	}
+}
+
+func TestDispatcher_EmailModeOnly_InvalidToken_401(t *testing.T) {
+	store := auth.NewStore()
+	email := alwaysFail{}
+	mw := auth.NewMiddleware(store, email, nil)
+
+	r := httptest.NewRequest(http.MethodPost, "/v1/intake/turn", nil)
+	r.Header.Set("Authorization", "Bearer bogus")
+
+	status, sess := runRequest(t, mw, r)
+
+	if status != http.StatusUnauthorized {
+		t.Fatalf("status = %d; want 401", status)
+	}
+	if sess != nil {
+		t.Errorf("session should not be attached on failure; got %+v", sess)
+	}
+}
+
+func TestDispatcher_SSOModeOnly_ValidToken(t *testing.T) {
+	store := auth.NewStore()
+	email := "user@sso.example"
+	name := "Alice User"
+	sso := &stubSSOVerifier{
+		wantToken: "valid-sso",
+		claims: &auth.SSOClaims{
+			UserID:      "auth0|abc123",
+			Email:       &email,
+			DisplayName: &name,
+		},
+	}
+	mw := auth.NewMiddleware(store, nil, sso)
+
+	r := httptest.NewRequest(http.MethodPost, "/v1/intake/turn", nil)
+	r.Header.Set("Authorization", "Bearer valid-sso")
+
+	status, sess := runRequest(t, mw, r)
+
+	if status != http.StatusOK {
+		t.Fatalf("status = %d; want 200", status)
+	}
+	if sess.AuthMode != "sso" || !sess.Verified {
+		t.Errorf("session = %+v; want AuthMode=sso Verified=true", sess)
+	}
+	if sess.UserID == nil || *sess.UserID != "auth0|abc123" {
+		t.Errorf("session.UserID = %v; want auth0|abc123", sess.UserID)
+	}
+	if sess.Email == nil || *sess.Email != "user@sso.example" {
+		t.Errorf("session.Email = %v", sess.Email)
+	}
+}
+
+func TestDispatcher_BothModes_EmailWinsWhenValid(t *testing.T) {
+	store := auth.NewStore()
+	email := &stubEmailVerifier{email: "user@example.com"}
+	sso := alwaysFailSSO{}
+	mw := auth.NewMiddleware(store, email, sso)
+
+	r := httptest.NewRequest(http.MethodPost, "/v1/intake/turn", nil)
+	r.Header.Set("Authorization", "Bearer any")
+
+	_, sess := runRequest(t, mw, r)
+
+	if sess == nil || sess.AuthMode != "email" {
+		t.Errorf("session.AuthMode = %v; want email (email tried first)", sess)
+	}
+}
+
+func TestDispatcher_BothModes_SSOReachedWhenEmailFails(t *testing.T) {
+	store := auth.NewStore()
+	email := alwaysFail{}
+	sub := "user-from-sso"
+	sso := &stubSSOVerifier{claims: &auth.SSOClaims{UserID: sub}}
+	mw := auth.NewMiddleware(store, email, sso)
+
+	r := httptest.NewRequest(http.MethodPost, "/v1/intake/turn", nil)
+	r.Header.Set("Authorization", "Bearer any")
+
+	_, sess := runRequest(t, mw, r)
+
+	if sess == nil || sess.AuthMode != "sso" {
+		t.Errorf("session.AuthMode = %v; want sso (fall-through)", sess)
+	}
+	if sess.UserID == nil || *sess.UserID != sub {
+		t.Errorf("session.UserID = %v; want %s", sess.UserID, sub)
+	}
+}
+
+func TestDispatcher_BothModes_BothFail_401(t *testing.T) {
+	store := auth.NewStore()
+	mw := auth.NewMiddleware(store, alwaysFail{}, alwaysFailSSO{})
+
+	r := httptest.NewRequest(http.MethodPost, "/v1/intake/turn", nil)
+	r.Header.Set("Authorization", "Bearer bogus")
+
+	status, _ := runRequest(t, mw, r)
+
+	if status != http.StatusUnauthorized {
+		t.Fatalf("status = %d; want 401", status)
+	}
+}
+
+func TestDispatcher_NoModes_BearerPresent_401(t *testing.T) {
+	// Regression: even if both modes are off, a bearer must NOT silently downgrade
+	// to anonymous. Phase 1 returned 501 here; 4-i changes that to 401.
+	store := auth.NewStore()
+	store.Issue() // session exists but bearer should still 401
+	mw := auth.NewMiddleware(store, nil, nil)
+
+	r := httptest.NewRequest(http.MethodPost, "/v1/intake/turn", nil)
+	r.Header.Set("Authorization", "Bearer something")
+
+	status, _ := runRequest(t, mw, r)
+
+	if status != http.StatusUnauthorized {
+		t.Fatalf("status = %d; want 401 (bearer must not silently downgrade)", status)
+	}
+}
+
+func TestDispatcher_AnonymousFallthrough_Preserved(t *testing.T) {
+	// Phase 1 behavior: no Authorization header + valid X-Intake-Session = anonymous.
+	store := auth.NewStore()
+	sid := store.Issue()
+	mw := auth.NewMiddleware(store, nil, nil)
+
+	r := httptest.NewRequest(http.MethodPost, "/v1/intake/turn", nil)
+	r.Header.Set("X-Intake-Session", sid)
+
+	status, sess := runRequest(t, mw, r)
+
+	if status != http.StatusOK {
+		t.Fatalf("status = %d; want 200", status)
+	}
+	if sess.AuthMode != "anonymous" || sess.Verified {
+		t.Errorf("session = %+v; want AuthMode=anonymous Verified=false", sess)
+	}
+	if sess.SessionID != sid {
+		t.Errorf("session.SessionID = %q; want %q", sess.SessionID, sid)
 	}
 }
