@@ -1,0 +1,18 @@
+server:
+  addr: ":18080"
+  external_url: "http://127.0.0.1:18080"
+  cors_origins: ["http://localhost:5173"]
+auth:
+  modes:
+    anonymous: false       # Q9 strict: dispatcher MUST reject anonymous even with valid X-Intake-Session
+  anonymous:
+    allow_without_captcha: true   # silence the Q9 startup gate (anonymous is OFF so the gate is vacuously satisfied)
+ratelimit:
+  daily_llm_budget:
+    action_on_exceeded: "reject"
+adapters:
+  webhook:
+    enabled: true
+    url: "http://127.0.0.1:19099/intake"
+routing:
+  default_adapter: "webhook"
