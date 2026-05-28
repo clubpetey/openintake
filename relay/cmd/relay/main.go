@@ -17,6 +17,7 @@ import (
 	"intake/internal/adapter/chatwoot"
 	"intake/internal/adapter/fider"
 	"intake/internal/adapter/webhook"
+	"intake/internal/adapter/zendesk"
 	"intake/internal/auth"
 	"intake/internal/classify"
 	"intake/internal/config"
@@ -244,7 +245,26 @@ func buildRegistry(cfg *config.Config, logger *slog.Logger) (map[string]adapter.
 		logger.Info("relay: adapter enabled", "adapter", fd.Name())
 	}
 
-	// 3-iv zendesk, 3-v linear are added here.
+	// zendesk (3-iv) — PAID. Registered ungated here; 3-vi wraps with the license gate.
+	if cfg.Adapters.Zendesk.Enabled {
+		token, err := config.RequireSecret(cfg.Adapters.Zendesk.APITokenEnv)
+		if err != nil {
+			return nil, fmt.Errorf("zendesk adapter: %w", err)
+		}
+		zd := zendesk.New()
+		if err := zd.Configure(map[string]any{
+			"subdomain":        cfg.Adapters.Zendesk.Subdomain,
+			"email":            cfg.Adapters.Zendesk.Email,
+			"api_token":        token,
+			"default_priority": cfg.Adapters.Zendesk.DefaultPriority,
+		}); err != nil {
+			return nil, fmt.Errorf("zendesk adapter: %w", err)
+		}
+		reg[zd.Name()] = zd
+		logger.Info("relay: adapter enabled", "adapter", zd.Name())
+	}
+
+	// 3-v linear is added here.
 
 	return reg, nil
 }
