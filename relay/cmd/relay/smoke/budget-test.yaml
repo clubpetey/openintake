@@ -1,0 +1,34 @@
+server:
+  addr: ":18080"
+  external_url: "http://127.0.0.1:18080"
+  cors_origins: ["http://localhost:5173"]
+llm:
+  provider: "ollama"
+  ollama:
+    base_url: "http://127.0.0.1:11434"
+    model: "fake"
+    max_tokens: 50
+auth:
+  modes:
+    anonymous: true
+  anonymous:
+    allow_without_captcha: true
+ratelimit:
+  per_ip:
+    requests_per_second: 100.0    # high to isolate budget gate
+    burst: 1000
+    idle_ttl: "15m"
+  per_session:
+    max_turns: 100               # high to isolate budget gate
+    max_input_tokens: 100000
+    session_ttl: "1h"
+  daily_llm_budget:
+    max_input_tokens: 100
+    max_output_tokens: 100
+    action_on_exceeded: "reject"
+adapters:
+  webhook:
+    enabled: true
+    url: "http://127.0.0.1:19099/intake"
+routing:
+  default_adapter: "webhook"

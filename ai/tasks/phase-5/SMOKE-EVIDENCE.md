@@ -174,3 +174,124 @@ Content-Length: 83
 
 **Overall:** Phase 5-ii Task 3's `auth.Store.CheckSession` + Task 4's `turnHandler` integration verified at runtime against a real `intake-relay` binary + the credit-free fake-llm (5-iv Task 1). The full LLM streaming path was exercised on turns 1-3 (SSE delta + done frames present), and the cap check correctly fires BEFORE provider.Chat on turn 4 (no upstream call to the fake-llm).
 
+
+## 5-iv Task 6 — Daily-budget + tenant-isolation smoke (2026-05-28)
+
+**Config:** `relay/cmd/relay/smoke/budget-test.yaml`
+
+**Setup:**
+- `ratelimit.daily_llm_budget.max_input_tokens: 100`, `max_output_tokens: 100`, `action_on_exceeded: "reject"`
+- fake-llm running on :11434 with `--input-tokens 50 --output-tokens 50`
+- `ratelimit.per_ip.requests_per_second: 100.0`, `burst: 1000` and `per_session.max_turns: 100`, `max_input_tokens: 100000` — intentionally very high to isolate the budget gate.
+- `llm.ollama.max_tokens: 50` — so `estOut` passed to `Reserve` is 50; with `approximateInputTokens("hi")`=1, `estIn`≈1.
+
+### Sub-smoke A: no-tenant budget exhaust
+
+Three turns against a single anonymous session (no `X-Intake-Tenant` header) — empty-string tenant key shared by all three.
+
+- Turn 1: `HTTP/1.1 200` SSE completes; Commit recorded `(in=50, out=50)` ⇒ budget counters at `(50, 50)`.
+- Turn 2: `HTTP/1.1 200` SSE completes; Reserve check `c.out=50 + estOut=50 = 100`, NOT `> 100` → allow. Commit recorded `(in=50, out=50)` ⇒ budget counters at `(100, 100)` (at-cap).
+- Turn 3: `HTTP/1.1 503 Service Unavailable` + `Retry-After: 2609` + body `{"error":{"code":"daily_budget_exhausted","message":"relay daily LLM budget reached"}}`. Reserve check `c.out=100 + estOut=50 = 150 > 100` → reject. No upstream call to fake-llm.
+
+```
+$ SESSION=$(curl -s -X POST http://127.0.0.1:18080/v1/intake/init -d '{}' | grep -oE '"session_id":"[^"]+"' | sed 's/"session_id":"//; s/"//')
+$ echo "Session: $SESSION"
+Session: aa1455b6-ee42-478c-a7c1-9b1cbba095e8
+
+$ for i in 1 2 3; do
+    echo "=== Turn $i (no tenant) ==="
+    curl -s -D- -X POST http://127.0.0.1:18080/v1/intake/turn \
+      -H "X-Intake-Session: $SESSION" \
+      -H "Accept: text/event-stream" \
+      -d '{"messages":[{"role":"user","content":"hi"}]}'
+    echo
+  done
+
+=== Turn 1 (no tenant) ===
+HTTP/1.1 200 OK
+Cache-Control: no-cache
+Connection: keep-alive
+Content-Type: text/event-stream
+Vary: Origin
+Date: Thu, 28 May 2026 23:16:31 GMT
+Transfer-Encoding: chunked
+
+data: {"delta":"ok"}
+
+data: {"done":true,"input_tokens":50,"output_tokens":50}
+
+=== Turn 2 (no tenant) ===
+HTTP/1.1 200 OK
+Cache-Control: no-cache
+Connection: keep-alive
+Content-Type: text/event-stream
+Vary: Origin
+Date: Thu, 28 May 2026 23:16:31 GMT
+Transfer-Encoding: chunked
+
+data: {"delta":"ok"}
+
+data: {"done":true,"input_tokens":50,"output_tokens":50}
+
+=== Turn 3 (no tenant) ===
+HTTP/1.1 503 Service Unavailable
+Content-Type: application/json
+Retry-After: 2609
+Vary: Origin
+Date: Thu, 28 May 2026 23:16:31 GMT
+Content-Length: 86
+
+{"error":{"code":"daily_budget_exhausted","message":"relay daily LLM budget reached"}}
+```
+
+**Verdict:** PASS — strict-`>` cap boundary correct (5-ii Task 2 fix-up commit `9e1d153`): Turn 2 lands exactly at `(100, 100)` and is allowed; Turn 3's Reserve sees `c.out + estOut = 150 > 100` and rejects with 503 + `Retry-After: 2609` seconds (= seconds to next UTC midnight from `secsToNextUTCMidnight`) + code `daily_budget_exhausted`.
+
+### Sub-smoke B: tenants are isolated
+
+With the no-tenant bucket (`""`) now at `(100, 100)` — exhausted — drive one turn under tenant `beta` and one under tenant `gamma` (fresh session to avoid per-session-turn confounds; per_session caps are very high so they don't fire).
+
+- Tenant `beta` turn: `HTTP/1.1 200` SSE completes (fresh tenant bucket — no-tenant exhaustion does not affect it).
+- Tenant `gamma` turn: `HTTP/1.1 200` SSE completes (also a fresh tenant bucket — distinct from both `""` and `beta`).
+
+```
+$ SESSION2=$(curl -s -X POST http://127.0.0.1:18080/v1/intake/init -d '{}' | grep -oE '"session_id":"[^"]+"' | sed 's/"session_id":"//; s/"//')
+Session2: ee882e29-917e-47db-980f-d36cd3716f6d
+
+$ curl -s -D- -X POST http://127.0.0.1:18080/v1/intake/turn \
+    -H "X-Intake-Session: $SESSION2" \
+    -H "X-Intake-Tenant: beta" \
+    -H "Accept: text/event-stream" \
+    -d '{"messages":[{"role":"user","content":"hi"}]}'
+HTTP/1.1 200 OK
+Cache-Control: no-cache
+Connection: keep-alive
+Content-Type: text/event-stream
+Vary: Origin
+Date: Thu, 28 May 2026 23:16:37 GMT
+Transfer-Encoding: chunked
+
+data: {"delta":"ok"}
+
+data: {"done":true,"input_tokens":50,"output_tokens":50}
+
+$ curl -s -D- -X POST http://127.0.0.1:18080/v1/intake/turn \
+    -H "X-Intake-Session: $SESSION2" \
+    -H "X-Intake-Tenant: gamma" \
+    -H "Accept: text/event-stream" \
+    -d '{"messages":[{"role":"user","content":"hi"}]}'
+HTTP/1.1 200 OK
+Cache-Control: no-cache
+Connection: keep-alive
+Content-Type: text/event-stream
+Vary: Origin
+Date: Thu, 28 May 2026 23:16:37 GMT
+Transfer-Encoding: chunked
+
+data: {"delta":"ok"}
+
+data: {"done":true,"input_tokens":50,"output_tokens":50}
+```
+
+**Verdict:** PASS — `budget.Tracker` keys per-tenant via `X-Intake-Tenant`; the `""`, `beta`, and `gamma` buckets are independent. The no-tenant bucket's exhaustion has zero effect on either tenant's bucket.
+
+**Overall:** Phase 5-ii Task 2's `budget.Tracker.Reserve`/`Commit` integration with `turnHandler` (5-ii Task 4) verified at runtime. Strict-`>` cap boundary correct (allows exactly at cap, rejects one-over). Per-tenant bucket isolation via `X-Intake-Tenant` correct. 503 + `Retry-After: <secs-to-next-UTC-midnight>` + body code `daily_budget_exhausted` all confirmed.
