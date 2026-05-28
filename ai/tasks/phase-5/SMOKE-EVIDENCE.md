@@ -295,3 +295,55 @@ data: {"done":true,"input_tokens":50,"output_tokens":50}
 **Verdict:** PASS — `budget.Tracker` keys per-tenant via `X-Intake-Tenant`; the `""`, `beta`, and `gamma` buckets are independent. The no-tenant bucket's exhaustion has zero effect on either tenant's bucket.
 
 **Overall:** Phase 5-ii Task 2's `budget.Tracker.Reserve`/`Commit` integration with `turnHandler` (5-ii Task 4) verified at runtime. Strict-`>` cap boundary correct (allows exactly at cap, rejects one-over). Per-tenant bucket isolation via `X-Intake-Tenant` correct. 503 + `Retry-After: <secs-to-next-UTC-midnight>` + body code `daily_budget_exhausted` all confirmed.
+
+## 5-iv Task 7 — drive-abuse.ts consolidated programmatic smoke (2026-05-28)
+
+**Config:** `relay/cmd/relay/smoke/abuse-driver.yaml`
+
+**Setup:**
+- per_ip burst=5, rps=1
+- per_session max_turns=3
+- daily budget = (100, 100)
+- fake-llm on :11434 with `--input-tokens 50 --output-tokens 50`
+
+**Driver:** `core/smoke/drive-abuse.ts` — drives all three gates via `fetch()`:
+1. Smoke 1: 10 inits → assert >=1 x 200 + >=1 x 429 (per-IP burst)
+2. Smoke 2: 4 turns on one session → assert turns 1-3 = 200, turn 4 = 429 with `session_turns_exhausted`
+3. Smoke 3: 1 turn on a fresh session after Smoke 2's spending → assert 503 or 429 (some gate beyond budget)
+
+**Run:**
+
+```
+$ cd core && npx tsx smoke/drive-abuse.ts
+abuse smoke: RELAY_URL=http://127.0.0.1:18080
+
+=== Smoke 1: per-IP burst (10 inits) ===
+init status codes: [
+  200, 200, 200, 200,
+  200, 429, 429, 429,
+  429, 429
+]
+OK: per-IP burst produces some 200 and some 429
+waiting 6s for per-IP bucket to refill...
+
+=== Smoke 2: per-session cap (4 turns; cap=3) ===
+session: fea5abcd-b404-4a36-8cd1-2d750e546722
+OK: turn 1 returns 200
+OK: turn 2 returns 200
+FAIL: turn 3 returns 200
+```
+
+**Verdict:** PARTIAL — Smoke 1 (per-IP burst) verified end-to-end (5 x 200 then 5 x 429 — exactly burst=5). Smoke 2 FAILED on turn 3 because the **daily-budget gate fires before the per-session gate** under this fixture. Diagnostic curl confirms turn 3 returns `503 daily_budget_exhausted`:
+
+```
+$ # diagnostic re-run with the same fixture
+turn 1 = 200  data: {"done":true,"input_tokens":50,"output_tokens":50}
+turn 2 = 200  data: {"done":true,"input_tokens":50,"output_tokens":50}
+turn 3 = 503  {"error":{"code":"daily_budget_exhausted","message":"relay daily LLM budget reached"}}
+```
+
+**Root cause:** the fake-llm reports `input_tokens=50, output_tokens=50` on every Commit, so after 2 turns the no-tenant bucket holds (in=100, out=100) — exactly at the (100, 100) cap. The third Reserve uses `estIn=approximateInputTokens(["hi"])=1, estOut=deps.MaxTokens=50`, and `c.out + estOut = 100 + 50 > 100` → rejects with 503 before the per-session gate is consulted. Gate ordering in `turn.go` is: per-IP -> per-session -> daily-budget, but the per-session counter is only **incremented on a successful turn**, so when the budget rejects the third call, the session counter is still at 2 — it can never reach the cap=3 boundary under this fixture.
+
+This is a fixture/expectation mismatch in the task spec (Step 2 asserts turns 1-3 = 200 under a 100/100 budget with a 50/50 LLM — incompatible). The script-as-authored is the deliverable; the driver source compiles cleanly (`npx tsc --noEmit smoke/drive-abuse.ts` → no output), the YAML fixture loads cleanly (relay starts and logs `rate limits configured` with the expected values), and Smoke 1 demonstrates the per-IP gate end-to-end. The per-session gate and daily-budget gate were independently verified in 5-iv Tasks 5 and 6 (using isolated fixtures that pin one gate at a time).
+
+**Operator note:** to make `drive-abuse.ts` pass end-to-end without modifying the script, raise the budget cap in `abuse-driver.yaml` (e.g. `max_input_tokens: 1000, max_output_tokens: 1000`) so Smoke 2 completes all four turns before any budget consideration, then have Smoke 3 explicitly drain the budget on a tenant-keyed pre-pass. The minimal-change fix is left to a follow-up because Phase 5-iv's frozen-seams rule forbids modifying the driver script (the deliverable) and the per-gate isolation already passes in Tasks 4-6.
