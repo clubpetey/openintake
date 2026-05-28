@@ -300,6 +300,51 @@ func TestDispatcher_NoModes_BearerPresent_401(t *testing.T) {
 	}
 }
 
+func TestDispatcher_EmailMode_SessionIDFromHeader(t *testing.T) {
+	store := auth.NewStore()
+	email := &stubEmailVerifier{email: "user@example.com"}
+	mw := auth.NewMiddleware(store, email, nil)
+
+	r := httptest.NewRequest(http.MethodPost, "/v1/intake/submit", nil)
+	r.Header.Set("Authorization", "Bearer valid")
+	r.Header.Set("X-Intake-Session", "00000000-0000-0000-0000-000000000abc")
+
+	status, sess := runRequest(t, mw, r)
+
+	if status != http.StatusOK {
+		t.Fatalf("status = %d; want 200", status)
+	}
+	if sess.SessionID != "00000000-0000-0000-0000-000000000abc" {
+		t.Errorf("SessionID = %q; want it to come from X-Intake-Session header", sess.SessionID)
+	}
+	if sess.AuthMode != "email" {
+		t.Errorf("AuthMode = %q; want email", sess.AuthMode)
+	}
+}
+
+func TestDispatcher_SSOMode_SessionIDFromHeader(t *testing.T) {
+	store := auth.NewStore()
+	sub := "auth0|user-001"
+	sso := &stubSSOVerifier{claims: &auth.SSOClaims{UserID: sub}}
+	mw := auth.NewMiddleware(store, nil, sso)
+
+	r := httptest.NewRequest(http.MethodPost, "/v1/intake/submit", nil)
+	r.Header.Set("Authorization", "Bearer valid")
+	r.Header.Set("X-Intake-Session", "11111111-1111-1111-1111-111111111111")
+
+	status, sess := runRequest(t, mw, r)
+
+	if status != http.StatusOK {
+		t.Fatalf("status = %d; want 200", status)
+	}
+	if sess.SessionID != "11111111-1111-1111-1111-111111111111" {
+		t.Errorf("SessionID = %q; want it to come from X-Intake-Session header", sess.SessionID)
+	}
+	if sess.AuthMode != "sso" {
+		t.Errorf("AuthMode = %q; want sso", sess.AuthMode)
+	}
+}
+
 func TestDispatcher_AnonymousFallthrough_Preserved(t *testing.T) {
 	// Phase 1 behavior: no Authorization header + valid X-Intake-Session = anonymous.
 	store := auth.NewStore()

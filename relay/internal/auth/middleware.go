@@ -46,14 +46,22 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		if authHeader := r.Header.Get("Authorization"); len(authHeader) >= 7 && strings.EqualFold(authHeader[:7], "bearer ") {
 			token := strings.TrimSpace(authHeader[7:])
 
+			// X-Intake-Session is the session correlation ID — issued by /init and sent by
+			// the widget on every /turn and /submit (anonymous AND bearer alike). For
+			// bearer-mode (email/sso) requests it is informational, not the auth; for
+			// anonymous it IS the auth. We attach it to SessionContext.SessionID so the
+			// downstream payload builder can populate IntakePayload.client.session_id.
+			sessionID := r.Header.Get("X-Intake-Session")
+
 			// Try email-mode JWT first (cheap-fail HS256).
 			if m.email != nil {
 				if email, err := m.email.Verify(token); err == nil {
 					emailCopy := email // avoid taking the address of the named return variable (style)
 					ctx := WithSession(r.Context(), &SessionContext{
-						AuthMode: "email",
-						Verified: true,
-						Email:    &emailCopy,
+						SessionID: sessionID,
+						AuthMode:  "email",
+						Verified:  true,
+						Email:     &emailCopy,
 					})
 					next.ServeHTTP(w, r.WithContext(ctx))
 					return
@@ -65,6 +73,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 				if claims, err := m.sso.Verify(r.Context(), token); err == nil {
 					userID := claims.UserID
 					sc := &SessionContext{
+						SessionID:   sessionID,
 						AuthMode:    "sso",
 						Verified:    true,
 						UserID:      &userID,

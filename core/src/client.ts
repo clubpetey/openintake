@@ -136,7 +136,8 @@ export class IntakeClient {
     });
 
     if (!res.ok) {
-      throw new Error(`submit failed: ${res.status}`);
+      const body = await res.text().catch(() => '');
+      throw new Error(`submit failed: ${res.status} ${body}`);
     }
 
     return (await res.json()) as SubmitResponse;
