@@ -1,0 +1,22 @@
+server:
+  addr: ":18080"
+auth:
+  modes:
+    anonymous: true
+    sso: true
+  anonymous:
+    allow_without_captcha: true
+  sso:
+    issuer: "https://example.auth0.com/"
+    audience: "https://api.example.com"
+    jwks_url: "https://example.auth0.com/.well-known/jwks.json"
+    hs256_secret_env: "INTAKE_SSO_HS256"
+ratelimit:
+  daily_llm_budget:
+    action_on_exceeded: "reject"
+adapters:
+  webhook:
+    enabled: true
+    url: "http://127.0.0.1:19099/intake"
+routing:
+  default_adapter: "webhook"

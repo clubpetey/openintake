@@ -1,0 +1,16 @@
+server:
+  addr: ":18080"
+auth:
+  modes:
+    anonymous: true
+  anonymous:
+    allow_without_captcha: true
+ratelimit:
+  daily_llm_budget:
+    action_on_exceeded: "queue"
+adapters:
+  webhook:
+    enabled: true
+    url: "http://127.0.0.1:19099/intake"
+routing:
+  default_adapter: "webhook"
