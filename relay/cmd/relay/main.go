@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"sort"
@@ -66,6 +67,14 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("relay: license", "mode", licState.Mode, "detail", licState.Message)
+
+	// --- Q9 consolidated startup gate (Phase 5) ---
+	// All Phase 4 + Phase 5 misconfigs collected into one structured Error line.
+	// Operators fix every problem in one restart cycle, not three.
+	if problems := startupProblems(cfg); len(problems) > 0 {
+		logger.Error("relay: startup config errors", "count", len(problems), "problems", problems)
+		os.Exit(1)
+	}
 
 	// --- LLM Provider (via factory) ---
 	// providers.New resolves the required secret internally via config.RequireSecret /
@@ -441,4 +450,59 @@ func adapterNames(reg map[string]adapter.Adapter) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// startupProblems enumerates every Phase 4 + Phase 5 misconfig in cfg as a flat
+// []string. main() logs the slice in one structured Error line and exits 1 when
+// non-empty (PROJECT.md §19 Q9 fail-closed; PHASE_PLANNING §4 build-fail discipline).
+//
+// Each problem string is self-describing — names the offending key, the value
+// it found, and the fix. Order: anonymous gate, SSO mutual-exclusivity,
+// trusted-proxy CIDR parse, config.Validate (currently action_on_exceeded).
+func startupProblems(cfg *config.Config) []string {
+	var problems []string
+
+	// Q9: anonymous-without-captcha-gating.
+	if cfg.Auth.Modes.Anonymous {
+		anonymousProtected := cfg.Captcha.Enabled && containsString(cfg.Captcha.RequiredFor, "anonymous")
+		if !anonymousProtected && !cfg.Auth.Anonymous.AllowWithoutCaptcha {
+			problems = append(problems, `auth.modes.anonymous=true requires captcha.enabled=true AND captcha.required_for to include "anonymous"; or set auth.anonymous.allow_without_captcha=true to acknowledge the risk (PROJECT.md §19 Q9)`)
+		}
+	}
+
+	// SSO mutual-exclusivity (Phase 4; consolidated here so all gates fire in one pass).
+	if cfg.Auth.Modes.SSO {
+		jwks := cfg.Auth.SSO.JWKSURL != ""
+		hs := cfg.Auth.SSO.HS256SecretEnv != ""
+		if jwks && hs {
+			problems = append(problems, "auth.modes.sso=true: both jwks_url and hs256_secret_env are set; exactly one required")
+		}
+		if !jwks && !hs {
+			problems = append(problems, "auth.modes.sso=true: neither jwks_url nor hs256_secret_env is set; exactly one required")
+		}
+	}
+
+	// Trusted-proxy CIDRs — fatal at startup, not at first request.
+	for _, raw := range cfg.Server.TrustedProxies {
+		if _, err := netip.ParsePrefix(raw); err != nil {
+			problems = append(problems, fmt.Sprintf("server.trusted_proxies contains an invalid CIDR %q: %v", raw, err))
+		}
+	}
+
+	// Config-level validation (action_on_exceeded etc.).
+	if err := cfg.Validate(); err != nil {
+		problems = append(problems, err.Error())
+	}
+
+	return problems
+}
+
+// containsString reports whether haystack contains needle (case-sensitive).
+func containsString(haystack []string, needle string) bool {
+	for _, s := range haystack {
+		if s == needle {
+			return true
+		}
+	}
+	return false
 }
