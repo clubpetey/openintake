@@ -130,6 +130,27 @@ func TestTracker_UnlimitedMode_AlwaysAllows(t *testing.T) {
 	}
 }
 
+func TestTracker_AtCapBoundary_AllowsExactlyAtCapRejectsOneOver(t *testing.T) {
+	// The over-cap check uses strict `>`, not `>=`. This means:
+	// - Committing exactly to cap is fine; the next Reserve with estIn=0 passes.
+	// - The next Reserve with any positive estIn rejects.
+	// Test fixes the "soft daily budget" semantic against future refactors.
+	c := newClock()
+	tr := budget.New(100, 100, c.Now)
+	tr.Commit("", 100, 0) // exactly at input cap
+
+	// Reserve with estIn=0 must still pass — c.in+0 == maxIn, NOT > maxIn.
+	ok, _ := tr.Reserve("", 0, 0)
+	if !ok {
+		t.Error("Reserve(0,0) at-cap rejected; strict '>' check should allow exactly-at-cap")
+	}
+	// Reserve with estIn=1 must reject — c.in+1 > maxIn.
+	ok, _ = tr.Reserve("", 1, 0)
+	if ok {
+		t.Error("Reserve(1,0) one-over-cap allowed; strict '>' check should reject")
+	}
+}
+
 func TestTracker_RetryAfterFloorOneSecond(t *testing.T) {
 	// Pin the clock to one second before UTC midnight. Reserve over-cap should
 	// return retryAfter ≥1s even though wall time is sub-second.

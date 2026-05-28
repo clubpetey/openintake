@@ -76,7 +76,16 @@ func (t *Tracker) Reserve(tenantKey string, estIn, estOut int) (ok bool, retryAf
 }
 
 // Commit records the actual usage AFTER SSEDone fires. Never rejects.
+// Negative deltas are clamped to 0 — a spend tracker must not be decrementable
+// by a buggy or compromised caller (SSEDone always reports non-negative
+// token counts; this defends against a future regression).
 func (t *Tracker) Commit(tenantKey string, actualIn, actualOut int) {
+	if actualIn < 0 {
+		actualIn = 0
+	}
+	if actualOut < 0 {
+		actualOut = 0
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -87,23 +96,22 @@ func (t *Tracker) Commit(tenantKey string, actualIn, actualOut int) {
 }
 
 // Snapshot returns the current counters for tenantKey for metrics export.
-// Returns zero values when the tenant has no recorded counters yet (the
-// returned dayStartUTC is the zero Time in that case).
+// Returns zero values (in=0, out=0, dayStartUTC=zero) when the tenant has no
+// recorded counters yet.
+//
+// For a stale entry from yesterday, Snapshot triggers the same UTC-day reset
+// that Reserve/Commit use — so what Snapshot reports always matches what's
+// actually in the map. Otherwise a metrics scrape at 00:00:30 UTC could report
+// zeros while the in-memory counters still showed yesterday's totals until
+// the next Reserve/Commit.
 func (t *Tracker) Snapshot(tenantKey string) (in, out int, dayStartUTC time.Time) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	c, ok := t.tenants[tenantKey]
-	if !ok {
+	if _, ok := t.tenants[tenantKey]; !ok {
 		return 0, 0, time.Time{}
 	}
-	// Snapshot honors the UTC day boundary too — a stale entry from yesterday
-	// returns (0, 0, today).
-	now := t.now()
-	today := now.UTC().Truncate(24 * time.Hour)
-	if c.dayStartUTC.Before(today) {
-		return 0, 0, today
-	}
+	c := t.tenantLocked(tenantKey, t.now())
 	return c.in, c.out, c.dayStartUTC
 }
 
