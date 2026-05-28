@@ -141,3 +141,23 @@ func TestStartupProblems_CleanConfig(t *testing.T) {
 		t.Errorf("clean config problems = %v; want empty", problems)
 	}
 }
+
+func TestStartupProblems_EmptyActionOnExceeded_TreatedAsProblem(t *testing.T) {
+	// A bare &config.Config{} has ActionOnExceeded == "". applyDefaults would
+	// have set it to "reject" via Load, but tests that build Config directly
+	// bypass that path. startupProblems must surface this as a Validate problem
+	// so it's caught at startup rather than at first /turn.
+	cfg := &config.Config{}
+	// No other gate inputs set → only the Validate empty-string case fires.
+
+	problems := startupProblems(cfg)
+	if len(problems) != 1 {
+		t.Fatalf("problems = %v; want exactly 1 (empty ActionOnExceeded from Validate)", problems)
+	}
+	if !strings.Contains(problems[0], "action_on_exceeded") {
+		t.Errorf("problem %q does not mention action_on_exceeded", problems[0])
+	}
+	if !strings.Contains(problems[0], "empty") {
+		t.Errorf("problem %q does not mention 'empty'", problems[0])
+	}
+}
