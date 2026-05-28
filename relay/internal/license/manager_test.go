@@ -249,14 +249,29 @@ func TestLoad_ExplicitFile_Unreadable_Fatal(t *testing.T) {
 // 6e. Corrupt embedded key detection via embeddedPublicKey().
 // The real constant is "" so we test the empty → (nil, nil) contract directly.
 // For invalid-input coverage we test the decode path via base64Decode helper.
-func TestEmbeddedPublicKey_EmptyConstant_ReturnsNilNil(t *testing.T) {
-	// EmbeddedPublicKeyBase64 == "" in source, so embeddedPublicKey() must be (nil, nil).
+func TestEmbeddedPublicKey_DecodesConstantState(t *testing.T) {
+	// Verifies embeddedPublicKey() correctly reflects whatever state the source
+	// constant is in. Pre-keygen the constant is ""; after the maintainer keygen
+	// pause it carries a valid 32-byte Ed25519 public key (base64).
+	//
+	// Either way the function must NOT return a "(nil, nil) but the constant was
+	// non-empty" combination — that was the silent-failure shape L009 hardened
+	// against.
 	key, err := embeddedPublicKey()
-	if key != nil {
-		t.Errorf("empty constant: key = %v; want nil", key)
+	if EmbeddedPublicKeyBase64 == "" {
+		if key != nil || err != nil {
+			t.Errorf("empty constant: got (key=%v, err=%v); want (nil, nil)", key, err)
+		}
+		return
 	}
+	// Non-empty constant: a valid embed must decode to a 32-byte key with no error.
+	// A non-empty-but-invalid constant would (per L009) return a non-nil error.
 	if err != nil {
-		t.Errorf("empty constant: err = %v; want nil", err)
+		t.Fatalf("non-empty embedded constant did not decode: %v "+
+			"(constant should be standard-base64 of a 32-byte Ed25519 public key)", err)
+	}
+	if len(key) != ed25519.PublicKeySize {
+		t.Errorf("embedded key wrong size: got %d bytes; want %d", len(key), ed25519.PublicKeySize)
 	}
 }
 

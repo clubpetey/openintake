@@ -105,3 +105,19 @@ The licensing boundary must distinguish security failures (fail closed/loud) fro
 Reference: `relay/internal/license/manager.go`, `state_file.go`, `embedded_key.go`.
 
 ---
+
+### L010: PowerShell 5.1 `Set-Content -Encoding utf8` writes a BOM that Go's JSON/YAML parsers reject
+
+Windows PowerShell 5.1's `-Encoding utf8` writes UTF-8 **with** a byte-order mark (`EF BB BF`). Go's `encoding/json` (and `gopkg.in/yaml.v3`) treat the BOM as input bytes, not whitespace, and fail with `invalid character 'ï' looking for beginning of value` (the `ï` is byte `0xEF` rendered as Latin-1 — the first byte of the BOM).
+
+**Where it hit:** Phase 3 live smoke (2026-05-27). `intake-license sign --in template.json` failed parsing a template written via `... | Set-Content -Path X -Encoding utf8`. The maintainer hits this whenever they `Set-Content` a JSON/YAML file the relay then reads on the same Windows host.
+
+**Rules:**
+- For **ASCII-only** content (most JSON/YAML scaffolding — license templates, scratch configs), use `-Encoding ascii`. No BOM, no fuss.
+- For content that may contain **non-ASCII** (e.g. an `IssuedTo.Org` with accented characters), use `[System.IO.File]::WriteAllText($path, $content, [System.Text.UTF8Encoding]::new($false))` to write UTF-8 without a BOM. (`-Encoding utf8NoBOM` does not exist in PS 5.1; it's PS 6+.)
+- The CLAUDE.md note "pass `-Encoding utf8` to `Out-File`/`Set-Content`" is correct *for tools that strip a BOM* (most text editors, PowerShell-native readers) but **misleading for raw-byte readers** like Go's JSON/YAML decoders. When in doubt, prefer the no-BOM writers above.
+- Quick sanity check after writing a file Go will read: `Get-Content <path> -Encoding Byte -TotalCount 4` — if it starts with `EF BB BF`, the BOM is there.
+
+Reference: maintainer live-smoke `Set-Content` calls in this phase's `README.md` §7 / step 2 instructions.
+
+---
