@@ -64,4 +64,10 @@ type Deps struct {
 	// AuthCfg is the auth section of the loaded config — needed by initHandler
 	// to emit the correct capabilities + auth hints. Set by main.go.
 	AuthCfg config.AuthConfig
+
+	// from 4-ii:
+
+	// EmailService is the orchestrator for /auth/email/start and /auth/email/verify.
+	// nil when auth.modes.email is false (handlers respond 404 in that case).
+	EmailService *EmailService
 }
