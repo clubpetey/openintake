@@ -79,8 +79,9 @@ func TestInitHandler_Returns200AndSessionID(t *testing.T) {
 	if !resp.Capabilities.Streaming {
 		t.Error("capabilities.streaming = false; want true")
 	}
-	if len(resp.Capabilities.AuthModes) == 0 || resp.Capabilities.AuthModes[0] != "anonymous" {
-		t.Errorf("auth_modes = %v; want [\"anonymous\"]", resp.Capabilities.AuthModes)
+	want := []string{"anonymous"}
+	if !equalStringSlice(resp.Capabilities.AuthModes, want) {
+		t.Errorf("default AuthModes = %v; want %v", resp.Capabilities.AuthModes, want)
 	}
 
 	// The returned session_id must be valid in the store.

@@ -49,7 +49,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 			// Try email-mode JWT first (cheap-fail HS256).
 			if m.email != nil {
 				if email, err := m.email.Verify(token); err == nil {
-					emailCopy := email // distinct pointer per request
+					emailCopy := email // avoid taking the address of the named return variable (style)
 					ctx := WithSession(r.Context(), &SessionContext{
 						AuthMode: "email",
 						Verified: true,

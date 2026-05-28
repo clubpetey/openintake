@@ -107,12 +107,11 @@ type SSOConfig struct {
 	Audience       string    `yaml:"audience"`         // expected `aud` claim
 	JWKSURL        string    `yaml:"jwks_url"`         // RS256 path
 	HS256SecretEnv string    `yaml:"hs256_secret_env"` // HS256 path; env var name
-	Claims         SSOClaims `yaml:"claims"`
+	Claims         SSOClaimNames `yaml:"claims"`
 }
 
-// SSOClaims maps SessionContext fields to JWT claim names.
-// Defaults: sub/email/name (standard OIDC).
-type SSOClaims struct {
+// SSOClaimNames maps SessionContext fields to JWT claim names. Defaults: sub/email/name (standard OIDC).
+type SSOClaimNames struct {
 	UserID      string `yaml:"user_id"`
 	Email       string `yaml:"email"`
 	DisplayName string `yaml:"display_name"`

@@ -48,7 +48,11 @@ func initHandler(deps Deps) http.HandlerFunc {
 
 		// Per-mode hints: email's code_ttl_seconds (parsed from cfg).
 		if deps.AuthCfg.Modes.Email {
-			if d, err := time.ParseDuration(deps.AuthCfg.Email.CodeTTL); err == nil {
+			d, err := time.ParseDuration(deps.AuthCfg.Email.CodeTTL)
+			if err != nil {
+				slog.WarnContext(r.Context(), "init: auth.email.code_ttl unparseable; omitting Auth.Email hint",
+					"code_ttl", deps.AuthCfg.Email.CodeTTL, "error", err)
+			} else {
 				resp.Auth = &InitAuth{Email: &InitAuthEmail{CodeTTLSeconds: int(d.Seconds())}}
 			}
 		}
