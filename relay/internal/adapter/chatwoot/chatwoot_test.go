@@ -67,72 +67,146 @@ func configure(t *testing.T, baseURL string) *chatwoot.Adapter {
 	return a
 }
 
-// TestChatwootCreate_PostsConversation asserts the adapter POSTs to the right
-// path with the api_access_token header and a body carrying the mapped content
-// and inbox_id, and that the response id becomes ExternalID/ExternalURL.
+// happyPathHandler returns an http.HandlerFunc that serves the standard two-call
+// flow: /contacts returns a canned contact+contact_inbox payload, /conversations
+// returns a canned conversation id. Unexpected paths are reported as test errors.
+func happyPathHandler(t *testing.T, accountID int) http.HandlerFunc {
+	t.Helper()
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/accounts/1/contacts":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"payload":{"contact":{"id":50},"contact_inbox":{"id":42,"source_id":"src-uuid-abc"}}}`))
+		case "/api/v1/accounts/1/conversations":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":123}`))
+		default:
+			t.Errorf("unexpected request path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}
+}
+
+// TestChatwootCreate_PostsConversation asserts both POSTs in the two-call flow:
+//   - /contacts receives the correct inbox_id, name, identifier, and (absent) email
+//   - /conversations receives source_id and contact_id from the contact response
+//   - the response id becomes ExternalID / ExternalURL
 func TestChatwootCreate_PostsConversation(t *testing.T) {
-	var gotMethod, gotPath, gotAuth, gotCT string
-	var gotBody map[string]any
+	var gotContactMethod, gotContactAuth, gotContactCT string
+	var gotContactBody map[string]any
+	var gotConvMethod, gotConvAuth, gotConvCT string
+	var gotConvBody map[string]any
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotMethod = r.Method
-		gotPath = r.URL.Path
-		// "api_access_token" is Chatwoot's custom header name (not Authorization).
-		// Go's net/http canonicalizes it consistently on both the Set and Get sides,
-		// so the exact string matches even though it is not a standard header.
-		gotAuth = r.Header.Get("api_access_token")
-		gotCT = r.Header.Get("Content-Type")
-		raw, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Fatalf("read body: %v", err)
+		switch r.URL.Path {
+		case "/api/v1/accounts/1/contacts":
+			gotContactMethod = r.Method
+			gotContactAuth = r.Header.Get("api_access_token")
+			gotContactCT = r.Header.Get("Content-Type")
+			raw, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read contact body: %v", err)
+			}
+			if err := json.Unmarshal(raw, &gotContactBody); err != nil {
+				t.Fatalf("contact body not valid JSON: %v\nbody: %s", err, raw)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"payload":{"contact":{"id":50},"contact_inbox":{"id":42,"source_id":"src-uuid-abc"}}}`))
+
+		case "/api/v1/accounts/1/conversations":
+			gotConvMethod = r.Method
+			gotConvAuth = r.Header.Get("api_access_token")
+			gotConvCT = r.Header.Get("Content-Type")
+			raw, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read conv body: %v", err)
+			}
+			if err := json.Unmarshal(raw, &gotConvBody); err != nil {
+				t.Fatalf("conv body not valid JSON: %v\nbody: %s", err, raw)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":123}`))
+
+		default:
+			t.Errorf("unexpected request path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
 		}
-		if err := json.Unmarshal(raw, &gotBody); err != nil {
-			t.Fatalf("request body not valid JSON: %v\nbody: %s", err, raw)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"id":123,"inbox_id":3}`))
 	}))
 	defer srv.Close()
 
+	p := minimalPayload()
 	a := configure(t, srv.URL)
-	result, err := a.Create(context.Background(), minimalPayload())
+	result, err := a.Create(context.Background(), p)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	if gotMethod != http.MethodPost {
-		t.Errorf("expected POST, got %s", gotMethod)
+	// --- Contact call assertions ---
+	if gotContactMethod != http.MethodPost {
+		t.Errorf("contact: expected POST, got %s", gotContactMethod)
 	}
-	if gotPath != "/api/v1/accounts/1/conversations" {
-		t.Errorf("unexpected path: %q", gotPath)
+	if gotContactAuth != testToken {
+		t.Errorf("contact: expected api_access_token header = token, got %q", gotContactAuth)
 	}
-	if gotAuth != testToken {
-		t.Errorf("expected api_access_token header = token, got %q", gotAuth)
+	if gotContactCT != "application/json" {
+		t.Errorf("contact: expected Content-Type application/json, got %q", gotContactCT)
 	}
-	if gotCT != "application/json" {
-		t.Errorf("expected Content-Type application/json, got %q", gotCT)
+	if iv, ok := gotContactBody["inbox_id"].(float64); !ok || int(iv) != 3 {
+		t.Errorf("contact: expected inbox_id=3, got %v", gotContactBody["inbox_id"])
+	}
+	if id, _ := gotContactBody["identifier"].(string); id != "00000000-0000-0000-0000-000000000001" {
+		t.Errorf("contact: expected identifier=submission id, got %v", gotContactBody["identifier"])
+	}
+	// minimalPayload has no email; the field must be absent entirely (not an empty string).
+	if _, hasEmail := gotContactBody["email"]; hasEmail {
+		t.Errorf("contact: email key must be absent when User.Email is nil, got %v", gotContactBody["email"])
+	}
+	// name should be the fallback label derived from the submission id
+	if name, _ := gotContactBody["name"].(string); name == "" {
+		t.Error("contact: expected non-empty name")
 	}
 
-	// inbox_id is mapped (JSON numbers decode to float64).
-	if iv, ok := gotBody["inbox_id"].(float64); !ok || int(iv) != 3 {
-		t.Errorf("expected inbox_id=3 in body, got %v", gotBody["inbox_id"])
+	// --- Conversation call assertions ---
+	if gotConvMethod != http.MethodPost {
+		t.Errorf("conv: expected POST, got %s", gotConvMethod)
 	}
-	// source_id is the submission id.
-	if sid, _ := gotBody["source_id"].(string); sid != "00000000-0000-0000-0000-000000000001" {
-		t.Errorf("expected source_id=submission id, got %v", gotBody["source_id"])
+	if gotConvAuth != testToken {
+		t.Errorf("conv: expected api_access_token header = token, got %q", gotConvAuth)
 	}
-	// message.content carries the rendered transcript (title + summary + messages).
-	msg, ok := gotBody["message"].(map[string]any)
+	if gotConvCT != "application/json" {
+		t.Errorf("conv: expected Content-Type application/json, got %q", gotConvCT)
+	}
+	if sid, _ := gotConvBody["source_id"].(string); sid != "src-uuid-abc" {
+		t.Errorf("conv: expected source_id=src-uuid-abc (from contact response), got %v", gotConvBody["source_id"])
+	}
+	if iv, ok := gotConvBody["inbox_id"].(float64); !ok || int(iv) != 3 {
+		t.Errorf("conv: expected inbox_id=3, got %v", gotConvBody["inbox_id"])
+	}
+	// contact_id should be 50 (from the canned contact response).
+	if cid, ok := gotConvBody["contact_id"].(float64); !ok || int(cid) != 50 {
+		t.Errorf("conv: expected contact_id=50, got %v", gotConvBody["contact_id"])
+	}
+	msg, ok := gotConvBody["message"].(map[string]any)
 	if !ok {
-		t.Fatalf("expected message object in body, got %v", gotBody["message"])
+		t.Fatalf("conv: expected message object in body, got %v", gotConvBody["message"])
 	}
 	content, _ := msg["content"].(string)
-	for _, want := range []string{"Save button does nothing", "Save button is unresponsive", "user: The save button does nothing", "assistant: Thanks, can you share"} {
+	for _, want := range []string{
+		"Save button does nothing",
+		"Save button is unresponsive",
+		"user: The save button does nothing",
+		"assistant: Thanks, can you share",
+	} {
 		if !strings.Contains(content, want) {
-			t.Errorf("message.content missing %q\ncontent: %s", want, content)
+			t.Errorf("conv: message.content missing %q\ncontent: %s", want, content)
 		}
 	}
 
+	// --- Result assertions ---
 	if result.ExternalID != "123" {
 		t.Errorf("expected ExternalID 123, got %q", result.ExternalID)
 	}
@@ -148,12 +222,20 @@ func TestChatwootCreate_PostsConversation(t *testing.T) {
 	}
 }
 
-// TestChatwootCreate_NonOKErrorNoToken asserts a non-2xx response returns an
-// error that includes the (truncated) body but NEVER the token.
+// TestChatwootCreate_NonOKErrorNoToken asserts a non-2xx from the /contacts
+// endpoint returns an error that includes the status code and the truncated body
+// but NEVER the token. The /conversations endpoint is never reached.
 func TestChatwootCreate_NonOKErrorNoToken(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte(`{"error":"Access denied"}`))
+		switch r.URL.Path {
+		case "/api/v1/accounts/1/contacts":
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"Access denied"}`))
+		default:
+			// /conversations should never be reached
+			t.Errorf("unexpected request path after contact failure: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
 	}))
 	defer srv.Close()
 
@@ -164,6 +246,38 @@ func TestChatwootCreate_NonOKErrorNoToken(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "401") {
 		t.Errorf("error should mention the status code, got %v", err)
+	}
+	if strings.Contains(err.Error(), testToken) {
+		t.Fatalf("SECURITY: token leaked into error: %v", err)
+	}
+}
+
+// TestChatwootCreate_ContactCreateFails asserts that a 422 from /contacts
+// returns an error containing the status code and truncated body, and never the
+// token. The /conversations endpoint is never reached.
+func TestChatwootCreate_ContactCreateFails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/accounts/1/contacts":
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"message":"Email has already been taken"}`))
+		default:
+			t.Errorf("unexpected request path after contact failure: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	a := configure(t, srv.URL)
+	_, err := a.Create(context.Background(), minimalPayload())
+	if err == nil {
+		t.Fatal("expected error on 422, got nil")
+	}
+	if !strings.Contains(err.Error(), "422") {
+		t.Errorf("error should mention status code 422, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "Email has already been taken") {
+		t.Errorf("error should contain truncated response body, got %v", err)
 	}
 	if strings.Contains(err.Error(), testToken) {
 		t.Fatalf("SECURITY: token leaked into error: %v", err)
@@ -244,15 +358,28 @@ func TestChatwootConfigure_MissingKeys(t *testing.T) {
 
 // TestChatwootConfigure_AcceptsFloatIDs asserts account_id/inbox_id accept the
 // float64 form that a JSON/YAML decode may produce (mirrors webhook's retry ints).
+// The httptest server handles both calls in the two-call flow.
 func TestChatwootConfigure_AcceptsFloatIDs(t *testing.T) {
-	var gotPath string
-	var gotBody map[string]any
+	var gotConvPath string
+	var gotConvBody map[string]any
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
-		raw, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(raw, &gotBody)
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"id":7}`))
+		switch r.URL.Path {
+		case "/api/v1/accounts/9/contacts":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"payload":{"contact":{"id":50},"contact_inbox":{"id":42,"source_id":"src-float-test"}}}`))
+		case "/api/v1/accounts/9/conversations":
+			gotConvPath = r.URL.Path
+			raw, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(raw, &gotConvBody)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":7}`))
+		default:
+			t.Errorf("unexpected request path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
 	}))
 	defer srv.Close()
 
@@ -268,10 +395,10 @@ func TestChatwootConfigure_AcceptsFloatIDs(t *testing.T) {
 	if _, err := a.Create(context.Background(), minimalPayload()); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if gotPath != "/api/v1/accounts/9/conversations" {
-		t.Errorf("float account_id not applied: path %q", gotPath)
+	if gotConvPath != "/api/v1/accounts/9/conversations" {
+		t.Errorf("float account_id not applied: path %q", gotConvPath)
 	}
-	if iv, ok := gotBody["inbox_id"].(float64); !ok || int(iv) != 4 {
-		t.Errorf("float inbox_id not applied: %v", gotBody["inbox_id"])
+	if iv, ok := gotConvBody["inbox_id"].(float64); !ok || int(iv) != 4 {
+		t.Errorf("float inbox_id not applied: %v", gotConvBody["inbox_id"])
 	}
 }

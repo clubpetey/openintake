@@ -108,9 +108,14 @@ The `License` struct carries `tier`; a `"hosted"` tier marker is recognized by `
 All four are stdlib `net/http` + `encoding/json` (mirroring `webhook.go`), each with a test-injectable `*http.Client` (or base URL) so mock unit tests hit an `httptest.Server` and run credit-free. Tokens resolve in `main.go` via `config.ResolveSecret(<adapter>.api_token_env)` and are passed into `Configure`; they are never placed in YAML or logs. Canonical-payload → downstream mapping (text only; attachments in P6):
 
 ### 5.1 chatwoot (`relay/internal/adapter/chatwoot/`) — free
-- `POST {base_url}/api/v1/accounts/{account_id}/conversations` (or inbox-scoped contact+conversation create), `api_access_token` header.
-- Map: `conversation.title_suggestion` → conversation subject/first line; `conversation.summary` + transcript → message body; `tags_suggested` → labels.
+- **Two-call flow** (confirmed at live smoke 2026-05-27 against Chatwoot Cloud):
+  1. `POST {base_url}/api/v1/accounts/{account_id}/contacts` with `{inbox_id, name, identifier, email?}` → Chatwoot returns `{payload:{contact:{id}, contact_inbox:{source_id}}}`. The agent-side conversation API does NOT auto-create a contact, and rejects an unknown `source_id` with `404 "Resource could not be found"` (not 422), so a single-call POST with `source_id = p.Submission.Id` fails.
+  2. `POST {base_url}/api/v1/accounts/{account_id}/conversations` with `{source_id, inbox_id, contact_id, message:{content}}` using the values returned in step 1 → returns `{id}` → `ExternalID`.
+- Auth: `api_access_token: <token>` header (NOT `Authorization: Bearer`).
+- Contact identity: `name` = best-effort (`User.DisplayName` → `User.Email` → `"Intake user (submission <short-id>)"`); `identifier` = `p.Submission.Id` (always a fresh UUID — no dedup, no collision); `email` only when `p.User.Email` is non-nil/non-empty (field omitted otherwise, never sent as empty string).
+- Conversation mapping: `title_suggestion` → first line of `message.content`; `summary` + transcript → rest of `message.content`; `tags_suggested` → labels (Chatwoot taxonomy mapping deferred).
 - Config: `base_url`, `account_id`, `inbox_id`, `api_token_env`. `Name()` → `"chatwoot"`, `RequiresLicense()` → false.
+- Inbox channel type MUST be `Channel::Api` — other channel types (email/website/etc.) have different creation flows and are out of scope for v0.
 
 ### 5.2 fider (`relay/internal/adapter/fider/`) — free
 - `POST {base_url}/api/v1/posts` with `{ title, description }`, `Authorization: Bearer <api_key>`.

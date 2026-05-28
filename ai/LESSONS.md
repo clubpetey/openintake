@@ -121,3 +121,17 @@ Windows PowerShell 5.1's `-Encoding utf8` writes UTF-8 **with** a byte-order mar
 Reference: maintainer live-smoke `Set-Content` calls in this phase's `README.md` §7 / step 2 instructions.
 
 ---
+
+### L011: Chatwoot agent-side `POST /conversations` needs a pre-created contact_inbox, and returns 404 (not 422) when source_id is dangling
+
+For Chatwoot's **agent-side** API (the one keyed by `api_access_token`), `POST /api/v1/accounts/{id}/conversations` does NOT auto-create a contact for an unknown `source_id`. A `source_id` that doesn't already exist as a `contact_inbox` association makes Chatwoot return `404 {"error":"Resource could not be found"}` — a generic-looking 404 that obscures the real cause (it looks like a wrong endpoint/account, but it's actually missing contact state). 422 would have been more accurate; Chatwoot's choice of 404 cost ~10 minutes of debugging in the live smoke.
+
+**Where it hit:** Phase 3 step #3 live smoke against Chatwoot Cloud (2026-05-27). The chatwoot adapter's original single-call flow POSTed a conversation with `source_id = p.Submission.Id` and a fresh UUID; Chatwoot 404'd because that UUID had no contact_inbox row.
+
+**Rule:** For Chatwoot's agent-side API on a `Channel::Api` inbox, use a **two-call flow**:
+1. `POST /api/v1/accounts/{id}/contacts` with `{inbox_id, name, identifier, email?}` — returns `{payload:{contact:{id}, contact_inbox:{source_id}}}`. This is the same endpoint Chatwoot's UI uses; it creates the contact AND the contact_inbox link in one call.
+2. `POST /api/v1/accounts/{id}/conversations` with `{source_id, inbox_id, contact_id, message:{content}}` using the values returned by step 1.
+
+The **public API channel** path (`/public/api/v1/inboxes/{identifier}/contacts/.../conversations`) uses a different auth model (HMAC) and is a valid alternative, but the agent-side path is simpler when you already have an api_access_token. Reference: `relay/internal/adapter/chatwoot/chatwoot.go` `createContact` + `Create`.
+
+---
