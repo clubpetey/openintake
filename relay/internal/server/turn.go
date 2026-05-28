@@ -96,9 +96,25 @@ func initHandler(deps Deps) http.HandlerFunc {
 		}
 
 		// 5-iii: verify the captcha token now that we know it's present and required.
-		// (5-i leaves this as a one-line marker comment that 5-iii extends with the
-		// actual deps.CaptchaVerifier.Verify call; the missing-token branch above
-		// is what 5-i covers.)
+		if len(requiresCaptcha) > 0 && initReq.CaptchaToken != "" && deps.CaptchaVerifier != nil {
+			clientIP := ClientIPFromContext(r.Context())
+			ok, reason, err := deps.CaptchaVerifier.Verify(r.Context(), initReq.CaptchaToken, clientIP)
+			if err != nil {
+				slog.WarnContext(r.Context(), "captcha siteverify unavailable", "provider", deps.CaptchaVerifier.Provider(), "err", err)
+				writeError(w, http.StatusBadGateway, "captcha_unavailable", "captcha verification provider unavailable")
+				return
+			}
+			if !ok {
+				writeJSON(w, http.StatusUnauthorized, map[string]any{
+					"error": map[string]any{
+						"code":    "captcha_failed",
+						"message": "captcha verification failed",
+						"reason":  reason,
+					},
+				})
+				return
+			}
+		}
 
 		sessionID := deps.Auth.Store().Issue()
 
