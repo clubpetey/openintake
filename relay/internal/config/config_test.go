@@ -166,3 +166,58 @@ func TestLoad_AppliesOllamaDefaults(t *testing.T) {
 		t.Errorf("default Ollama.BearerTokenEnv = %q; want empty string", cfg.LLM.Ollama.BearerTokenEnv)
 	}
 }
+
+func TestLoad_AppliesDefaultRoutingAdapter(t *testing.T) {
+	cfg, err := config.Load("testdata/minimal.yaml")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.Routing.DefaultAdapter != "chatwoot" {
+		t.Errorf("default Routing.DefaultAdapter = %q; want %q", cfg.Routing.DefaultAdapter, "chatwoot")
+	}
+}
+
+func TestLoad_StringList_ScalarAndSequence(t *testing.T) {
+	cfg, err := config.Load("testdata/sample.yaml")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(cfg.Routing.Rules) < 2 {
+		t.Fatalf("expected >=2 routing rules, got %d", len(cfg.Routing.Rules))
+	}
+	// Rule 0 uses a scalar classification ("bug").
+	r0 := cfg.Routing.Rules[0]
+	if len(r0.When.Classification) != 1 || r0.When.Classification[0] != "bug" {
+		t.Errorf("rule0 classification = %v; want [bug]", r0.When.Classification)
+	}
+	if r0.To != "chatwoot" {
+		t.Errorf("rule0.To = %q; want chatwoot", r0.To)
+	}
+	// Rule 1 uses a sequence classification (["question","other"]).
+	r1 := cfg.Routing.Rules[1]
+	if len(r1.When.Classification) != 2 {
+		t.Errorf("rule1 classification = %v; want 2 entries", r1.When.Classification)
+	}
+}
+
+func TestLoad_ParsesAdapterBlocks(t *testing.T) {
+	cfg, err := config.Load("testdata/sample.yaml")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if !cfg.Adapters.Chatwoot.Enabled || cfg.Adapters.Chatwoot.AccountID != 1 || cfg.Adapters.Chatwoot.InboxID != 3 {
+		t.Errorf("chatwoot block mis-parsed: %+v", cfg.Adapters.Chatwoot)
+	}
+	if cfg.Adapters.Chatwoot.APITokenEnv != "CHATWOOT_TOKEN" {
+		t.Errorf("chatwoot.api_token_env = %q; want CHATWOOT_TOKEN", cfg.Adapters.Chatwoot.APITokenEnv)
+	}
+	if cfg.Adapters.Zendesk.Subdomain != "example" || cfg.Adapters.Zendesk.Email != "agent@example.com" {
+		t.Errorf("zendesk block mis-parsed: %+v", cfg.Adapters.Zendesk)
+	}
+	if cfg.Adapters.Linear.TeamID != "TEAM_ID" {
+		t.Errorf("linear.team_id = %q; want TEAM_ID", cfg.Adapters.Linear.TeamID)
+	}
+	if cfg.License.File != "/etc/intake/license.json" {
+		t.Errorf("license.file = %q; want /etc/intake/license.json", cfg.License.File)
+	}
+}

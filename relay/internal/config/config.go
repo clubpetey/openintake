@@ -15,6 +15,8 @@ type Config struct {
 	LLM      LLMConfig      `yaml:"llm"`
 	Auth     AuthConfig     `yaml:"auth"`
 	Adapters AdaptersConfig `yaml:"adapters"`
+	Routing  RoutingConfig  `yaml:"routing"`
+	License  LicenseConfig  `yaml:"license"`
 }
 
 // ServerConfig holds HTTP server and CORS settings.
@@ -81,9 +83,14 @@ type AuthModes struct {
 	Anonymous bool `yaml:"anonymous"`
 }
 
-// AdaptersConfig holds per-adapter configuration.
+// AdaptersConfig holds per-adapter configuration. Webhook is Phase 1; the other
+// four are added in Phase 3 (3-ii…3-v construct them; their config is read here).
 type AdaptersConfig struct {
-	Webhook WebhookConfig `yaml:"webhook"`
+	Webhook  WebhookConfig  `yaml:"webhook"`
+	Chatwoot ChatwootConfig `yaml:"chatwoot"`
+	Fider    FiderConfig    `yaml:"fider"`
+	Zendesk  ZendeskConfig  `yaml:"zendesk"`
+	Linear   LinearConfig   `yaml:"linear"`
 }
 
 // WebhookConfig configures the webhook adapter.
@@ -98,6 +105,90 @@ type WebhookConfig struct {
 type RetryConfig struct {
 	MaxAttempts int    `yaml:"max_attempts"`
 	Backoff     string `yaml:"backoff"` // "exponential" | "fixed"
+}
+
+// ChatwootConfig configures the Chatwoot adapter (free). APITokenEnv is the NAME
+// of the env var holding the api_access_token; the value resolves via ResolveSecret.
+type ChatwootConfig struct {
+	Enabled     bool   `yaml:"enabled"`
+	BaseURL     string `yaml:"base_url"`
+	AccountID   int    `yaml:"account_id"`
+	InboxID     int    `yaml:"inbox_id"`
+	APITokenEnv string `yaml:"api_token_env"`
+}
+
+// FiderConfig configures the Fider adapter (free).
+type FiderConfig struct {
+	Enabled   bool   `yaml:"enabled"`
+	BaseURL   string `yaml:"base_url"`
+	APIKeyEnv string `yaml:"api_key_env"`
+}
+
+// ZendeskConfig configures the Zendesk adapter (paid).
+type ZendeskConfig struct {
+	Enabled         bool   `yaml:"enabled"`
+	Subdomain       string `yaml:"subdomain"`
+	Email           string `yaml:"email"`
+	APITokenEnv     string `yaml:"api_token_env"`
+	DefaultPriority string `yaml:"default_priority"`
+}
+
+// LinearConfig configures the Linear adapter (paid).
+type LinearConfig struct {
+	Enabled   bool   `yaml:"enabled"`
+	APIKeyEnv string `yaml:"api_key_env"`
+	TeamID    string `yaml:"team_id"`
+}
+
+// RoutingConfig selects which adapter receives a submission.
+type RoutingConfig struct {
+	DefaultAdapter string `yaml:"default_adapter"`
+	Rules          []Rule `yaml:"rules"`
+}
+
+// Rule maps a classification/severity match to an adapter name.
+type Rule struct {
+	When RuleMatch `yaml:"when"`
+	To   string    `yaml:"to"`
+}
+
+// RuleMatch matches a submission's classification and/or severity. Each field
+// accepts a YAML scalar ("bug") OR a sequence (["question","other"]). An empty
+// field is a wildcard (matches anything).
+type RuleMatch struct {
+	Classification StringList `yaml:"classification"`
+	Severity       StringList `yaml:"severity"`
+}
+
+// LicenseConfig holds the optional explicit license path. The full load order
+// (CLI flag, INTAKE_LICENSE, INTAKE_LICENSE_FILE, default paths) is applied by
+// internal/license.Load in 3-vi; this field is one input to it.
+type LicenseConfig struct {
+	File string `yaml:"file"`
+}
+
+// StringList unmarshals either a YAML scalar or a sequence of strings into []string.
+type StringList []string
+
+// UnmarshalYAML accepts a scalar ("bug") or a sequence (["a","b"]).
+func (s *StringList) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		var single string
+		if err := value.Decode(&single); err != nil {
+			return err
+		}
+		*s = StringList{single}
+	case yaml.SequenceNode:
+		var list []string
+		if err := value.Decode(&list); err != nil {
+			return err
+		}
+		*s = StringList(list)
+	default:
+		return fmt.Errorf("config: classification/severity must be a string or a list of strings")
+	}
+	return nil
 }
 
 // applyDefaults applies sane default values for any field not set by the YAML file.
@@ -154,6 +245,9 @@ func applyDefaults(c *Config) {
 		c.LLM.Ollama.MaxTokens = 1024
 	}
 	// BearerTokenEnv intentionally left as "" (no default — absence means no auth)
+	if c.Routing.DefaultAdapter == "" {
+		c.Routing.DefaultAdapter = "chatwoot"
+	}
 	if c.Adapters.Webhook.Retry.MaxAttempts == 0 {
 		c.Adapters.Webhook.Retry.MaxAttempts = 3
 	}
