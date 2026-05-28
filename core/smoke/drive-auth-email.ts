@@ -11,9 +11,9 @@
  *   4. POST /v1/intake/auth/email/verify { email, code }       → { token, expires_at, user }
  *   5. POST /v1/intake/turn (×2) with Authorization: Bearer    → SSE streams
  *   6. POST /v1/intake/submit                                  → SubmitResponse
- *   7. Assert the canonical payload (received by a local webhook receiver, OR
- *      asserted via the SubmitResponse's user fields) carries
- *      user.auth_mode="email", user.email=<addr>, user.verified=true.
+ *   7. Assert /auth/email/verify response shape (user.verified=true) and a
+ *      successful /submit (external_id + adapter_name present); SessionContext-
+ *      AuthMode propagation is covered by the server-side test suite.
  *
  * Usage:
  *   RELAY_URL=http://localhost:8099 \

@@ -161,7 +161,7 @@ The classic JWT alg-confusion attack: an attacker takes a token expected to be R
 
 **Rule:** every `jwt.ParseWithClaims` (or `jwt.Parse`) call MUST pass `jwt.WithValidMethods([]string{"<expected-alg>"})`. Test the rejection explicitly — for an RS256 verifier, mint an HS256 token using the RSA public-key bytes as the HMAC secret and assert rejection. Same in reverse for HS256. The rejection test is a load-bearing security assertion; if it ever flakes or gets disabled, the verifier is broken.
 
-Reference: `relay/internal/auth/sso/{rs256.go,hs256.go}`; tests `TestRS256Verifier_RejectsHS256Token`, `TestHS256Verifier_RejectsRS256Token`.
+Reference: `relay/internal/auth/sso/{rs256.go,hs256.go}`; tests `TestRS256_AlgConfusion_Rejected`, `TestHS256_AlgConfusion_Rejected`.
 
 ---
 
@@ -173,6 +173,6 @@ A naive in-memory rate-limiter that reads `time.Now()` directly inside `Issue`/`
 
 **Rule:** any in-memory TTL/window primitive must take `now func() time.Time` (or equivalent) at construction. The internal code path always calls `s.now()` rather than `time.Now()` directly. Eager-eviction (prune on Issue/Verify) is preferred over a background goroutine for v0 — simpler, no race surface, and the per-op cost is trivial for the small key counts we expect (one entry per pending email).
 
-Reference: `relay/internal/auth/emailcode/store.go`; tests in `relay/internal/auth/emailcode/store_test.go`.
+Reference: `relay/internal/auth/emailcode/emailcode.go`; tests in `relay/internal/auth/emailcode/emailcode_test.go`.
 
 ---

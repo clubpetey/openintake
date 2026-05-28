@@ -81,6 +81,18 @@ func validateAndExtract(claims jwt.MapClaims, cfg config.SSOConfig) (*auth.SSOCl
 	// iss — exact match (NOT prefix). An attacker who controls a subdomain
 	// must not be able to mint tokens accepted by a parent-domain iss check.
 	iss, _ := claims["iss"].(string)
+
+	// Defense in depth (L013-adjacent): explicitly reject email-mode JWTs even if
+	// they somehow passed alg-pinning, so a misconfigured operator setting
+	// auth.sso.issuer == "intake-email" cannot accidentally accept relay-minted
+	// email JWTs as SSO bearers.
+	if iss == "intake-email" { // matches emailjwt.Issuer constant
+		return nil, fmt.Errorf("sso: rejecting email-mode iss")
+	}
+
+	// The %q here echoes an attacker-controllable string into the error,
+	// but the dispatcher surfaces only a static "invalid bearer token" message
+	// to the client — this detail is for operator logs only.
 	if iss != cfg.Issuer {
 		return nil, fmt.Errorf("sso: iss claim %q does not match configured issuer", iss)
 	}

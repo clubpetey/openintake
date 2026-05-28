@@ -82,6 +82,11 @@ type AuthConfig struct {
 
 // AuthModes enables or disables specific auth strategies.
 type AuthModes struct {
+	// Anonymous advertises that the relay accepts X-Intake-Session headers.
+	// Note: setting this to false does NOT disable anonymous access — the
+	// dispatcher accepts anonymous sessions whenever a valid X-Intake-Session
+	// is presented. This flag is advertisement-only (read by initHandler to
+	// populate Capabilities.AuthModes).
 	Anonymous bool `yaml:"anonymous"`
 	Email     bool `yaml:"email"`
 	SSO       bool `yaml:"sso"`

@@ -273,6 +273,45 @@ func TestHS256_M2MShape_OnlySubPopulated(t *testing.T) {
 	}
 }
 
+// TestSSO_RejectsEmailModeIssuer asserts that even if alg + signature are valid,
+// a token with iss="intake-email" must be rejected — defense in depth against an
+// operator misconfiguring auth.sso.issuer to the email-mode issuer string.
+func TestSSO_RejectsEmailModeIssuer(t *testing.T) {
+	// Even if alg + signature are valid, a token with iss="intake-email"
+	// must be rejected — defense in depth against an operator misconfiguring
+	// auth.sso.issuer to the email-mode issuer string.
+	secret := make([]byte, 32)
+	for i := range secret {
+		secret[i] = byte(i)
+	}
+	cfg := config.SSOConfig{
+		Issuer:         "intake-email", // misconfigured!
+		Audience:       "https://api.example.com",
+		HS256SecretEnv: "INTAKE_SSO_HS256_SECRET",
+		Claims:         config.SSOClaimNames{UserID: "sub", Email: "email", DisplayName: "name"},
+	}
+	v, err := sso.NewHS256Verifier(cfg, secret)
+	if err != nil {
+		t.Fatalf("ctor: %v", err)
+	}
+
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"iss": "intake-email",
+		"aud": cfg.Audience,
+		"sub": "u1",
+		"iat": time.Now().Unix(),
+		"exp": time.Now().Add(15 * time.Minute).Unix(),
+	})
+	signed, err := tok.SignedString(secret)
+	if err != nil {
+		t.Fatalf("SignedString: %v", err)
+	}
+
+	if _, err := v.Verify(context.Background(), signed); err == nil {
+		t.Fatal("SSO verifier must reject iss=intake-email even on valid signature")
+	}
+}
+
 // TestHS256_SecretTooShort_Rejected asserts the constructor enforces the
 // 32-byte minimum on the resolved secret.
 func TestHS256_SecretTooShort_Rejected(t *testing.T) {
