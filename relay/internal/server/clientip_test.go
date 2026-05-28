@@ -118,3 +118,51 @@ func TestClientIP_IPv6RemoteAddr(t *testing.T) {
 		t.Errorf("ClientIP = %q; want 2001:db8::1 (IPv6 from bracketed RemoteAddr)", captured)
 	}
 }
+
+func TestClientIP_TrustedRemoteAddr_EmptyXFF_ReturnsRemoteAddr(t *testing.T) {
+	var captured string
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured = ClientIPFromContext(r.Context())
+	})
+	mw := clientIPMiddleware([]netip.Prefix{mustPrefix(t, "10.0.0.0/8")})
+	// RemoteAddr is trusted but XFF is absent — fall back to RemoteAddr.
+	req := newRequestWithRemoteAndXFF("10.0.0.1:12345", "")
+	mw(next).ServeHTTP(httptest.NewRecorder(), req)
+	if captured != "10.0.0.1" {
+		t.Errorf("ClientIP = %q; want 10.0.0.1 (trusted RemoteAddr + empty XFF)", captured)
+	}
+}
+
+func TestClientIP_TrailingCommaAndWhitespaceXFF(t *testing.T) {
+	var captured string
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured = ClientIPFromContext(r.Context())
+	})
+	mw := clientIPMiddleware([]netip.Prefix{mustPrefix(t, "10.0.0.0/8")})
+	// Trailing comma + extra whitespace before/after hops — RTL scan must skip
+	// the empty trailing element and trim spaces before CIDR membership check.
+	req := newRequestWithRemoteAndXFF("10.0.0.1:12345", "203.0.113.7 ,  10.0.0.2 ,")
+	mw(next).ServeHTTP(httptest.NewRecorder(), req)
+	if captured != "203.0.113.7" {
+		t.Errorf("ClientIP = %q; want 203.0.113.7 (RTL skips trailing-comma empty + trims whitespace)", captured)
+	}
+}
+
+func TestClientIP_MultipleTrustedCIDRs(t *testing.T) {
+	var captured string
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured = ClientIPFromContext(r.Context())
+	})
+	mw := clientIPMiddleware([]netip.Prefix{
+		mustPrefix(t, "10.0.0.0/8"),
+		mustPrefix(t, "192.168.0.0/16"),
+	})
+	// RemoteAddr in the second CIDR; XFF chain mixes hops from both trusted
+	// CIDRs plus one untrusted. RTL scan must skip both trusted hops and return
+	// the untrusted one.
+	req := newRequestWithRemoteAndXFF("192.168.5.10:12345", "203.0.113.7, 10.0.0.2, 192.168.5.99")
+	mw(next).ServeHTTP(httptest.NewRecorder(), req)
+	if captured != "203.0.113.7" {
+		t.Errorf("ClientIP = %q; want 203.0.113.7 (RTL skips both trusted-CIDR hops)", captured)
+	}
+}
