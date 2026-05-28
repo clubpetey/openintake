@@ -11,6 +11,8 @@ func TestStartupProblems_ReturnsParsedPrefixes(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Server.TrustedProxies = []string{"10.0.0.0/8", "192.168.0.0/16"}
 	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject"
+	cfg.RateLimit.PerSession.SessionTTL = "1h"
+	cfg.RateLimit.PerIP.IdleTTL = "15m"
 
 	problems, prefixes := startupProblems(cfg)
 	if len(problems) != 0 {
@@ -31,6 +33,8 @@ func TestStartupProblems_BadCIDR_DropsInvalidFromPrefixes(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Server.TrustedProxies = []string{"10.0.0.0/8", "not-a-cidr", "192.168.0.0/16"}
 	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject"
+	cfg.RateLimit.PerSession.SessionTTL = "1h"
+	cfg.RateLimit.PerIP.IdleTTL = "15m"
 
 	problems, prefixes := startupProblems(cfg)
 	if len(problems) != 1 {
@@ -50,6 +54,8 @@ func TestStartupProblems_AnonymousWithoutCaptcha(t *testing.T) {
 	cfg.Captcha.Enabled = false
 	cfg.Auth.Anonymous.AllowWithoutCaptcha = false
 	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject" // isolate the anonymous gate from Validate
+	cfg.RateLimit.PerSession.SessionTTL = "1h"
+	cfg.RateLimit.PerIP.IdleTTL = "15m"
 
 	problems, _ := startupProblems(cfg)
 	if len(problems) != 1 {
@@ -67,6 +73,8 @@ func TestStartupProblems_AnonymousWithCaptchaButNotRequiredForAnonymous(t *testi
 	cfg.Captcha.RequiredFor = []string{"email"} // missing "anonymous"
 	cfg.Auth.Anonymous.AllowWithoutCaptcha = false
 	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject" // isolate the anonymous gate from Validate
+	cfg.RateLimit.PerSession.SessionTTL = "1h"
+	cfg.RateLimit.PerIP.IdleTTL = "15m"
 
 	problems, _ := startupProblems(cfg)
 	if len(problems) != 1 {
@@ -81,6 +89,8 @@ func TestStartupProblems_AllowWithoutCaptchaSilencesAnonymousGate(t *testing.T) 
 	cfg.Auth.Anonymous.AllowWithoutCaptcha = true
 
 	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject" // satisfy Validate
+	cfg.RateLimit.PerSession.SessionTTL = "1h"
+	cfg.RateLimit.PerIP.IdleTTL = "15m"
 
 	problems, _ := startupProblems(cfg)
 	if len(problems) != 0 {
@@ -94,6 +104,8 @@ func TestStartupProblems_SSOBothSet(t *testing.T) {
 	cfg.Auth.SSO.JWKSURL = "https://example/.well-known/jwks.json"
 	cfg.Auth.SSO.HS256SecretEnv = "INTAKE_SSO_HS256"
 	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject"
+	cfg.RateLimit.PerSession.SessionTTL = "1h"
+	cfg.RateLimit.PerIP.IdleTTL = "15m"
 
 	problems, _ := startupProblems(cfg)
 	if len(problems) != 1 {
@@ -108,6 +120,8 @@ func TestStartupProblems_SSONeitherSet(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Auth.Modes.SSO = true
 	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject"
+	cfg.RateLimit.PerSession.SessionTTL = "1h"
+	cfg.RateLimit.PerIP.IdleTTL = "15m"
 
 	problems, _ := startupProblems(cfg)
 	if len(problems) != 1 {
@@ -122,6 +136,8 @@ func TestStartupProblems_BadCIDR(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Server.TrustedProxies = []string{"10.0.0.0/8", "not-a-cidr"}
 	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject"
+	cfg.RateLimit.PerSession.SessionTTL = "1h"
+	cfg.RateLimit.PerIP.IdleTTL = "15m"
 
 	problems, _ := startupProblems(cfg)
 	if len(problems) != 1 {
@@ -135,6 +151,8 @@ func TestStartupProblems_BadCIDR(t *testing.T) {
 func TestStartupProblems_BadActionOnExceeded(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "queue" // v0 only supports "reject"
+	cfg.RateLimit.PerSession.SessionTTL = "1h"
+	cfg.RateLimit.PerIP.IdleTTL = "15m"
 
 	problems, _ := startupProblems(cfg)
 	if len(problems) == 0 {
@@ -162,6 +180,8 @@ func TestStartupProblems_AllFourMisconfigsAtOnce(t *testing.T) {
 	cfg.Auth.SSO.HS256SecretEnv = "INTAKE_SSO_HS256"
 	cfg.Server.TrustedProxies = []string{"not-a-cidr"}
 	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "queue"
+	cfg.RateLimit.PerSession.SessionTTL = "1h"
+	cfg.RateLimit.PerIP.IdleTTL = "15m"
 
 	problems, _ := startupProblems(cfg)
 	if len(problems) != 4 {
@@ -172,6 +192,8 @@ func TestStartupProblems_AllFourMisconfigsAtOnce(t *testing.T) {
 func TestStartupProblems_CleanConfig(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject"
+	cfg.RateLimit.PerSession.SessionTTL = "1h"
+	cfg.RateLimit.PerIP.IdleTTL = "15m"
 	// All other Phase 4/5 gate inputs default to safe values.
 	problems, _ := startupProblems(cfg)
 	if len(problems) != 0 {
@@ -185,6 +207,8 @@ func TestStartupProblems_EmptyActionOnExceeded_TreatedAsProblem(t *testing.T) {
 	// bypass that path. startupProblems must surface this as a Validate problem
 	// so it's caught at startup rather than at first /turn.
 	cfg := &config.Config{}
+	cfg.RateLimit.PerSession.SessionTTL = "1h"
+	cfg.RateLimit.PerIP.IdleTTL = "15m"
 	// No other gate inputs set → only the Validate empty-string case fires.
 
 	problems, _ := startupProblems(cfg)
@@ -196,5 +220,47 @@ func TestStartupProblems_EmptyActionOnExceeded_TreatedAsProblem(t *testing.T) {
 	}
 	if !strings.Contains(problems[0], "empty") {
 		t.Errorf("problem %q does not mention 'empty'", problems[0])
+	}
+}
+
+func TestStartupProblems_BadSessionTTL_TreatedAsProblem(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.RateLimit.PerSession.SessionTTL = "1 hour" // invalid — should be "1h"
+	cfg.RateLimit.PerIP.IdleTTL = "15m"            // valid
+	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject"
+
+	problems, _ := startupProblems(cfg)
+	if len(problems) != 1 {
+		t.Fatalf("problems = %v; want exactly 1 (bad session_ttl)", problems)
+	}
+	if !strings.Contains(problems[0], "session_ttl") {
+		t.Errorf("problem %q does not mention session_ttl", problems[0])
+	}
+}
+
+func TestStartupProblems_BadIdleTTL_TreatedAsProblem(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.RateLimit.PerSession.SessionTTL = "1h"   // valid
+	cfg.RateLimit.PerIP.IdleTTL = "15min"        // invalid — should be "15m"
+	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject"
+
+	problems, _ := startupProblems(cfg)
+	if len(problems) != 1 {
+		t.Fatalf("problems = %v; want exactly 1 (bad idle_ttl)", problems)
+	}
+	if !strings.Contains(problems[0], "idle_ttl") {
+		t.Errorf("problem %q does not mention idle_ttl", problems[0])
+	}
+}
+
+func TestStartupProblems_BothBadDurations_ReportsBoth(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.RateLimit.PerSession.SessionTTL = "1 hour" // invalid
+	cfg.RateLimit.PerIP.IdleTTL = "15min"          // invalid
+	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject"
+
+	problems, _ := startupProblems(cfg)
+	if len(problems) != 2 {
+		t.Errorf("problems len = %d; want 2 (both durations bad)\nproblems: %v", len(problems), problems)
 	}
 }

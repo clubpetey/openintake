@@ -549,6 +549,17 @@ func startupProblems(cfg *config.Config) (problems []string, trustedProxies []ne
 		trustedProxies = append(trustedProxies, p)
 	}
 
+	// Phase 5: validate rate-limit duration fields parse cleanly. main.go's
+	// inline ParseDuration calls are defense-in-depth, but having the check
+	// here means an operator with multiple bad durations sees one consolidated
+	// error log line, not one per restart cycle.
+	if _, err := time.ParseDuration(cfg.RateLimit.PerSession.SessionTTL); err != nil {
+		problems = append(problems, fmt.Sprintf("ratelimit.per_session.session_ttl=%q is not a valid Go duration (e.g. \"1h\", \"30m\"): %v", cfg.RateLimit.PerSession.SessionTTL, err))
+	}
+	if _, err := time.ParseDuration(cfg.RateLimit.PerIP.IdleTTL); err != nil {
+		problems = append(problems, fmt.Sprintf("ratelimit.per_ip.idle_ttl=%q is not a valid Go duration (e.g. \"15m\", \"5m\"): %v", cfg.RateLimit.PerIP.IdleTTL, err))
+	}
+
 	// Config-level validation (action_on_exceeded etc.).
 	if err := cfg.Validate(); err != nil {
 		problems = append(problems, err.Error())
