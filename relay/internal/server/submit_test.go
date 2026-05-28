@@ -65,7 +65,7 @@ const submitClassifyJSON = `{
 
 func buildSubmitDeps(fa adapter.Adapter) server.Deps {
 	store := auth.NewStore()
-	mw := auth.NewMiddleware(store)
+	mw := auth.NewMiddleware(store, nil, nil)
 	provider := &fakeProviderSubmit{response: submitClassifyJSON}
 	classifier := classify.New(provider, "claude-sonnet-4-6", 512)
 	builder := payloadbuild.New("0.1.0")
@@ -202,7 +202,7 @@ func TestSubmitHandler_IntegrationWithHttptestWebhook(t *testing.T) {
 	}
 
 	store := auth.NewStore()
-	mw := auth.NewMiddleware(store)
+	mw := auth.NewMiddleware(store, nil, nil)
 	provider := &fakeProviderSubmit{response: submitClassifyJSON}
 	classifier := classify.New(provider, "claude-sonnet-4-6", 512)
 	builder := payloadbuild.New("0.1.0")

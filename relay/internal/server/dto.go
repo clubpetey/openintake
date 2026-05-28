@@ -5,16 +5,33 @@ import "intake/internal/dto"
 // Session transport: the X-Intake-Session header carries the session_id on
 // every /turn and /submit request (single source of truth; NOT in the body).
 
-// InitResponse is the body returned by POST /v1/intake/init.
+// InitResponse is returned by POST /v1/intake/init.
+//
+// Phase 1: SessionID + Capabilities{AuthModes:["anonymous"], Streaming:true}.
+// Phase 4: Capabilities.AuthModes is extended to include "email"/"sso" when the
+// corresponding auth.modes.* flag is true; a new top-level Auth field carries
+// per-mode hints (currently just email.code_ttl_seconds).
 type InitResponse struct {
 	SessionID    string       `json:"session_id"`
 	Capabilities Capabilities `json:"capabilities"`
+	Auth         *InitAuth    `json:"auth,omitempty"`
 }
 
 // Capabilities advertises relay feature flags to the widget.
 type Capabilities struct {
-	AuthModes []string `json:"auth_modes"` // Phase 1: ["anonymous"]
-	Streaming bool     `json:"streaming"`  // true
+	AuthModes []string `json:"auth_modes"`
+	Streaming bool     `json:"streaming"`
+}
+
+// InitAuth carries per-mode initialization hints. Only emitted when at least
+// one enabled mode advertises a hint.
+type InitAuth struct {
+	Email *InitAuthEmail `json:"email,omitempty"`
+}
+
+// InitAuthEmail is the email-mode capability hint.
+type InitAuthEmail struct {
+	CodeTTLSeconds int `json:"code_ttl_seconds"`
 }
 
 // TurnMessage is a single conversation turn (user or assistant).

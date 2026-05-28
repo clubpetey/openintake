@@ -5,6 +5,7 @@ import (
 
 	"intake/internal/auth"
 	"intake/internal/classify"
+	"intake/internal/config"
 	"intake/internal/llm"
 	"intake/internal/payloadbuild"
 	"intake/internal/router"
@@ -59,4 +60,8 @@ type Deps struct {
 
 	// Builder assembles and schema-validates the canonical payload.IntakePayload.
 	Builder *payloadbuild.Builder
+
+	// AuthCfg is the auth section of the loaded config — needed by initHandler
+	// to emit the correct capabilities + auth hints. Set by main.go.
+	AuthCfg config.AuthConfig
 }

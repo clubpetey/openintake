@@ -5,14 +5,16 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"intake/internal/llm"
 )
 
 // initHandler handles POST /v1/intake/init.
-// No auth middleware: this endpoint ISSUES the session.
+// Response: InitResponse{SessionID, Capabilities, Auth?}.
 //
-// Response: InitResponse{SessionID, Capabilities{AuthModes:["anonymous"], Streaming:true}}
+// Phase 4: AuthModes includes "anonymous"/"email"/"sso" based on cfg.Auth.Modes;
+// InitResponse.Auth carries hints (currently just email.code_ttl_seconds).
 func initHandler(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Auth == nil {
@@ -21,13 +23,36 @@ func initHandler(deps Deps) http.HandlerFunc {
 		}
 		sessionID := deps.Auth.Store().Issue()
 
+		modes := make([]string, 0, 3)
+		if deps.AuthCfg.Modes.Anonymous {
+			modes = append(modes, "anonymous")
+		}
+		if deps.AuthCfg.Modes.Email {
+			modes = append(modes, "email")
+		}
+		if deps.AuthCfg.Modes.SSO {
+			modes = append(modes, "sso")
+		}
+		// Backward compat: if no flag was set (somehow), preserve Phase-1 default.
+		if len(modes) == 0 {
+			modes = []string{"anonymous"}
+		}
+
 		resp := InitResponse{
 			SessionID: sessionID,
 			Capabilities: Capabilities{
-				AuthModes: []string{"anonymous"},
+				AuthModes: modes,
 				Streaming: true,
 			},
 		}
+
+		// Per-mode hints: email's code_ttl_seconds (parsed from cfg).
+		if deps.AuthCfg.Modes.Email {
+			if d, err := time.ParseDuration(deps.AuthCfg.Email.CodeTTL); err == nil {
+				resp.Auth = &InitAuth{Email: &InitAuthEmail{CodeTTLSeconds: int(d.Seconds())}}
+			}
+		}
+
 		writeJSON(w, http.StatusOK, resp)
 	}
 }

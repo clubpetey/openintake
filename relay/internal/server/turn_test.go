@@ -36,7 +36,7 @@ func (p *testProvider) Chat(_ context.Context, _ []llm.Message, _ llm.ChatOption
 
 func newTestDeps() (server.Deps, *auth.Store) {
 	store := auth.NewStore()
-	mw := auth.NewMiddleware(store)
+	mw := auth.NewMiddleware(store, nil, nil)
 	provider := &testProvider{
 		chunks: []llm.ChatChunk{
 			{Delta: "Hello"},
@@ -87,6 +87,56 @@ func TestInitHandler_Returns200AndSessionID(t *testing.T) {
 	if !deps.Auth.Store().Validate(resp.SessionID) {
 		t.Error("returned session_id does not validate in the store")
 	}
+}
+
+// TestInitHandler_EmitsAllEnabledModes verifies the Phase-4 init response
+// includes all enabled auth modes and an email TTL hint when email mode is on.
+func TestInitHandler_EmitsAllEnabledModes(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{CORSOrigins: []string{"http://localhost:5173"}},
+		Auth: config.AuthConfig{
+			Modes: config.AuthModes{Anonymous: true, Email: true, SSO: true},
+			Email: config.EmailConfig{CodeTTL: "10m"},
+		},
+	}
+	deps := server.Deps{
+		Auth:    auth.NewMiddleware(auth.NewStore(), nil, nil),
+		AuthCfg: cfg.Auth,
+	}
+	mux := server.New(cfg, deps)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/intake/init", nil)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", rr.Code, rr.Body.String())
+	}
+
+	var resp server.InitResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	want := []string{"anonymous", "email", "sso"}
+	if got := resp.Capabilities.AuthModes; !equalStringSlice(got, want) {
+		t.Errorf("AuthModes = %v; want %v", got, want)
+	}
+	if resp.Auth == nil || resp.Auth.Email == nil || resp.Auth.Email.CodeTTLSeconds != 600 {
+		t.Errorf("Auth.Email = %+v; want CodeTTLSeconds=600", resp.Auth)
+	}
+}
+
+// equalStringSlice — order-sensitive equality for the test above.
+func equalStringSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // --- /turn tests ---
@@ -173,7 +223,10 @@ func TestTurnHandler_MissingSession_Returns401(t *testing.T) {
 	}
 }
 
-func TestTurnHandler_BearerToken_Returns501(t *testing.T) {
+// 4-i: with no verifiers configured, a bearer token must NOT silently downgrade
+// to anonymous. It is rejected with 401 (Phase-1 returned 501; the dispatcher
+// now consistently returns 401 for any unaccepted bearer).
+func TestTurnHandler_BearerToken_Returns401(t *testing.T) {
 	deps, _ := newTestDeps()
 	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{"http://localhost:5173"}}}
 	router := server.New(cfg, deps)
@@ -184,8 +237,8 @@ func TestTurnHandler_BearerToken_Returns501(t *testing.T) {
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusNotImplemented {
-		t.Fatalf("/turn with Bearer: status = %d; want 501", rr.Code)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("/turn with Bearer: status = %d; want 401", rr.Code)
 	}
 }
 
@@ -194,7 +247,7 @@ func TestTurnHandler_BearerToken_Returns501(t *testing.T) {
 // then terminates (no subsequent frames).
 func TestTurnHandler_SSEErrorFrame(t *testing.T) {
 	store := auth.NewStore()
-	mw := auth.NewMiddleware(store)
+	mw := auth.NewMiddleware(store, nil, nil)
 	provider := &testProvider{
 		chunks: []llm.ChatChunk{
 			{Delta: "partial"},
