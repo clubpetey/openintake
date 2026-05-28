@@ -53,3 +53,59 @@ HTTP_CODE=200
 **Verdict:** PASS — /init returns 200 with a session_id regardless of session header. Confirms /init does NOT pass through the auth dispatcher.
 
 **Overall:** Phase 5-i Task 5's Q9 strict-anonymous dispatcher guard verified at runtime against a real binary. Cases (b) and (c) returned byte-identical 401 responses, confirming the dispatcher's timing-safety property — it rejects on the `modes.anonymous=false` configuration check BEFORE consulting the session store.
+
+## 5-iv Task 4 — Per-IP rate-limit smoke (2026-05-28)
+
+**Config:** `relay/cmd/relay/smoke/rate-limit-test.yaml`
+
+**Setup:**
+- `ratelimit.per_ip.requests_per_second: 1.0`, `burst: 5`
+- `auth.modes.anonymous: true`, `allow_without_captcha: true`
+- Started with `ANTHROPIC_API_KEY=sk-ant-dummy-for-smoke` (satisfies the Q9 startup secret-resolution gate; no LLM call occurs during this smoke).
+
+### Burst 1: 10 POSTs to /v1/intake/init
+```
+$ for i in $(seq 1 10); do curl -s -o /dev/null -w "request $i: %{http_code}\n" -X POST http://127.0.0.1:18080/v1/intake/init -d '{}'; done
+request 1: 200
+request 2: 200
+request 3: 200
+request 4: 200
+request 5: 200
+request 6: 429
+request 7: 429
+request 8: 429
+request 9: 429
+request 10: 429
+```
+**Verdict:** PASS — 5×200 + 5×429 (clean split — bucket burst=5 exhausted exactly on request 6). Per-IP bucket correctly rejects after burst exhausted.
+
+### Burst 2: 10 GETs to /v1/health (control)
+```
+$ for i in $(seq 1 10); do curl -s -o /dev/null -w "health $i: %{http_code}\n" http://127.0.0.1:18080/v1/health; done
+health 1: 200
+health 2: 200
+health 3: 200
+health 4: 200
+health 5: 200
+health 6: 200
+health 7: 200
+health 8: 200
+health 9: 200
+health 10: 200
+```
+**Verdict:** PASS — all 10 returned 200. /v1/health is OUTSIDE the rate-limited /v1/intake group (5-i Task 7 routing).
+
+### Burst 3: Retry-After header on the 429
+```
+$ for i in $(seq 1 7); do curl -s -o /dev/null -X POST http://127.0.0.1:18080/v1/intake/init -d '{}'; done
+$ curl -s -D- -X POST http://127.0.0.1:18080/v1/intake/init -d '{}' -o /dev/null
+HTTP/1.1 429 Too Many Requests
+Content-Type: application/json
+Retry-After: 1
+Vary: Origin
+Date: Thu, 28 May 2026 23:11:00 GMT
+Content-Length: 74
+```
+**Verdict:** PASS — Retry-After header present with value `1` (rounded-up seconds; floor 1 per RFC 9110 / `setRetryAfter` helper from 5-ii Task 4 commit `99a9e1b`).
+
+**Overall:** Phase 5-ii Task 1's `perip.Limiter` verified at runtime. The /v1/intake-only routing (5-i Task 7) confirmed via the /v1/health control returning 10×200 against the identical burst pattern that produced 5×429 on /v1/intake/init.
