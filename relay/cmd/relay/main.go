@@ -84,7 +84,9 @@ func main() {
 
 	// --- Session Store + Auth Middleware ---
 	store := auth.NewStore()
-	middleware := auth.NewMiddleware(store)
+	// 4-i: middleware accepts optional email + sso verifiers (both nil here; 4-ii
+	// and 4-iii wire them when the corresponding auth.modes.* flag is set).
+	middleware := auth.NewMiddleware(store, nil, nil)
 
 	// --- Triage System Prompt ---
 	// Loads from cfg.LLM.SystemPromptFile if set; else uses bundled prompt.txt.
@@ -142,6 +144,7 @@ func main() {
 		Router:       rtr,
 		Classifier:   classifier,
 		Builder:      builder,
+		AuthCfg:      cfg.Auth,
 	}
 
 	// --- HTTP Server ---
