@@ -76,6 +76,9 @@ func TestChatwootCreate_PostsConversation(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotPath = r.URL.Path
+		// "api_access_token" is Chatwoot's custom header name (not Authorization).
+		// Go's net/http canonicalizes it consistently on both the Set and Get sides,
+		// so the exact string matches even though it is not a standard header.
 		gotAuth = r.Header.Get("api_access_token")
 		gotCT = r.Header.Get("Content-Type")
 		raw, err := io.ReadAll(r.Body)
@@ -189,6 +192,52 @@ func TestChatwootConfigure_MissingKeys(t *testing.T) {
 		})
 		if err == nil || !strings.Contains(err.Error(), "api_token") {
 			t.Fatalf("expected error naming api_token, got %v", err)
+		}
+	})
+	t.Run("zero account_id", func(t *testing.T) {
+		a := chatwoot.New()
+		err := a.Configure(map[string]any{
+			"base_url":   "https://chatwoot.example.com",
+			"account_id": 0,
+			"inbox_id":   3,
+			"api_token":  testToken,
+		})
+		if err == nil || !strings.Contains(err.Error(), "account_id") {
+			t.Fatalf("expected error naming account_id, got %v", err)
+		}
+	})
+	t.Run("missing account_id", func(t *testing.T) {
+		a := chatwoot.New()
+		err := a.Configure(map[string]any{
+			"base_url":  "https://chatwoot.example.com",
+			"inbox_id":  3,
+			"api_token": testToken,
+		})
+		if err == nil || !strings.Contains(err.Error(), "account_id") {
+			t.Fatalf("expected error naming account_id, got %v", err)
+		}
+	})
+	t.Run("zero inbox_id", func(t *testing.T) {
+		a := chatwoot.New()
+		err := a.Configure(map[string]any{
+			"base_url":   "https://chatwoot.example.com",
+			"account_id": 1,
+			"inbox_id":   0,
+			"api_token":  testToken,
+		})
+		if err == nil || !strings.Contains(err.Error(), "inbox_id") {
+			t.Fatalf("expected error naming inbox_id, got %v", err)
+		}
+	})
+	t.Run("missing inbox_id", func(t *testing.T) {
+		a := chatwoot.New()
+		err := a.Configure(map[string]any{
+			"base_url":   "https://chatwoot.example.com",
+			"account_id": 1,
+			"api_token":  testToken,
+		})
+		if err == nil || !strings.Contains(err.Error(), "inbox_id") {
+			t.Fatalf("expected error naming inbox_id, got %v", err)
 		}
 	})
 }

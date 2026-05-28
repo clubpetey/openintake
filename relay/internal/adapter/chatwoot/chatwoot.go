@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -42,14 +41,6 @@ func New() *Adapter {
 func (a *Adapter) Name() string { return "chatwoot" }
 
 func (a *Adapter) RequiresLicense() bool { return false }
-
-// WithHTTPClient overrides the HTTP client (used by tests to point at httptest).
-func (a *Adapter) WithHTTPClient(c *http.Client) *Adapter {
-	if c != nil {
-		a.client = c
-	}
-	return a
-}
 
 // Configure reads base_url, account_id, inbox_id, api_token from the map.
 // base_url and api_token are required; api_token is the RESOLVED token value
@@ -85,6 +76,10 @@ func (a *Adapter) Configure(cfg map[string]any) error {
 			a.accountID = int(n)
 		}
 	}
+	if a.accountID <= 0 {
+		return fmt.Errorf("chatwoot: config key 'account_id' must be a positive integer")
+	}
+
 	if v, ok := cfg["inbox_id"]; ok {
 		switch n := v.(type) {
 		case int:
@@ -92,6 +87,9 @@ func (a *Adapter) Configure(cfg map[string]any) error {
 		case float64:
 			a.inboxID = int(n)
 		}
+	}
+	if a.inboxID <= 0 {
+		return fmt.Errorf("chatwoot: config key 'inbox_id' must be a positive integer")
 	}
 
 	return nil
@@ -165,9 +163,8 @@ func extractConversationID(body []byte) (string, error) {
 	var raw struct {
 		ID json.Number `json:"id"`
 	}
-	dec := json.NewDecoder(bytes.NewReader(body))
-	dec.UseNumber()
-	if err := dec.Decode(&raw); err != nil {
+	// json.Number preserves the numeric literal exactly; no UseNumber needed.
+	if err := json.Unmarshal(body, &raw); err != nil {
 		return "", fmt.Errorf("decode body: %w", err)
 	}
 	if raw.ID.String() == "" {
@@ -204,7 +201,7 @@ func (a *Adapter) HealthCheck(ctx context.Context) error {
 	if a.baseURL == "" {
 		return fmt.Errorf("chatwoot: not configured (base_url is empty)")
 	}
-	url := fmt.Sprintf("%s/api/v1/accounts/%s", a.baseURL, strconv.Itoa(a.accountID))
+	url := fmt.Sprintf("%s/api/v1/accounts/%d", a.baseURL, a.accountID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("chatwoot health: build request: %w", err)
