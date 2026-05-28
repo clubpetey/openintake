@@ -23,6 +23,7 @@ import (
 	"intake/internal/auth/emailcode"
 	"intake/internal/auth/emailjwt"
 	"intake/internal/auth/smtpsend"
+	"intake/internal/auth/sso"
 	"intake/internal/classify"
 	"intake/internal/config"
 	licensemgr "intake/internal/license"
@@ -147,9 +148,42 @@ func main() {
 		)
 	}
 
+	// 4-iii: construct the SSO verifier when sso mode is enabled.
+	var ssoVerifier auth.SSOVerifier
+	if cfg.Auth.Modes.SSO {
+		var hs256Secret []byte
+		if cfg.Auth.SSO.HS256SecretEnv != "" {
+			s, err := config.RequireSecret(cfg.Auth.SSO.HS256SecretEnv)
+			if err != nil {
+				logger.Error("sso: resolve HS256 secret", "env", cfg.Auth.SSO.HS256SecretEnv, "err", err)
+				os.Exit(1)
+			}
+			hs256Secret = []byte(s)
+		}
+		v, err := sso.New(cfg.Auth.SSO, hs256Secret, logger)
+		if err != nil {
+			// Catches: both jwks_url and hs256_secret_env set, neither set,
+			// JWKS unreachable at startup, HS256 secret <32 bytes.
+			logger.Error("sso: construct verifier", "err", err)
+			os.Exit(1)
+		}
+		ssoVerifier = v
+		logger.Info("relay: sso auth enabled",
+			"issuer", cfg.Auth.SSO.Issuer,
+			"audience", cfg.Auth.SSO.Audience,
+			"mode", func() string {
+				if cfg.Auth.SSO.JWKSURL != "" {
+					return "rs256-jwks"
+				}
+				return "hs256-shared-secret"
+			}(),
+		)
+	}
+
 	// 4-i: middleware accepts optional email + sso verifiers.
-	// 4-ii: pass emailVerifier (nil-OK when email mode disabled); SSO stays nil until 4-iii.
-	middleware := auth.NewMiddleware(store, emailVerifier, nil)
+	// 4-ii: emailVerifier is nil-OK when email mode disabled.
+	// 4-iii: ssoVerifier is nil-OK when sso mode disabled.
+	middleware := auth.NewMiddleware(store, emailVerifier, ssoVerifier)
 
 	// --- Triage System Prompt ---
 	// Loads from cfg.LLM.SystemPromptFile if set; else uses bundled prompt.txt.
