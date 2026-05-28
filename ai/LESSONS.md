@@ -176,3 +176,19 @@ A naive in-memory rate-limiter that reads `time.Now()` directly inside `Issue`/`
 Reference: `relay/internal/auth/emailcode/emailcode.go`; tests in `relay/internal/auth/emailcode/emailcode_test.go`.
 
 ---
+
+### L015: When a derived field is written by multiple code paths, every path must populate it — unit tests pass on what they assert; only end-to-end smokes catch what they don't model
+
+Phase 4's auth dispatcher had three paths producing `auth.SessionContext`: anonymous (sets `SessionID` from `X-Intake-Session`), email-bearer (forgot `SessionID`), SSO-bearer (forgot `SessionID`). The downstream `payloadbuild.Build` reads `SessionContext.SessionID` to populate `IntakePayload.client.session_id`, which the JSON schema requires to be a non-empty UUID. The 11 dispatcher unit tests asserted `AuthMode`/`Verified`/`Email`/`UserID` but **not** `SessionID` — so they passed while the bearer paths shipped a payload that would fail schema validation. The 4-iv live email smoke surfaced this on the first real `/submit` call (`'/client/session_id': '' is not valid uuid`).
+
+**Where it hit:** Phase 4 live email smoke (2026-05-28). Fixed at commit `8f79c76`: dispatcher reads `X-Intake-Session` once at the top of the bearer block and populates `SessionID` in both bearer-success branches; two regression tests pin the behavior.
+
+**Rules:**
+- When multiple code paths produce a shared struct destined for downstream validation, write the **shared output contract as a test fixture** (a `requireFullSessionContext(t, sess, AuthMode, SessionID, Verified, Email, ...)` helper) and call it from every per-path test. This makes "every path populates every required field" structural, not a per-test convention.
+- For every required field in a downstream schema (canonical payload, k8s manifest, IaC), trace backwards: every place the producer writes it must be exercised by at least one test that asserts the field is non-empty. A test that only asserts the field this path uniquely owns leaves the shared-required fields un-pinned.
+- **Live end-to-end smokes are not optional.** Unit tests pass on the assertions they make; downstream schema validation catches the fields they don't. The chatwoot 404 in Phase 3 and the SessionID bug in Phase 4 both surfaced only at live smoke. Budget time for live smokes; treat them as the load-bearing proof, not a victory lap.
+- When the live smoke surfaces a bug like this, fix it AND add the regression test AND record the shape lesson — three artifacts, one commit.
+
+Reference: `relay/internal/auth/middleware.go` (bearer-branch `SessionID` population); tests `TestDispatcher_EmailMode_SessionIDFromHeader`, `TestDispatcher_SSOMode_SessionIDFromHeader`.
+
+---
