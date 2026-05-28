@@ -27,6 +27,26 @@ llm:
 auth:
   modes:
     anonymous: true
+    email: true
+    sso: true
+  email:
+    smtp_host: "smtp.example.com"
+    smtp_port: 587
+    smtp_user: "intake@example.com"
+    smtp_pass_env: "INTAKE_SMTP_PASS"
+    from: "Intake <intake@example.com>"
+    code_ttl: "10m"
+    jwt_ttl: "15m"
+    jwt_secret_env: "INTAKE_EMAIL_JWT_SECRET"
+  sso:
+    issuer: "https://example.us.auth0.com/"
+    audience: "https://api.example.com"
+    jwks_url: "https://example.us.auth0.com/.well-known/jwks.json"
+    hs256_secret_env: ""
+    claims:
+      user_id: "sub"
+      email: "email"
+      display_name: "name"
 adapters:
   webhook:
     enabled: true

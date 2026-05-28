@@ -80,6 +80,33 @@ func TestLoad_ParsesSampleYAML(t *testing.T) {
 	if cfg.LLM.Ollama.MaxTokens != 512 {
 		t.Errorf("LLM.Ollama.MaxTokens = %d; want 512", cfg.LLM.Ollama.MaxTokens)
 	}
+	// Auth.Modes (4-i) — sample enables all three.
+	if !cfg.Auth.Modes.Anonymous || !cfg.Auth.Modes.Email || !cfg.Auth.Modes.SSO {
+		t.Errorf("AuthModes = %+v; want all three true", cfg.Auth.Modes)
+	}
+	// Auth.Email parsed (explicit values, not defaults).
+	if cfg.Auth.Email.SMTPHost != "smtp.example.com" {
+		t.Errorf("Email.SMTPHost = %q; want smtp.example.com", cfg.Auth.Email.SMTPHost)
+	}
+	if cfg.Auth.Email.SMTPPort != 587 {
+		t.Errorf("Email.SMTPPort = %d; want 587", cfg.Auth.Email.SMTPPort)
+	}
+	if cfg.Auth.Email.SMTPPassEnv != "INTAKE_SMTP_PASS" {
+		t.Errorf("Email.SMTPPassEnv = %q; want INTAKE_SMTP_PASS", cfg.Auth.Email.SMTPPassEnv)
+	}
+	if cfg.Auth.Email.JWTSecretEnv != "INTAKE_EMAIL_JWT_SECRET" {
+		t.Errorf("Email.JWTSecretEnv = %q; want INTAKE_EMAIL_JWT_SECRET", cfg.Auth.Email.JWTSecretEnv)
+	}
+	// Auth.SSO parsed.
+	if cfg.Auth.SSO.Issuer != "https://example.us.auth0.com/" {
+		t.Errorf("SSO.Issuer = %q; mismatch", cfg.Auth.SSO.Issuer)
+	}
+	if cfg.Auth.SSO.JWKSURL != "https://example.us.auth0.com/.well-known/jwks.json" {
+		t.Errorf("SSO.JWKSURL = %q; mismatch", cfg.Auth.SSO.JWKSURL)
+	}
+	if cfg.Auth.SSO.Claims.UserID != "sub" {
+		t.Errorf("SSO.Claims.UserID = %q; want sub", cfg.Auth.SSO.Claims.UserID)
+	}
 }
 
 func TestLoad_AppliesDefaults(t *testing.T) {
