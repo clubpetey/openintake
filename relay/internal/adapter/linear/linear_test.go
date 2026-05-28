@@ -53,19 +53,73 @@ func minimalPayload() *payload.IntakePayload {
 	}
 }
 
+// testTeamUUID is a valid UUID used by configured() so no team-key resolution
+// HTTP call is made during Configure in tests that don't exercise that path.
+const testTeamUUID = "00000000-0000-0000-0000-000000000123"
+
 // configured builds a linear adapter pointed at srv with the test team/key.
+// team_id is a UUID so Configure stores it verbatim without any HTTP call.
 func configured(t *testing.T, srvURL string) *linear.Adapter {
 	t.Helper()
 	a := linear.New()
 	if err := a.Configure(map[string]any{
 		"api_key":  testAPIKey,
-		"team_id":  "team-uuid-123",
+		"team_id":  testTeamUUID,
 		"endpoint": srvURL,
 	}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
 	return a
 }
+
+// configuredWithUUID builds an adapter using a full UUID team_id (passthrough path).
+func configuredWithUUID(t *testing.T, srvURL, teamUUID string) *linear.Adapter {
+	t.Helper()
+	a := linear.New()
+	if err := a.Configure(map[string]any{
+		"api_key":  testAPIKey,
+		"team_id":  teamUUID,
+		"endpoint": srvURL,
+	}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	return a
+}
+
+// happyIssueHandler writes a successful issueCreate GraphQL response.
+func happyIssueHandler(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"data":{"issueCreate":{"success":true,"issue":{"id":"abc-123","identifier":"ENG-42","url":"https://linear.app/x/issue/ENG-42"}}}}`))
+}
+
+// teamsResponse builds a JSON teams query response with the given nodes.
+func teamsResponseJSON(nodes []map[string]string) []byte {
+	type node struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+		Key  string `json:"key"`
+	}
+	type teams struct {
+		Nodes []node `json:"nodes"`
+	}
+	type data struct {
+		Teams teams `json:"teams"`
+	}
+	type resp struct {
+		Data data `json:"data"`
+	}
+	ns := make([]node, 0, len(nodes))
+	for _, m := range nodes {
+		ns = append(ns, node{ID: m["id"], Name: m["name"], Key: m["key"]})
+	}
+	b, _ := json.Marshal(resp{Data: data{Teams: teams{Nodes: ns}}})
+	return b
+}
+
+// ---------------------------------------------------------------------------
+// Original tests (unchanged)
+// ---------------------------------------------------------------------------
 
 // TestLinearCreate_HappyPath asserts the raw Authorization header, the GraphQL
 // mutation, and the variables.input mapping, and that the response is parsed.
@@ -134,8 +188,8 @@ func TestLinearCreate_HappyPath(t *testing.T) {
 	if !strings.Contains(req.Query, "issueCreate") || !strings.Contains(req.Query, "IssueCreateInput") {
 		t.Errorf("query missing issueCreate mutation: %q", req.Query)
 	}
-	if req.Variables.Input.TeamID != "team-uuid-123" {
-		t.Errorf("input.teamId = %q; want team-uuid-123", req.Variables.Input.TeamID)
+	if req.Variables.Input.TeamID != testTeamUUID {
+		t.Errorf("input.teamId = %q; want %q", req.Variables.Input.TeamID, testTeamUUID)
 	}
 	if req.Variables.Input.Title != "Save button unresponsive" {
 		t.Errorf("input.title = %q; want the title_suggestion", req.Variables.Input.Title)
@@ -328,5 +382,239 @@ func TestLinearCreate_KeyNeverLeaks(t *testing.T) {
 	// never inserts the key itself. Assert the key is absent from the error.
 	if strings.Contains(err.Error(), testAPIKey) {
 		t.Errorf("api key leaked in error: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// New tests: UUID passthrough and team-key resolution
+// ---------------------------------------------------------------------------
+
+// TestLinearConfigure_UUIDPassthrough verifies that a UUID team_id is stored
+// verbatim and no HTTP call is made during Configure. A Create call afterwards
+// proves the teamId field carries the exact UUID supplied.
+func TestLinearConfigure_UUIDPassthrough(t *testing.T) {
+	const inputUUID = "9ddb7234-31d1-4dd3-b9b0-32ad948b6104"
+
+	var gotBody []byte
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		b, _ := io.ReadAll(r.Body)
+		gotBody = b
+		// If this is a Configure-phase resolution call, fail the test immediately.
+		if strings.Contains(string(b), "teams") {
+			t.Errorf("Configure should not call the API when team_id is a UUID; got body: %s", b)
+		}
+		// For the subsequent Create call, return a happy response.
+		happyIssueHandler(w, r)
+	}))
+	defer srv.Close()
+
+	a := configuredWithUUID(t, srv.URL, inputUUID)
+
+	// Configure must not have triggered any HTTP call.
+	if callCount != 0 {
+		t.Errorf("Configure made %d HTTP call(s); want 0 for a UUID team_id", callCount)
+	}
+
+	// Drive a Create and verify teamId in the request body equals the input UUID.
+	if _, err := a.Create(context.Background(), minimalPayload()); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	var req struct {
+		Variables struct {
+			Input struct {
+				TeamID string `json:"teamId"`
+			} `json:"input"`
+		} `json:"variables"`
+	}
+	if err := json.Unmarshal(gotBody, &req); err != nil {
+		t.Fatalf("parse Create body: %v", err)
+	}
+	if req.Variables.Input.TeamID != inputUUID {
+		t.Errorf("teamId = %q; want %q (the UUID passed as team_id)", req.Variables.Input.TeamID, inputUUID)
+	}
+}
+
+// TestLinearConfigure_KeyResolved_HappyPath verifies that a short team key is
+// resolved to a UUID during Configure and that subsequent Create calls send the
+// resolved UUID (not the key) as teamId.
+func TestLinearConfigure_KeyResolved_HappyPath(t *testing.T) {
+	const teamKey = "REF"
+	const resolvedUUID = "resolved-uuid-abc"
+
+	teamsBody := teamsResponseJSON([]map[string]string{
+		{"id": resolvedUUID, "name": "RefSquare", "key": "REF"},
+		{"id": "other-uuid", "name": "Other", "key": "OTHER"},
+	})
+
+	callCount := 0
+	var issueBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		b, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(b), "teams") {
+			// Teams resolution call — assert the request and return team data.
+			if !strings.Contains(string(b), "teams") {
+				t.Errorf("expected teams query, got body: %s", b)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(teamsBody)
+			return
+		}
+		// Subsequent Create call.
+		issueBody = b
+		happyIssueHandler(w, r)
+	}))
+	defer srv.Close()
+
+	a := linear.New()
+	if err := a.Configure(map[string]any{
+		"api_key":  testAPIKey,
+		"team_id":  teamKey,
+		"endpoint": srv.URL,
+	}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+
+	if _, err := a.Create(context.Background(), minimalPayload()); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	var req struct {
+		Variables struct {
+			Input struct {
+				TeamID string `json:"teamId"`
+			} `json:"input"`
+		} `json:"variables"`
+	}
+	if err := json.Unmarshal(issueBody, &req); err != nil {
+		t.Fatalf("parse Create body: %v", err)
+	}
+	if req.Variables.Input.TeamID != resolvedUUID {
+		t.Errorf("teamId = %q; want resolved UUID %q", req.Variables.Input.TeamID, resolvedUUID)
+	}
+}
+
+// TestLinearConfigure_KeyNotFound verifies that supplying an unknown team key
+// returns an error that names the key, lists available keys, and never leaks the api_key.
+func TestLinearConfigure_KeyNotFound(t *testing.T) {
+	const teamKey = "NOPE"
+
+	teamsBody := teamsResponseJSON([]map[string]string{
+		{"id": "id1", "name": "One", "key": "REF"},
+		{"id": "id2", "name": "Two", "key": "OTHER"},
+		{"id": "id3", "name": "Three", "key": "THIRD"},
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(teamsBody)
+	}))
+	defer srv.Close()
+
+	err := linear.New().Configure(map[string]any{
+		"api_key":  testAPIKey,
+		"team_id":  teamKey,
+		"endpoint": srv.URL,
+	})
+	if err == nil {
+		t.Fatal("expected error for unknown team key")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "NOPE") {
+		t.Errorf("error should mention the unknown key %q; got: %v", teamKey, err)
+	}
+	for _, k := range []string{"REF", "OTHER", "THIRD"} {
+		if !strings.Contains(msg, k) {
+			t.Errorf("error should list available key %q; got: %v", k, err)
+		}
+	}
+	if strings.Contains(msg, testAPIKey) {
+		t.Errorf("api key leaked in error: %v", err)
+	}
+}
+
+// TestLinearConfigure_ResolveGraphQLErrors verifies that a 200 response with a
+// non-empty errors array during key resolution surfaces the error message and
+// never leaks the api_key (redact-before-truncate ordering).
+func TestLinearConfigure_ResolveGraphQLErrors(t *testing.T) {
+	// Build a body where the api key appears after 180 chars of filler, mirroring
+	// the long-prefix scenario in TestLinearCreate_KeyNeverLeaks_LongPrefix.
+	longPrefix := strings.Repeat("x", 180)
+	echoMsg := longPrefix + " token " + testAPIKey + " Authentication required"
+	body, _ := json.Marshal(map[string]any{
+		"errors": []map[string]any{{"message": echoMsg}},
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+
+	err := linear.New().Configure(map[string]any{
+		"api_key":  testAPIKey,
+		"team_id":  "MYTEAM",
+		"endpoint": srv.URL,
+	})
+	if err == nil {
+		t.Fatal("expected error on GraphQL errors response during key resolution")
+	}
+	if strings.Contains(err.Error(), testAPIKey) {
+		t.Errorf("api key leaked after long-prefix truncation in resolution error; got: %v", err)
+	}
+}
+
+// TestLinearConfigure_ResolveNon2xx verifies that a non-2xx HTTP response during
+// key resolution produces an error containing the status code but not the api_key.
+func TestLinearConfigure_ResolveNon2xx(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+	}))
+	defer srv.Close()
+
+	err := linear.New().Configure(map[string]any{
+		"api_key":  testAPIKey,
+		"team_id":  "MYTEAM",
+		"endpoint": srv.URL,
+	})
+	if err == nil {
+		t.Fatal("expected error on 401 during key resolution")
+	}
+	if !strings.Contains(err.Error(), "401") {
+		t.Errorf("error should mention status 401; got: %v", err)
+	}
+	if strings.Contains(err.Error(), testAPIKey) {
+		t.Errorf("api key leaked in resolution error: %v", err)
+	}
+}
+
+// TestLinearConfigure_ResolveNetworkError verifies that a transport-level failure
+// during key resolution returns a non-nil error without leaking the api_key.
+func TestLinearConfigure_ResolveNetworkError(t *testing.T) {
+	// Create a server and close it immediately so any connection attempt fails.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	srvURL := srv.URL
+	srv.Close()
+
+	err := linear.New().Configure(map[string]any{
+		"api_key":  testAPIKey,
+		"team_id":  "MYTEAM",
+		"endpoint": srvURL,
+	})
+	if err == nil {
+		t.Fatal("expected error when endpoint is unreachable")
+	}
+	// The underlying network error must be present (non-nil, surfaced as a string).
+	if err.Error() == "" {
+		t.Error("error string should not be empty")
+	}
+	if strings.Contains(err.Error(), testAPIKey) {
+		t.Errorf("api key leaked in network error: %v", err)
 	}
 }

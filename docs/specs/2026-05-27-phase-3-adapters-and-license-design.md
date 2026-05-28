@@ -128,9 +128,10 @@ All four are stdlib `net/http` + `encoding/json` (mirroring `webhook.go`), each 
 - Config: `subdomain`, `email`, `api_token_env`, `default_priority`. `Name()` → `"zendesk"`, `RequiresLicense()` → **true**.
 
 ### 5.4 linear (`relay/internal/adapter/linear/`) — **paid**
-- Single `POST https://api.linear.app/graphql` with the `issueCreate` mutation (`{ teamId, title, description }`), `Authorization: <api_key>` header. Minimal hand-rolled GraphQL request/response structs — no SDK.
+- Single `POST https://api.linear.app/graphql` with the `issueCreate` mutation (`{ teamId, title, description }`), `Authorization: <api_key>` header (RAW, no `Bearer` prefix). Minimal hand-rolled GraphQL request/response structs — no SDK.
 - Map: `title_suggestion` → `title`; `summary` + transcript → `description` (markdown); `team_id` from config; optional label/priority mapping deferred.
 - Config: `api_key_env`, `team_id`. `Name()` → `"linear"`, `RequiresLicense()` → **true**.
+- **`team_id` accepts either form** (UX improvement confirmed at the live smoke 2026-05-28): a Linear team **UUID** (matched against `^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`) is stored as-is with no network call; **anything else** is treated as a team **key** (the short prefix shown in issue identifiers like `REF-42`) and resolved to its UUID via one `query { teams(first: 250) { nodes { id name key } } }` call in `Configure` (10-second timeout, single attempt). The resolved UUID is what every subsequent `issueCreate` uses — no per-request resolution. Rationale: Linear team UUIDs are not in any URL or UI label, while team keys are visible everywhere and unique within a workspace; accepting both forms removes the "find your team's UUID" friction without breaking UUID-pinned IaC configs. Error paths (key not found, GraphQL error, non-2xx, transport error) are all fatal at startup and never leak the api_key (`redact` applied before `Truncate` per L011). This pattern is **deliberately Linear-only** — chatwoot/zendesk/fider identifiers are URL-visible and copy-pasteable, so the friction doesn't justify the startup-time network call.
 
 ## 6. Configuration (additive)
 

@@ -3,6 +3,12 @@
 // Auth is a Linear personal API key sent RAW in the Authorization header (no
 // "Bearer " prefix). The key is passed into Configure by main.go (resolved via
 // config.RequireSecret) and is never read from the env here and never logged.
+//
+// The team_id config key accepts either a UUID
+// (e.g. "9ddb7234-31d1-4dd3-b9b0-32ad948b6104") or a short team key
+// (e.g. "REF"). When a key is supplied, Configure resolves it to a UUID via a
+// single GraphQL teams query at startup; subsequent issueCreate calls use the
+// resolved UUID. Supply a UUID directly to skip the startup network call.
 package linear
 
 import (
@@ -12,6 +18,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -21,9 +29,15 @@ import (
 
 const defaultEndpoint = "https://api.linear.app/graphql"
 
+// uuidRE matches the canonical 8-4-4-4-12 UUID form, case-insensitive.
+var uuidRE = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
 // issueCreateMutation is the GraphQL mutation creating one issue. Constant so the
 // request body is fully deterministic (no string building from untrusted input).
 const issueCreateMutation = `mutation IssueCreate($input: IssueCreateInput!) { issueCreate(input: $input) { success issue { id identifier url } } }`
+
+// teamsQuery fetches all teams so a short key can be resolved to a UUID once at startup.
+const teamsQuery = `{ teams(first: 250) { nodes { id name key } } }`
 
 // Adapter creates Linear issues via GraphQL.
 type Adapter struct {
@@ -49,6 +63,9 @@ func (a *Adapter) RequiresLicense() bool { return true }
 // Configure reads api_key (required), team_id (required), and an optional endpoint
 // override (the test-injection seam; defaults to the live GraphQL endpoint). The
 // api_key value is the RESOLVED secret passed in by main.go — never the env name.
+//
+// team_id may be a UUID (stored verbatim, no network call) or a short team key
+// (resolved to a UUID via a single GraphQL teams query; see resolveTeamKey).
 func (a *Adapter) Configure(cfg map[string]any) error {
 	key, _ := cfg["api_key"].(string)
 	if key == "" {
@@ -59,12 +76,109 @@ func (a *Adapter) Configure(cfg map[string]any) error {
 		return fmt.Errorf("linear: missing required config key 'team_id'")
 	}
 	a.apiKey = key
-	a.teamID = team
 
 	if ep, ok := cfg["endpoint"].(string); ok && ep != "" {
 		a.endpoint = ep
 	}
+
+	if uuidRE.MatchString(team) {
+		// Already a UUID — store directly, no network call needed.
+		a.teamID = team
+		return nil
+	}
+
+	// Treat team as a short key; resolve it to a UUID at startup.
+	resolved, err := a.resolveTeamKey(team)
+	if err != nil {
+		return err
+	}
+	a.teamID = resolved
 	return nil
+}
+
+// teamsResponse is the parsed shape of the teams query result.
+type teamsResponse struct {
+	Data struct {
+		Teams struct {
+			Nodes []struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+				Key  string `json:"key"`
+			} `json:"nodes"`
+		} `json:"teams"`
+	} `json:"data"`
+	Errors []struct {
+		Message string `json:"message"`
+	} `json:"errors"`
+}
+
+// resolveTeamKey POSTs the teams query, finds the node whose key matches the
+// supplied team key (exact case), and returns its UUID. A bounded background
+// context (10 s) is used because Configure has no context parameter.
+func (a *Adapter) resolveTeamKey(key string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	body, err := json.Marshal(graphQLRequest{Query: teamsQuery})
+	if err != nil {
+		return "", fmt.Errorf("linear: resolve team key %q: marshal request: %w", key, err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.endpoint, bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("linear: resolve team key %q: build request: %w", key, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", a.apiKey)
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		// Redact defensively; http.Client.Do errors typically don't contain auth
+		// headers but apply the helper uniformly. Wrap with %w to preserve the
+		// underlying error for callers that inspect error chains.
+		return "", fmt.Errorf("linear: resolve team key %q: %s", key, a.redact(err.Error()))
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		// Redact BEFORE truncate per L011.
+		snippet := adapter.Truncate(a.redact(string(respBody)), 200)
+		return "", fmt.Errorf("linear: resolve team key %q: graphql endpoint returned %d: %s", key, resp.StatusCode, snippet)
+	}
+
+	var parsed teamsResponse
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return "", fmt.Errorf("linear: resolve team key %q: decode response: %w", key, err)
+	}
+
+	if len(parsed.Errors) > 0 {
+		// Redact BEFORE truncate per L011.
+		msg := adapter.Truncate(a.redact(joinErrors(parsed.Errors)), 200)
+		return "", fmt.Errorf("linear: resolve team key %q: graphql errors: %s", key, msg)
+	}
+
+	// Search for the matching team key (exact match; Linear keys are typically uppercase).
+	var available []string
+	for _, node := range parsed.Data.Teams.Nodes {
+		if node.Key == key {
+			return node.ID, nil
+		}
+		available = append(available, node.Key)
+	}
+
+	// Build a helpful "available keys" list, sorted, capped at 10 with "+N more".
+	sort.Strings(available)
+	if len(available) == 0 {
+		return "", fmt.Errorf("linear: no team found with key %q; set team_id to a UUID or a valid team key", key)
+	}
+	var keyList string
+	if len(available) <= 10 {
+		keyList = strings.Join(available, ", ")
+	} else {
+		keyList = strings.Join(available[:10], ", ") + fmt.Sprintf(" +%d more", len(available)-10)
+	}
+	return "", fmt.Errorf("linear: no team found with key %q (available keys: %s); set team_id to a UUID or a valid team key", key, keyList)
 }
 
 // graphQLRequest is the wire shape of a GraphQL POST body.

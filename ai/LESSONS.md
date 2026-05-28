@@ -135,3 +135,20 @@ For Chatwoot's **agent-side** API (the one keyed by `api_access_token`), `POST /
 The **public API channel** path (`/public/api/v1/inboxes/{identifier}/contacts/.../conversations`) uses a different auth model (HMAC) and is a valid alternative, but the agent-side path is simpler when you already have an api_access_token. Reference: `relay/internal/adapter/chatwoot/chatwoot.go` `createContact` + `Create`.
 
 ---
+
+### L012: When an external API uses an opaque UUID but the platform exposes a unique human-readable identifier everywhere, accept BOTH forms in config and resolve once at startup
+
+Linear's GraphQL `IssueCreateInput.teamId` requires a UUID like `9ddb7234-31d1-4dd3-b9b0-32ad948b6104`. The UUID is never in a URL, a UI label, or an issue identifier — finding it requires running a `teams { nodes { id key } }` query. The short team **key** (`REF`, `OTHER`, etc.) IS in every URL, every issue identifier (`REF-42`), and every settings screen. Forcing an operator to dig out the UUID is real friction; replacing UUID with key alone breaks IaC configs that already have the UUID pinned.
+
+**Where it hit:** Phase 3 fast-follow live smoke (2026-05-28). The Linear adapter accepted only UUIDs; operator UX immediately surfaced the gap. Solution: `Configure` detects the form (regex on UUID shape) and conditionally resolves keys to UUIDs via one startup-time GraphQL query.
+
+**Rule:**
+- Use this dual-form pattern **only when all three are true**: (a) the external API requires an opaque id, (b) a unique human-readable identifier is exposed in URLs/UI everywhere, and (c) the resolution endpoint is cheap and stable. Linear meets all three. Chatwoot's account_id/inbox_id and Zendesk's subdomain don't — they're URL-visible and copy-pasteable, so adding a startup-time HTTP call to resolve them would be pure overhead.
+- Implement the detection with a strict regex on the canonical id format (e.g. UUID v4 shape for Linear). Non-match → resolution path; match → store verbatim, no network call.
+- Resolution must be **fatal at startup** with a clear error (including the key the operator typed and the available alternatives, capped to a reasonable length) — not deferred to first request. Use `context.WithTimeout(context.Background(), 10*time.Second)` since the frozen adapter `Configure` has no context parameter.
+- The resolution call uses the same auth as the per-request API call; the same redact-before-truncate rule (L011) applies to its error paths.
+- The resolved id is what every subsequent request uses — **no per-request resolution**, no cache invalidation, no rename detection. The underlying entity is identified by its UUID; if the operator's team is renamed/rekeyed they restart the relay.
+
+Reference: `relay/internal/adapter/linear/linear.go` `resolveTeamKey` + `Configure`; tests `TestLinearConfigure_UUIDPassthrough`, `_KeyResolved_HappyPath`, `_KeyNotFound`, `_ResolveGraphQLErrors`, `_ResolveNon2xx`, `_ResolveNetworkError`.
+
+---
