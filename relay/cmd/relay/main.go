@@ -26,6 +26,7 @@ import (
 	"intake/internal/auth/smtpsend"
 	"intake/internal/auth/sso"
 	"intake/internal/budget"
+	"intake/internal/captcha"
 	"intake/internal/classify"
 	"intake/internal/config"
 	licensemgr "intake/internal/license"
@@ -279,6 +280,31 @@ func main() {
 		"daily_budget_max_output_tokens", cfg.RateLimit.DailyLLMBudget.MaxOutputTokens,
 	)
 
+	// Phase 5 (5-iii): construct the captcha verifier when enabled.
+	var captchaVerifier captcha.Verifier
+	if cfg.Captcha.Enabled {
+		if cfg.Captcha.SecretKeyEnv == "" {
+			logger.Error("relay: captcha.enabled=true requires captcha.secret_key_env")
+			os.Exit(1)
+		}
+		secret, err := config.RequireSecret(cfg.Captcha.SecretKeyEnv)
+		if err != nil {
+			logger.Error("captcha: resolve secret", "env", cfg.Captcha.SecretKeyEnv, "err", err)
+			os.Exit(1)
+		}
+		v, err := captcha.New(cfg.Captcha.Provider, secret, nil, time.Now)
+		if err != nil {
+			logger.Error("captcha: construct verifier", "provider", cfg.Captcha.Provider, "err", err)
+			os.Exit(1)
+		}
+		captchaVerifier = v
+		// Log NEVER includes the secret; provider + site_key + required_for are safe.
+		logger.Info("relay: captcha enabled",
+			"provider", cfg.Captcha.Provider,
+			"required_for", cfg.Captcha.RequiredFor,
+		)
+	}
+
 	// --- Deps ---
 	// Deps is a value type (README §6.8). No Config field — config-derived values
 	// are promoted to individual Deps fields. main.go populates these from cfg.
@@ -301,8 +327,8 @@ func main() {
 		// Limiter, Budget, and CaptchaVerifier are nil here — 5-ii and 5-iii
 		// replace nil with the real instances.
 		CaptchaCfg:      cfg.Captcha,
-		CaptchaVerifier: nil,
-		Budget:          budgetTracker, // 5-ii
+		CaptchaVerifier: captchaVerifier, // 5-iii: nil when cfg.Captcha.Enabled=false; real verifier otherwise
+		Budget:          budgetTracker,   // 5-ii
 		PerIP:           perIPLimiter,  // 5-ii
 		TrustedProxies:  trustedProxies,
 	}
