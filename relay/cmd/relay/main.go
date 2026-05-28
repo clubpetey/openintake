@@ -71,17 +71,13 @@ func main() {
 	// --- Q9 consolidated startup gate (Phase 5) ---
 	// All Phase 4 + Phase 5 misconfigs collected into one structured Error line.
 	// Operators fix every problem in one restart cycle, not three.
-	if problems := startupProblems(cfg); len(problems) > 0 {
+	problems, trustedProxies := startupProblems(cfg)
+	if len(problems) > 0 {
 		logger.Error("relay: startup config errors", "count", len(problems), "problems", problems)
 		os.Exit(1)
 	}
-
-	// Parse trusted-proxy CIDRs once (Q9 gate already validated them; this just rebuilds the prefix list for the middleware).
-	trustedProxies := make([]netip.Prefix, 0, len(cfg.Server.TrustedProxies))
-	for _, raw := range cfg.Server.TrustedProxies {
-		p, _ := netip.ParsePrefix(raw) // already validated; ignore err
-		trustedProxies = append(trustedProxies, p)
-	}
+	// trustedProxies is the parsed []netip.Prefix from cfg.Server.TrustedProxies
+	// — parsed once inside startupProblems; used by clientIPMiddleware via Deps.
 
 	// --- LLM Provider (via factory) ---
 	// providers.New resolves the required secret internally via config.RequireSecret /
@@ -474,12 +470,13 @@ func adapterNames(reg map[string]adapter.Adapter) []string {
 // []string. main() logs the slice in one structured Error line and exits 1 when
 // non-empty (PROJECT.md §19 Q9 fail-closed; PHASE_PLANNING §4 build-fail discipline).
 //
+// Also returns the parsed []netip.Prefix from cfg.Server.TrustedProxies as a side
+// product of validation. Callers that proceed past the gate (problems is empty)
+// can use the parsed slice directly, avoiding a re-parse with discarded errors.
 // Each problem string is self-describing — names the offending key, the value
 // it found, and the fix. Order: anonymous gate, SSO mutual-exclusivity,
 // trusted-proxy CIDR parse, config.Validate (currently action_on_exceeded).
-func startupProblems(cfg *config.Config) []string {
-	var problems []string
-
+func startupProblems(cfg *config.Config) (problems []string, trustedProxies []netip.Prefix) {
 	// Q9: anonymous-without-captcha-gating.
 	if cfg.Auth.Modes.Anonymous {
 		anonymousProtected := cfg.Captcha.Enabled && containsString(cfg.Captcha.RequiredFor, "anonymous")
@@ -501,10 +498,16 @@ func startupProblems(cfg *config.Config) []string {
 	}
 
 	// Trusted-proxy CIDRs — fatal at startup, not at first request.
+	// Successfully parsed prefixes are returned alongside problems so the caller
+	// can use them directly without a re-parse.
+	trustedProxies = make([]netip.Prefix, 0, len(cfg.Server.TrustedProxies))
 	for _, raw := range cfg.Server.TrustedProxies {
-		if _, err := netip.ParsePrefix(raw); err != nil {
+		p, err := netip.ParsePrefix(raw)
+		if err != nil {
 			problems = append(problems, fmt.Sprintf("server.trusted_proxies contains an invalid CIDR %q: %v", raw, err))
+			continue
 		}
+		trustedProxies = append(trustedProxies, p)
 	}
 
 	// Config-level validation (action_on_exceeded etc.).
@@ -512,7 +515,7 @@ func startupProblems(cfg *config.Config) []string {
 		problems = append(problems, err.Error())
 	}
 
-	return problems
+	return problems, trustedProxies
 }
 
 // containsString reports whether haystack contains needle (case-sensitive).

@@ -7,6 +7,43 @@ import (
 	"intake/internal/config"
 )
 
+func TestStartupProblems_ReturnsParsedPrefixes(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Server.TrustedProxies = []string{"10.0.0.0/8", "192.168.0.0/16"}
+	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject"
+
+	problems, prefixes := startupProblems(cfg)
+	if len(problems) != 0 {
+		t.Fatalf("problems = %v; want empty", problems)
+	}
+	if len(prefixes) != 2 {
+		t.Fatalf("prefixes len = %d; want 2", len(prefixes))
+	}
+	if prefixes[0].String() != "10.0.0.0/8" {
+		t.Errorf("prefixes[0] = %q; want 10.0.0.0/8", prefixes[0].String())
+	}
+	if prefixes[1].String() != "192.168.0.0/16" {
+		t.Errorf("prefixes[1] = %q; want 192.168.0.0/16", prefixes[1].String())
+	}
+}
+
+func TestStartupProblems_BadCIDR_DropsInvalidFromPrefixes(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Server.TrustedProxies = []string{"10.0.0.0/8", "not-a-cidr", "192.168.0.0/16"}
+	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject"
+
+	problems, prefixes := startupProblems(cfg)
+	if len(problems) != 1 {
+		t.Fatalf("problems = %v; want exactly 1 (bad-CIDR)", problems)
+	}
+	// Successful parses are still returned even when others fail, so callers that
+	// proceed past the gate (which fires os.Exit on non-empty problems) don't run
+	// at all in this case; this assertion just pins the return-shape contract.
+	if len(prefixes) != 2 {
+		t.Errorf("prefixes len = %d; want 2 (the two valid CIDRs)", len(prefixes))
+	}
+}
+
 func TestStartupProblems_AnonymousWithoutCaptcha(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Auth.Modes.Anonymous = true
@@ -14,7 +51,7 @@ func TestStartupProblems_AnonymousWithoutCaptcha(t *testing.T) {
 	cfg.Auth.Anonymous.AllowWithoutCaptcha = false
 	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject" // isolate the anonymous gate from Validate
 
-	problems := startupProblems(cfg)
+	problems, _ := startupProblems(cfg)
 	if len(problems) != 1 {
 		t.Fatalf("problems = %v; want exactly 1 problem", problems)
 	}
@@ -31,7 +68,7 @@ func TestStartupProblems_AnonymousWithCaptchaButNotRequiredForAnonymous(t *testi
 	cfg.Auth.Anonymous.AllowWithoutCaptcha = false
 	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject" // isolate the anonymous gate from Validate
 
-	problems := startupProblems(cfg)
+	problems, _ := startupProblems(cfg)
 	if len(problems) != 1 {
 		t.Fatalf("problems = %v; want exactly 1 problem (required_for excludes anonymous)", problems)
 	}
@@ -45,7 +82,7 @@ func TestStartupProblems_AllowWithoutCaptchaSilencesAnonymousGate(t *testing.T) 
 
 	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject" // satisfy Validate
 
-	problems := startupProblems(cfg)
+	problems, _ := startupProblems(cfg)
 	if len(problems) != 0 {
 		t.Errorf("problems = %v; want empty (escape hatch engaged)", problems)
 	}
@@ -58,7 +95,7 @@ func TestStartupProblems_SSOBothSet(t *testing.T) {
 	cfg.Auth.SSO.HS256SecretEnv = "INTAKE_SSO_HS256"
 	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject"
 
-	problems := startupProblems(cfg)
+	problems, _ := startupProblems(cfg)
 	if len(problems) != 1 {
 		t.Fatalf("problems = %v; want exactly 1", problems)
 	}
@@ -72,7 +109,7 @@ func TestStartupProblems_SSONeitherSet(t *testing.T) {
 	cfg.Auth.Modes.SSO = true
 	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject"
 
-	problems := startupProblems(cfg)
+	problems, _ := startupProblems(cfg)
 	if len(problems) != 1 {
 		t.Fatalf("problems = %v; want exactly 1", problems)
 	}
@@ -86,7 +123,7 @@ func TestStartupProblems_BadCIDR(t *testing.T) {
 	cfg.Server.TrustedProxies = []string{"10.0.0.0/8", "not-a-cidr"}
 	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject"
 
-	problems := startupProblems(cfg)
+	problems, _ := startupProblems(cfg)
 	if len(problems) != 1 {
 		t.Fatalf("problems = %v; want exactly 1", problems)
 	}
@@ -99,7 +136,7 @@ func TestStartupProblems_BadActionOnExceeded(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "queue" // v0 only supports "reject"
 
-	problems := startupProblems(cfg)
+	problems, _ := startupProblems(cfg)
 	if len(problems) == 0 {
 		t.Fatal("problems is empty; want a problem for action_on_exceeded=queue")
 	}
@@ -126,7 +163,7 @@ func TestStartupProblems_AllFourMisconfigsAtOnce(t *testing.T) {
 	cfg.Server.TrustedProxies = []string{"not-a-cidr"}
 	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "queue"
 
-	problems := startupProblems(cfg)
+	problems, _ := startupProblems(cfg)
 	if len(problems) != 4 {
 		t.Errorf("problems len = %d; want 4 (anonymous-no-captcha + sso-both + bad-CIDR + bad-action)\nproblems: %v", len(problems), problems)
 	}
@@ -136,7 +173,7 @@ func TestStartupProblems_CleanConfig(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject"
 	// All other Phase 4/5 gate inputs default to safe values.
-	problems := startupProblems(cfg)
+	problems, _ := startupProblems(cfg)
 	if len(problems) != 0 {
 		t.Errorf("clean config problems = %v; want empty", problems)
 	}
@@ -150,7 +187,7 @@ func TestStartupProblems_EmptyActionOnExceeded_TreatedAsProblem(t *testing.T) {
 	cfg := &config.Config{}
 	// No other gate inputs set → only the Validate empty-string case fires.
 
-	problems := startupProblems(cfg)
+	problems, _ := startupProblems(cfg)
 	if len(problems) != 1 {
 		t.Fatalf("problems = %v; want exactly 1 (empty ActionOnExceeded from Validate)", problems)
 	}
