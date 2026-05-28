@@ -1,15 +1,14 @@
 package router_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
 
+	"intake/internal/adapter"
 	"intake/internal/payload"
 	"intake/internal/router"
-
-	"context"
-	"intake/internal/adapter"
 )
 
 // stubAdapter is a no-op adapter with a fixed name.
@@ -100,7 +99,10 @@ func TestRoute_RuleMatch(t *testing.T) {
 		{Classification: []string{"bug"}, To: "chatwoot"},
 	}
 	r, _ := router.New(reg("chatwoot", "fider"), rules, "chatwoot", nil)
-	ad, _ := r.Route(mkPayload("feature_request", "low", nil))
+	ad, err := r.Route(mkPayload("feature_request", "low", nil))
+	if err != nil {
+		t.Fatalf("Route: %v", err)
+	}
 	if ad.Name() != "fider" {
 		t.Errorf("rule match failed: got %q; want fider", ad.Name())
 	}
@@ -110,17 +112,28 @@ func TestRoute_SeverityAndWildcard(t *testing.T) {
 	// Rule matches any classification but only critical severity.
 	rules := []router.Rule{{Severity: []string{"critical"}, To: "fider"}}
 	r, _ := router.New(reg("chatwoot", "fider"), rules, "chatwoot", nil)
-	if ad, _ := r.Route(mkPayload("bug", "critical", nil)); ad.Name() != "fider" {
-		t.Errorf("severity wildcard-classification rule failed: got %q; want fider", ad.Name())
+	ad1, err := r.Route(mkPayload("bug", "critical", nil))
+	if err != nil {
+		t.Fatalf("Route: %v", err)
 	}
-	if ad, _ := r.Route(mkPayload("bug", "low", nil)); ad.Name() != "chatwoot" {
-		t.Errorf("non-critical should fall to default; got %q", ad.Name())
+	if ad1.Name() != "fider" {
+		t.Errorf("severity wildcard-classification rule failed: got %q; want fider", ad1.Name())
+	}
+	ad2, err := r.Route(mkPayload("bug", "low", nil))
+	if err != nil {
+		t.Fatalf("Route: %v", err)
+	}
+	if ad2.Name() != "chatwoot" {
+		t.Errorf("non-critical should fall to default; got %q", ad2.Name())
 	}
 }
 
 func TestRoute_DefaultFallback(t *testing.T) {
 	r, _ := router.New(reg("chatwoot"), nil, "chatwoot", nil)
-	ad, _ := r.Route(mkPayload("other", "unknown", nil))
+	ad, err := r.Route(mkPayload("other", "unknown", nil))
+	if err != nil {
+		t.Fatalf("Route: %v", err)
+	}
 	if ad.Name() != "chatwoot" {
 		t.Errorf("default fallback failed: got %q", ad.Name())
 	}

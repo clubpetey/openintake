@@ -65,7 +65,8 @@ func (r *Router) Route(p *payload.IntakePayload) (adapter.Adapter, error) {
 			return r.registry[rule.To], nil // guaranteed registered (dangling dropped in New)
 		}
 	}
-	// 3. default (guaranteed registered by New).
+	// 3. default. New guarantees r.def is registered; the guard below is defensive
+	// in case that invariant is ever violated.
 	if ad, ok := r.registry[r.def]; ok {
 		return ad, nil
 	}

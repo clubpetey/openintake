@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"syscall"
 	"time"
 
@@ -210,11 +211,12 @@ func buildRegistry(cfg *config.Config, logger *slog.Logger) (map[string]adapter.
 	return reg, nil
 }
 
-// adapterNames returns the sorted-insertion-order keys of the registry for logging.
+// adapterNames returns the registry keys sorted alphabetically, for stable logging.
 func adapterNames(reg map[string]adapter.Adapter) []string {
 	names := make([]string, 0, len(reg))
 	for n := range reg {
 		names = append(names, n)
 	}
+	sort.Strings(names)
 	return names
 }

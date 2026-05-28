@@ -245,6 +245,9 @@ func applyDefaults(c *Config) {
 		c.LLM.Ollama.MaxTokens = 1024
 	}
 	// BearerTokenEnv intentionally left as "" (no default — absence means no auth)
+	// Default to chatwoot (the documented primary free adapter, PROJECT.md §9).
+	// NOTE: chatwoot must be enabled (3-ii+) or routing.default_adapter overridden,
+	// else router.New fails fast at startup — that is the intended §4.4 guard.
 	if c.Routing.DefaultAdapter == "" {
 		c.Routing.DefaultAdapter = "chatwoot"
 	}

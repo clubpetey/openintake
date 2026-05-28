@@ -18,7 +18,7 @@ import (
 //
 // 1-i owns: Version, CORSOrigins.
 // Extended by 1-iii: Logger, Auth, Provider, SystemPrompt, Model, MaxTokens.
-// Extended by 1-iv: Adapter, Classifier, Builder.
+// Extended by 1-iv: Router, Classifier, Builder.
 type Deps struct {
 	// from 1-i (README §6.8):
 
