@@ -102,9 +102,11 @@ func TestLimiter_EmptyIP_SharedBucket(t *testing.T) {
 	}
 }
 
-func TestLimiter_RetryAfterRespectsRateForSubSecond(t *testing.T) {
+func TestLimiter_RetryAfterFlooredAtOneSecond(t *testing.T) {
 	c := newClock()
-	l := perip.New(10.0, 1, 15*time.Minute, c.Now) // 10 req/s = 100ms refill
+	// 10 req/s would refill in 100ms; assertion is that retry-after is still
+	// >=1s (RFC 9110 numeric-form Retry-After floor).
+	l := perip.New(10.0, 1, 15*time.Minute, c.Now)
 
 	l.Allow("1.1.1.1") // consume the 1
 	_, retry := l.Allow("1.1.1.1")

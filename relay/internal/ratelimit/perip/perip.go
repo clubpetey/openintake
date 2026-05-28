@@ -76,10 +76,12 @@ func (l *Limiter) Allow(ip string) (ok bool, retryAfter time.Duration) {
 	l.gcLocked(now)
 
 	if l.rate <= 0 {
-		// "No rate" → always allow; still track lastSeen for consistency.
+		// "No rate" → always allow. Still track lastSeen so GC keeps the entry
+		// fresh, but don't allocate a rate.Limiter: only the rate-gated branch
+		// below reads entry.bucket.
 		e, exists := l.buckets[ip]
 		if !exists {
-			e = &entry{bucket: rate.NewLimiter(rate.Inf, l.burst), lastSeen: now}
+			e = &entry{lastSeen: now} // bucket=nil; no consumer in the no-rate path
 			l.buckets[ip] = e
 		}
 		e.lastSeen = now
