@@ -1,6 +1,8 @@
 package config_test
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	"intake/internal/config"
@@ -289,5 +291,140 @@ func TestLoad_AuthModesDefaultOnlyAnonymousTrue(t *testing.T) {
 	}
 	if cfg.Auth.Modes.SSO {
 		t.Error("default AuthModes.SSO = true; want false (opt-in)")
+	}
+}
+
+func TestLoad_AppliesPhase5DefaultsForRateLimit(t *testing.T) {
+	cfg, err := config.Load("testdata/minimal.yaml")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.RateLimit.PerIP.RequestsPerSecond != 1.0 {
+		t.Errorf("default PerIP.RequestsPerSecond = %v; want 1.0", cfg.RateLimit.PerIP.RequestsPerSecond)
+	}
+	if cfg.RateLimit.PerIP.Burst != 5 {
+		t.Errorf("default PerIP.Burst = %d; want 5", cfg.RateLimit.PerIP.Burst)
+	}
+	if cfg.RateLimit.PerIP.IdleTTL != "15m" {
+		t.Errorf("default PerIP.IdleTTL = %q; want 15m", cfg.RateLimit.PerIP.IdleTTL)
+	}
+	if cfg.RateLimit.PerSession.MaxTurns != 20 {
+		t.Errorf("default PerSession.MaxTurns = %d; want 20", cfg.RateLimit.PerSession.MaxTurns)
+	}
+	if cfg.RateLimit.PerSession.MaxInputTokens != 8000 {
+		t.Errorf("default PerSession.MaxInputTokens = %d; want 8000", cfg.RateLimit.PerSession.MaxInputTokens)
+	}
+	if cfg.RateLimit.PerSession.SessionTTL != "1h" {
+		t.Errorf("default PerSession.SessionTTL = %q; want 1h", cfg.RateLimit.PerSession.SessionTTL)
+	}
+	if cfg.RateLimit.DailyLLMBudget.MaxInputTokens != 5_000_000 {
+		t.Errorf("default DailyLLMBudget.MaxInputTokens = %d; want 5_000_000", cfg.RateLimit.DailyLLMBudget.MaxInputTokens)
+	}
+	if cfg.RateLimit.DailyLLMBudget.MaxOutputTokens != 1_000_000 {
+		t.Errorf("default DailyLLMBudget.MaxOutputTokens = %d; want 1_000_000", cfg.RateLimit.DailyLLMBudget.MaxOutputTokens)
+	}
+	if cfg.RateLimit.DailyLLMBudget.ActionOnExceeded != "reject" {
+		t.Errorf("default DailyLLMBudget.ActionOnExceeded = %q; want reject", cfg.RateLimit.DailyLLMBudget.ActionOnExceeded)
+	}
+}
+
+func TestLoad_AppliesPhase5DefaultsForCaptcha(t *testing.T) {
+	cfg, err := config.Load("testdata/minimal.yaml")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Captcha.Enabled {
+		t.Error("default Captcha.Enabled = true; want false (opt-in)")
+	}
+	// When the YAML omits required_for entirely, default to ["anonymous"].
+	if len(cfg.Captcha.RequiredFor) != 1 || cfg.Captcha.RequiredFor[0] != "anonymous" {
+		t.Errorf("default Captcha.RequiredFor = %v; want [anonymous]", cfg.Captcha.RequiredFor)
+	}
+}
+
+func TestLoad_RequiredForExplicitEmptyHonored(t *testing.T) {
+	// Write a temp YAML with an explicit `required_for: []` and confirm the default
+	// is NOT applied (operator opted out for all modes).
+	tmp := t.TempDir() + "/captcha-empty.yaml"
+	body := []byte("captcha:\n  enabled: true\n  required_for: []\n")
+	if err := os.WriteFile(tmp, body, 0o600); err != nil {
+		t.Fatalf("write tmp: %v", err)
+	}
+	cfg, err := config.Load(tmp)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Captcha.RequiredFor == nil {
+		t.Fatalf("explicit `required_for: []` should remain a non-nil empty slice; got nil (defaults applied)")
+	}
+	if len(cfg.Captcha.RequiredFor) != 0 {
+		t.Errorf("explicit `required_for: []` should remain empty; got %v", cfg.Captcha.RequiredFor)
+	}
+}
+
+func TestLoad_AppliesPhase5DefaultsForServerTrustedProxies(t *testing.T) {
+	cfg, err := config.Load("testdata/minimal.yaml")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Server.TrustedProxies == nil {
+		// nil and empty slice are equivalent at the wire; either is fine. The
+		// invariant is that the field is loadable and ranges-over-empty safely.
+		return
+	}
+	if len(cfg.Server.TrustedProxies) != 0 {
+		t.Errorf("default TrustedProxies = %v; want empty", cfg.Server.TrustedProxies)
+	}
+}
+
+func TestLoad_AppliesPhase5DefaultsForAnonymousAllowWithoutCaptcha(t *testing.T) {
+	cfg, err := config.Load("testdata/minimal.yaml")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Auth.Anonymous.AllowWithoutCaptcha {
+		t.Error("default Auth.Anonymous.AllowWithoutCaptcha = true; want false (Q9 fail-closed)")
+	}
+}
+
+func TestValidate_RejectsUnsupportedActionOnExceeded(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "queue"
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() returned nil for action_on_exceeded=queue; want error")
+	}
+	if !strings.Contains(err.Error(), "action_on_exceeded") {
+		t.Errorf("Validate() error %q does not mention action_on_exceeded", err.Error())
+	}
+}
+
+func TestValidate_AcceptsReject(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject"
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() returned error for action_on_exceeded=reject: %v", err)
+	}
+}
+
+func TestLoad_ParsesSampleYAMLPhase5Blocks(t *testing.T) {
+	cfg, err := config.Load("testdata/sample.yaml")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Server.TrustedProxies) != 2 {
+		t.Errorf("Server.TrustedProxies len = %d; want 2 (sample.yaml)", len(cfg.Server.TrustedProxies))
+	}
+	if cfg.Captcha.Provider != "turnstile" {
+		t.Errorf("Captcha.Provider = %q; want turnstile", cfg.Captcha.Provider)
+	}
+	if cfg.RateLimit.PerIP.RequestsPerSecond != 2.0 {
+		t.Errorf("PerIP.RequestsPerSecond = %v; want 2.0", cfg.RateLimit.PerIP.RequestsPerSecond)
+	}
+	if cfg.RateLimit.DailyLLMBudget.ActionOnExceeded != "reject" {
+		t.Errorf("ActionOnExceeded = %q; want reject", cfg.RateLimit.DailyLLMBudget.ActionOnExceeded)
+	}
+	if cfg.Auth.Anonymous.AllowWithoutCaptcha {
+		t.Error("sample.yaml sets AllowWithoutCaptcha=false; got true")
 	}
 }
