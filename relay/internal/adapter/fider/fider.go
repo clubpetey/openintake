@@ -85,7 +85,7 @@ func (a *Adapter) Create(ctx context.Context, p *payload.IntakePayload) (*adapte
 
 	title := p.Conversation.TitleSuggestion
 	if strings.TrimSpace(title) == "" {
-		title = truncate(p.Conversation.Summary, maxTitleLen)
+		title = adapter.Truncate(p.Conversation.Summary, maxTitleLen)
 	}
 
 	body, err := json.Marshal(createRequest{
@@ -112,7 +112,7 @@ func (a *Adapter) Create(ctx context.Context, p *payload.IntakePayload) (*adapte
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		// Include the truncated body for debugging; NEVER the api_key.
-		return nil, fmt.Errorf("fider: create post returned %d: %s", resp.StatusCode, truncate(string(respBody), 200))
+		return nil, fmt.Errorf("fider: create post returned %d: %s", resp.StatusCode, adapter.Truncate(string(respBody), 200))
 	}
 
 	var parsed createResponse
@@ -180,9 +180,3 @@ func renderBody(p *payload.IntakePayload) string {
 	return b.String()
 }
 
-func truncate(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + "…"
-}

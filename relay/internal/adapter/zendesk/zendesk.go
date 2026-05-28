@@ -175,7 +175,7 @@ func (a *Adapter) Create(ctx context.Context, p *payload.IntakePayload) (*adapte
 	}
 	id := parsed.Ticket.ID.String()
 	if id == "" {
-		return nil, fmt.Errorf("zendesk: response missing ticket id: %s", truncate(string(respBody), 200))
+		return nil, fmt.Errorf("zendesk: response missing ticket id: %s", adapter.Truncate(string(respBody), 200))
 	}
 
 	return &adapter.CreateResult{
@@ -241,9 +241,3 @@ func (a *Adapter) HealthCheck(ctx context.Context) error {
 	return nil
 }
 
-func truncate(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + "…"
-}

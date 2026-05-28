@@ -127,7 +127,7 @@ func (a *Adapter) Create(ctx context.Context, p *payload.IntakePayload) (*adapte
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		// Non-2xx: redact first so a key in the body can't survive, then truncate.
-		return nil, fmt.Errorf("linear: graphql endpoint returned %d: %s", resp.StatusCode, truncate(a.redact(string(respBody)), 200))
+		return nil, fmt.Errorf("linear: graphql endpoint returned %d: %s", resp.StatusCode, adapter.Truncate(a.redact(string(respBody)), 200))
 	}
 
 	var parsed issueCreateResponse
@@ -136,7 +136,7 @@ func (a *Adapter) Create(ctx context.Context, p *payload.IntakePayload) (*adapte
 	}
 	if len(parsed.Errors) > 0 {
 		// Redact BEFORE truncate: truncation could split the key and defeat redaction.
-		msg := truncate(a.redact(joinErrors(parsed.Errors)), 200)
+		msg := adapter.Truncate(a.redact(joinErrors(parsed.Errors)), 200)
 		return nil, fmt.Errorf("linear: graphql errors: %s", msg)
 	}
 	ic := parsed.Data.IssueCreate
@@ -189,7 +189,7 @@ func (a *Adapter) HealthCheck(ctx context.Context) error {
 	}
 	if err := json.Unmarshal(respBody, &parsed); err == nil && len(parsed.Errors) > 0 {
 		// Redact BEFORE truncate: truncation could split the key and defeat redaction.
-		msg := truncate(a.redact(joinErrors(parsed.Errors)), 200)
+		msg := adapter.Truncate(a.redact(joinErrors(parsed.Errors)), 200)
 		return fmt.Errorf("linear health: graphql errors: %s", msg)
 	}
 	return nil
@@ -228,13 +228,6 @@ func joinErrors(errs []struct {
 		msgs = append(msgs, e.Message)
 	}
 	return strings.Join(msgs, "; ")
-}
-
-func truncate(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + "…"
 }
 
 // Compile-time assertion that *Adapter satisfies the frozen interface.

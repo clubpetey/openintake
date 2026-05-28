@@ -149,11 +149,11 @@ func (a *Adapter) doRequest(ctx context.Context, body []byte) (*adapter.CreateRe
 
 	if resp.StatusCode >= 500 {
 		// 5xx: retryable.
-		return nil, true, fmt.Errorf("upstream returned %d: %s", resp.StatusCode, truncate(string(respBody), 200))
+		return nil, true, fmt.Errorf("upstream returned %d: %s", resp.StatusCode, adapter.Truncate(string(respBody), 200))
 	}
 	if resp.StatusCode >= 400 {
 		// 4xx: not retryable (client error, misconfiguration).
-		return nil, false, fmt.Errorf("upstream returned %d: %s", resp.StatusCode, truncate(string(respBody), 200))
+		return nil, false, fmt.Errorf("upstream returned %d: %s", resp.StatusCode, adapter.Truncate(string(respBody), 200))
 	}
 
 	// 2xx: success.
@@ -213,9 +213,3 @@ func (a *Adapter) HealthCheck(ctx context.Context) error {
 	return nil
 }
 
-func truncate(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + "…"
-}
