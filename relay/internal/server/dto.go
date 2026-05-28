@@ -59,6 +59,21 @@ type CaptchaRequiredResponse struct {
 	Captcha      *InitCaptcha `json:"captcha,omitempty"`
 }
 
+// CaptchaFailedResponse is the 401 body returned when captcha verification
+// fails (Verifier.Verify returns ok=false). Extends the standard ErrorEnvelope
+// with a `reason` field carrying the provider's error-codes[0]. Phase 5.
+type CaptchaFailedResponse struct {
+	Error CaptchaFailedError `json:"error"`
+}
+
+// CaptchaFailedError is the inner error shape for CaptchaFailedResponse —
+// like ErrorBody but with a `reason` field for the provider error code.
+type CaptchaFailedError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Reason  string `json:"reason"`
+}
+
 // TurnMessage is a single conversation turn (user or assistant).
 // Alias to dto.TurnMessage to avoid import cycle with payloadbuild.
 type TurnMessage = dto.TurnMessage

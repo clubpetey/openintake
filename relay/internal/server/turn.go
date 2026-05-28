@@ -100,16 +100,16 @@ func initHandler(deps Deps) http.HandlerFunc {
 			clientIP := ClientIPFromContext(r.Context())
 			ok, reason, err := deps.CaptchaVerifier.Verify(r.Context(), initReq.CaptchaToken, clientIP)
 			if err != nil {
-				slog.WarnContext(r.Context(), "captcha siteverify unavailable", "provider", deps.CaptchaVerifier.Provider(), "err", err)
+				slog.WarnContext(r.Context(), "init: captcha siteverify unavailable", "provider", deps.CaptchaVerifier.Provider(), "err", err)
 				writeError(w, http.StatusBadGateway, "captcha_unavailable", "captcha verification provider unavailable")
 				return
 			}
 			if !ok {
-				writeJSON(w, http.StatusUnauthorized, map[string]any{
-					"error": map[string]any{
-						"code":    "captcha_failed",
-						"message": "captcha verification failed",
-						"reason":  reason,
+				writeJSON(w, http.StatusUnauthorized, CaptchaFailedResponse{
+					Error: CaptchaFailedError{
+						Code:    "captcha_failed",
+						Message: "captcha verification failed",
+						Reason:  reason,
 					},
 				})
 				return

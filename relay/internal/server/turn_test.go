@@ -533,20 +533,15 @@ func TestInitHandler_InvalidCaptchaToken_Returns401(t *testing.T) {
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d; want 401", rec.Code)
 	}
-	// Body shape: standard ErrorEnvelope plus "reason" field.
-	var raw map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+	var respBody server.CaptchaFailedResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &respBody); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	errBody, ok := raw["error"].(map[string]any)
-	if !ok {
-		t.Fatalf("error key missing; body: %s", rec.Body.String())
+	if respBody.Error.Code != "captcha_failed" {
+		t.Errorf("error.code = %q; want captcha_failed", respBody.Error.Code)
 	}
-	if errBody["code"] != "captcha_failed" {
-		t.Errorf("code = %v; want captcha_failed", errBody["code"])
-	}
-	if errBody["reason"] != "invalid-input-response" {
-		t.Errorf("reason = %v; want invalid-input-response", errBody["reason"])
+	if respBody.Error.Reason != "invalid-input-response" {
+		t.Errorf("error.reason = %q; want invalid-input-response", respBody.Error.Reason)
 	}
 }
 
@@ -577,7 +572,9 @@ func TestInitHandler_CaptchaVerifierErr_Returns502(t *testing.T) {
 		t.Fatalf("status = %d; want 502", rec.Code)
 	}
 	var body2 server.ErrorEnvelope
-	json.Unmarshal(rec.Body.Bytes(), &body2)
+	if err := json.Unmarshal(rec.Body.Bytes(), &body2); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
 	if body2.Error.Code != "captcha_unavailable" {
 		t.Errorf("code = %q; want captcha_unavailable", body2.Error.Code)
 	}
