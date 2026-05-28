@@ -159,10 +159,16 @@ func TestCORS_OptionsWithoutOriginPassesThrough(t *testing.T) {
 
 // ---- Task 7 (5-i): /v1/intake group wires clientIP + perIP middlewares ----
 
-func TestServerNew_MountsClientIPMiddlewareOnIntakeGroup(t *testing.T) {
-	// Build a Deps with TrustedProxies set; hit /v1/intake/init; the resolved
-	// IP must be in the request context (we observe via /init returning 200).
-	// /v1/health (outside /v1/intake) should still respond 200.
+// TestServerNew_HealthAndIntakeRouteRegistration verifies that:
+//   - /v1/health responds 200 (registered at the top level, outside /v1/intake)
+//   - /v1/intake/init responds 200 (registered inside the /v1/intake group)
+// Both new Phase 5 middlewares (clientIPMiddleware, perIPLimitMiddleware) are
+// wired into the /v1/intake group but are no-ops with PerIP=nil and
+// TrustedProxies=nil, so this test does NOT verify they actually run.
+// The behavioral verification lives in 5-ii Task 1's perip.Limiter tests,
+// which exercise the full chain with a rejecting Limiter: /v1/intake/init
+// returns 429 while /v1/health continues to return 200.
+func TestServerNew_HealthAndIntakeRouteRegistration(t *testing.T) {
 	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{}}}
 	deps := server.Deps{
 		Auth:           auth.NewMiddleware(auth.NewStore(), nil, nil),
