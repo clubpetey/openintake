@@ -31,7 +31,7 @@ func Mint(secret []byte, email string, ttl time.Duration) (string, time.Time, er
 		return "", time.Time{}, errors.New("emailjwt: email must not be empty")
 	}
 
-	now := time.Now()
+	now := time.Now().Truncate(time.Second)
 	expiresAt := now.Add(ttl)
 
 	claims := jwt.MapClaims{

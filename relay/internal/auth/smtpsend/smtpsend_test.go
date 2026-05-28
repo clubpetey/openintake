@@ -2,6 +2,7 @@ package smtpsend_test
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 
@@ -60,37 +61,9 @@ func TestNewNetSMTP_StoresParams(t *testing.T) {
 		t.Fatal("Send against unreachable 127.0.0.1:1 must error")
 	}
 	// SECURITY: the error MUST NOT contain the password.
-	if containsCaseInsensitive(err.Error(), "pass") {
+	if strings.Contains(strings.ToLower(err.Error()), strings.ToLower("pass")) {
 		// note: literal token "pass" intentionally matches what we passed —
 		// if the error embeds it, that is a leak.
 		t.Errorf("Send error leaked password: %v", err)
 	}
-}
-
-func containsCaseInsensitive(s, sub string) bool {
-	// Avoid pulling strings — keep this test file's imports minimal.
-	if len(sub) == 0 {
-		return true
-	}
-	for i := 0; i+len(sub) <= len(s); i++ {
-		match := true
-		for j := 0; j < len(sub); j++ {
-			a := s[i+j]
-			b := sub[j]
-			if a >= 'A' && a <= 'Z' {
-				a += 'a' - 'A'
-			}
-			if b >= 'A' && b <= 'Z' {
-				b += 'a' - 'A'
-			}
-			if a != b {
-				match = false
-				break
-			}
-		}
-		if match {
-			return true
-		}
-	}
-	return false
 }

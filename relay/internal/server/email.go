@@ -49,14 +49,16 @@ func emailStartHandler(deps Deps) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
 			return
 		}
-		if _, err := mail.ParseAddress(req.Email); err != nil {
+		addr, err := mail.ParseAddress(req.Email)
+		if err != nil {
 			writeError(w, http.StatusBadRequest, "bad_request", "invalid email address")
 			return
 		}
+		email := addr.Address // normalized: bare RFC 5321 address, no display-name
 
-		retry, err := deps.EmailService.IssueAndSend(r.Context(), req.Email)
+		retry, ierr := deps.EmailService.IssueAndSend(r.Context(), email)
 		switch {
-		case errors.Is(err, emailcode.ErrRateLimited):
+		case errors.Is(ierr, emailcode.ErrRateLimited):
 			// Anti-enumeration: generic body, detail only via Retry-After header.
 			seconds := int(retry.Seconds())
 			if seconds < 1 {
@@ -65,14 +67,14 @@ func emailStartHandler(deps Deps) http.HandlerFunc {
 			w.Header().Set("Retry-After", strconv.Itoa(seconds))
 			writeError(w, http.StatusTooManyRequests, "rate_limited", "too many codes requested for this email; retry later")
 			return
-		case errors.Is(err, ErrSMTP):
+		case errors.Is(ierr, ErrSMTP):
 			// Log the underlying detail server-side; the body stays generic.
 			if deps.Logger != nil {
-				deps.Logger.Error("email start: smtp send failed", "email_redacted", redactEmail(req.Email), "err", err.Error())
+				deps.Logger.Error("email start: smtp send failed", "email_redacted", redactEmail(email), "err", ierr.Error())
 			}
 			writeError(w, http.StatusBadGateway, "smtp_error", "could not send email")
 			return
-		case err != nil:
+		case ierr != nil:
 			// Defensive — should not happen.
 			writeError(w, http.StatusInternalServerError, "internal", "internal error")
 			return
@@ -101,9 +103,15 @@ func emailVerifyHandler(deps Deps) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "bad_request", "email and code are required")
 			return
 		}
-
-		token, expiresAt, err := deps.EmailService.VerifyAndMint(req.Email, req.Code)
+		addr, err := mail.ParseAddress(req.Email)
 		if err != nil {
+			writeError(w, http.StatusBadRequest, "bad_request", "invalid email address")
+			return
+		}
+		email := addr.Address // normalized: bare RFC 5321 address, no display-name
+
+		token, expiresAt, verr := deps.EmailService.VerifyAndMint(email, req.Code)
+		if verr != nil {
 			// Anti-enumeration: generic 401 regardless of "not found"/"expired"/"used".
 			writeError(w, http.StatusUnauthorized, "invalid_code", "the provided code is not valid")
 			return
@@ -113,7 +121,7 @@ func emailVerifyHandler(deps Deps) http.HandlerFunc {
 			Token:     token,
 			ExpiresAt: expiresAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
 			User: emailVerifyUser{
-				Email:    req.Email,
+				Email:    email,
 				Verified: true,
 			},
 		})

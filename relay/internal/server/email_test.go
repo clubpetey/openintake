@@ -311,28 +311,75 @@ func TestEmailVerify_BadJSON_400(t *testing.T) {
 	}
 }
 
-// Integration: full flow end-to-end — start → verify → /turn with the returned
-// bearer reaches a handler that sees SessionContext.AuthMode=="email".
+// buildEmailServerNoAnon is like buildEmailServer but with Anonymous: false so
+// the integration test exclusively exercises the JWT path (no false-pass via
+// X-Intake-Session).
+func buildEmailServerNoAnon(t *testing.T, fake smtpsend.Sender) (*server.Deps, http.Handler) {
+	t.Helper()
+	codes := emailcode.New(10*time.Minute, 10*time.Minute, 3, time.Now)
+	emailSvc := server.NewEmailService(codes, fake, testSecret, 15*time.Minute)
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{CORSOrigins: []string{"http://localhost:5173"}},
+		Auth: config.AuthConfig{
+			Modes: config.AuthModes{Anonymous: false, Email: true},
+			Email: config.EmailConfig{CodeTTL: "10m", JWTTTL: "15m"},
+		},
+	}
+	deps := server.Deps{
+		Auth:         auth.NewMiddleware(auth.NewStore(), &emailjwt.Verifier{Secret: testSecret}, nil),
+		AuthCfg:      cfg.Auth,
+		EmailService: emailSvc,
+	}
+	return &deps, server.New(cfg, deps)
+}
+
+// Integration: full flow end-to-end — start → verify → spy endpoint behind
+// deps.Auth.Handler asserts SessionContext.AuthMode=="email", Verified==true,
+// and Email equals the normalized address.
 func TestEmailFlow_DrivesTurnWithBearer(t *testing.T) {
 	fake := smtpsend.NewFakeSender()
-	_, mux := buildEmailServer(t, fake)
+	deps, realMux := buildEmailServerNoAnon(t, fake)
+
+	// Mount a test-only spy behind the auth middleware. The spy reads the
+	// SessionContext and writes it as JSON so we can assert the fields.
+	// We serve bootstrap routes via realMux and the spy directly.
+	spyHandler := deps.Auth.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sess, _ := auth.FromContext(r.Context())
+		type out struct {
+			AuthMode string  `json:"auth_mode"`
+			Verified bool    `json:"verified"`
+			Email    *string `json:"email"`
+		}
+		var o out
+		if sess != nil {
+			o = out{AuthMode: sess.AuthMode, Verified: sess.Verified, Email: sess.Email}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(o)
+	}))
+
+	// Composite mux: spy on /_test_session, everything else to the real server.
+	top := http.NewServeMux()
+	top.Handle("GET /_test_session", spyHandler)
+	top.Handle("/", realMux)
 
 	// 1. start
 	req := httptest.NewRequest(http.MethodPost, "/v1/intake/auth/email/start", bytes.NewBufferString(`{"email":"user@example.com"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
-	mux.ServeHTTP(rr, req)
+	top.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
-		t.Fatalf("start: %d", rr.Code)
+		t.Fatalf("start: %d body=%s", rr.Code, rr.Body.String())
 	}
 	code := fake.Sent()[0].Code
 
 	// 2. verify
-	body := `{"email":"user@example.com","code":"` + code + `"}`
-	req = httptest.NewRequest(http.MethodPost, "/v1/intake/auth/email/verify", bytes.NewBufferString(body))
+	vbody := `{"email":"user@example.com","code":"` + code + `"}`
+	req = httptest.NewRequest(http.MethodPost, "/v1/intake/auth/email/verify", bytes.NewBufferString(vbody))
 	req.Header.Set("Content-Type", "application/json")
 	rr = httptest.NewRecorder()
-	mux.ServeHTTP(rr, req)
+	top.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("verify: %d body=%s", rr.Code, rr.Body.String())
 	}
@@ -343,17 +390,98 @@ func TestEmailFlow_DrivesTurnWithBearer(t *testing.T) {
 		t.Fatalf("decode verify: %v", err)
 	}
 
-	// 3. drive /turn with the bearer — turn handler may fail downstream (no LLM),
-	//    but the middleware must accept the bearer and not 401.
-	req = httptest.NewRequest(http.MethodPost, "/v1/intake/turn", bytes.NewBufferString(`{"messages":[{"role":"user","content":"hi"}]}`))
-	req.Header.Set("Content-Type", "application/json")
+	// 3. call the spy endpoint with the email JWT bearer.
+	req = httptest.NewRequest(http.MethodGet, "/_test_session", nil)
 	req.Header.Set("Authorization", "Bearer "+verifyResp.Token)
 	rr = httptest.NewRecorder()
-	mux.ServeHTTP(rr, req)
-	if rr.Code == http.StatusUnauthorized {
-		t.Fatalf("turn returned 401 despite valid email JWT; body = %s", rr.Body.String())
+	top.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("spy: %d body=%s", rr.Code, rr.Body.String())
 	}
-	// Status 500 (no Provider wired in the test Deps) is acceptable here — the
-	// point is that the middleware accepted the bearer and dispatched to the
-	// turn handler.
+
+	var sess struct {
+		AuthMode string  `json:"auth_mode"`
+		Verified bool    `json:"verified"`
+		Email    *string `json:"email"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &sess); err != nil {
+		t.Fatalf("decode spy: %v", err)
+	}
+	if sess.AuthMode != "email" {
+		t.Errorf("AuthMode = %q; want \"email\"", sess.AuthMode)
+	}
+	if !sess.Verified {
+		t.Errorf("Verified = false; want true")
+	}
+	if sess.Email == nil || *sess.Email != "user@example.com" {
+		t.Errorf("Email = %v; want \"user@example.com\"", sess.Email)
+	}
+}
+
+// TestEmailStart_NormalizesDisplayName proves that a /start request with a
+// display-name form email normalizes to the bare address before issuing.
+func TestEmailStart_NormalizesDisplayName(t *testing.T) {
+	fake := smtpsend.NewFakeSender()
+	_, mux := buildEmailServer(t, fake)
+
+	body := bytes.NewBufferString(`{"email":"Alice Smith <alice@example.com>"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/intake/auth/email/start", body)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", rr.Code, rr.Body.String())
+	}
+	sent := fake.Sent()
+	if len(sent) != 1 {
+		t.Fatalf("FakeSender captured %d; want 1", len(sent))
+	}
+	// Must be the bare address, not the display-name form.
+	if sent[0].To != "alice@example.com" {
+		t.Errorf("To = %q; want \"alice@example.com\"", sent[0].To)
+	}
+}
+
+// TestEmailVerify_NormalizesDisplayName proves that issuing for a bare address
+// then verifying with the display-name form succeeds (they normalize to the
+// same key).
+func TestEmailVerify_NormalizesDisplayName(t *testing.T) {
+	fake := smtpsend.NewFakeSender()
+	_, mux := buildEmailServer(t, fake)
+
+	// Start with bare address.
+	req := httptest.NewRequest(http.MethodPost, "/v1/intake/auth/email/start",
+		bytes.NewBufferString(`{"email":"a@b.example"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("start status %d; body %s", rr.Code, rr.Body.String())
+	}
+	code := fake.Sent()[0].Code
+
+	// Verify with display-name form — must succeed.
+	verifyBody := `{"email":"A <a@b.example>","code":"` + code + `"}`
+	req = httptest.NewRequest(http.MethodPost, "/v1/intake/auth/email/verify",
+		bytes.NewBufferString(verifyBody))
+	req.Header.Set("Content-Type", "application/json")
+	rr = httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("verify status %d; body %s", rr.Code, rr.Body.String())
+	}
+
+	var resp struct {
+		User struct {
+			Email string `json:"email"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	// user.email in the response must be the normalized bare address.
+	if resp.User.Email != "a@b.example" {
+		t.Errorf("user.email = %q; want \"a@b.example\"", resp.User.Email)
+	}
 }

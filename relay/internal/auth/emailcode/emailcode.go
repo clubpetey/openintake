@@ -74,6 +74,8 @@ func (s *Store) Issue(email string) (string, time.Duration, error) {
 	// Evict history entries outside the rate window.
 	hist := s.history[email]
 	cutoff := now.Add(-s.rateWindow)
+	// pruned reuses hist's backing array (filter-in-place); safe because
+	// pruned lags hist — we only write to positions we've already read.
 	pruned := hist[:0]
 	for _, t := range hist {
 		if t.After(cutoff) {
@@ -83,7 +85,7 @@ func (s *Store) Issue(email string) (string, time.Duration, error) {
 	s.history[email] = pruned
 
 	if len(pruned) >= s.perWindowCap {
-		// retryAfter: the oldest in-window issuance ages out at hist[0] + rateWindow.
+		// retryAfter: the oldest in-window issuance ages out at pruned[0] + rateWindow.
 		retry := pruned[0].Add(s.rateWindow).Sub(now)
 		if retry < time.Second {
 			retry = time.Second // caller writes Retry-After header in seconds; never advertise 0

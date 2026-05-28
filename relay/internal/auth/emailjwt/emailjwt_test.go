@@ -1,6 +1,10 @@
 package emailjwt_test
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -127,6 +131,29 @@ func TestVerify_RejectsEmptySub(t *testing.T) {
 	signed, _ := tok.SignedString(thirtyTwoByteSecret)
 	if _, err := emailjwt.Verify(thirtyTwoByteSecret, signed); err == nil {
 		t.Fatal("Verify must reject a token with empty sub")
+	}
+}
+
+func TestVerify_RejectsNonHS256AlgHeader(t *testing.T) {
+	// Hand-craft a token whose header claims alg=RS256 but whose signature is
+	// HMAC-signed with the secret. Verify must reject it because the
+	// *jwt.SigningMethodHMAC type-assertion in the key-func fails.
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
+	claims := map[string]any{
+		"sub": "attacker@example.com",
+		"iat": time.Now().Unix(),
+		"exp": time.Now().Add(15 * time.Minute).Unix(),
+		"iss": emailjwt.Issuer,
+	}
+	claimsJSON, _ := json.Marshal(claims)
+	payload := base64.RawURLEncoding.EncodeToString(claimsJSON)
+	mac := hmac.New(sha256.New, thirtyTwoByteSecret)
+	mac.Write([]byte(header + "." + payload))
+	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	crafted := header + "." + payload + "." + sig
+
+	if _, err := emailjwt.Verify(thirtyTwoByteSecret, crafted); err == nil {
+		t.Fatal("Verify must reject a token whose header claims alg=RS256")
 	}
 }
 
