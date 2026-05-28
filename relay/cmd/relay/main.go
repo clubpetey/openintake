@@ -20,6 +20,9 @@ import (
 	"intake/internal/adapter/webhook"
 	"intake/internal/adapter/zendesk"
 	"intake/internal/auth"
+	"intake/internal/auth/emailcode"
+	"intake/internal/auth/emailjwt"
+	"intake/internal/auth/smtpsend"
 	"intake/internal/classify"
 	"intake/internal/config"
 	licensemgr "intake/internal/license"
@@ -84,9 +87,69 @@ func main() {
 
 	// --- Session Store + Auth Middleware ---
 	store := auth.NewStore()
-	// 4-i: middleware accepts optional email + sso verifiers (both nil here; 4-ii
-	// and 4-iii wire them when the corresponding auth.modes.* flag is set).
-	middleware := auth.NewMiddleware(store, nil, nil)
+
+	// 4-ii: email magic-link wiring.
+	var emailVerifier auth.EmailJWTVerifier // nil unless cfg.Auth.Modes.Email is true
+	var emailSvc *server.EmailService
+	if cfg.Auth.Modes.Email {
+		smtpPass, err := config.ResolveSecret(cfg.Auth.Email.SMTPPassEnv)
+		if err != nil {
+			logger.Error("email auth: resolve SMTP password", "env", cfg.Auth.Email.SMTPPassEnv, "err", err)
+			os.Exit(1)
+		}
+		// smtpPass may legitimately be empty (e.g. local MailHog with no auth);
+		// the SMTPUser presence is the operator's choice.
+
+		jwtSecret, err := config.RequireSecret(cfg.Auth.Email.JWTSecretEnv)
+		if err != nil {
+			logger.Error("email auth: resolve JWT secret", "env", cfg.Auth.Email.JWTSecretEnv, "err", err)
+			os.Exit(1)
+		}
+		if len(jwtSecret) < 32 {
+			logger.Error("email auth: jwt_secret must be at least 32 bytes (PROJECT.md §17)", "env", cfg.Auth.Email.JWTSecretEnv, "len", len(jwtSecret))
+			os.Exit(1)
+		}
+
+		codeTTL, err := time.ParseDuration(cfg.Auth.Email.CodeTTL)
+		if err != nil {
+			logger.Error("email auth: invalid code_ttl", "value", cfg.Auth.Email.CodeTTL, "err", err)
+			os.Exit(1)
+		}
+		jwtTTL, err := time.ParseDuration(cfg.Auth.Email.JWTTTL)
+		if err != nil {
+			logger.Error("email auth: invalid jwt_ttl", "value", cfg.Auth.Email.JWTTTL, "err", err)
+			os.Exit(1)
+		}
+
+		// Rate-limit: 3 codes per code_ttl window (matches the design — "≥3 codes
+		// in 10 min for this address" per spec §2.4).
+		const perWindowCap = 3
+		codeStore := emailcode.New(codeTTL, codeTTL, perWindowCap, time.Now)
+
+		sender := smtpsend.NewNetSMTP(
+			cfg.Auth.Email.SMTPHost,
+			cfg.Auth.Email.SMTPPort,
+			cfg.Auth.Email.SMTPUser,
+			smtpPass,
+			cfg.Auth.Email.From,
+		)
+
+		secretBytes := []byte(jwtSecret)
+		emailSvc = server.NewEmailService(codeStore, sender, secretBytes, jwtTTL)
+		emailVerifier = &emailjwt.Verifier{Secret: secretBytes}
+
+		logger.Info("relay: email auth enabled",
+			"smtp_host", cfg.Auth.Email.SMTPHost,
+			"smtp_port", cfg.Auth.Email.SMTPPort,
+			"from", cfg.Auth.Email.From,
+			"code_ttl", codeTTL.String(),
+			"jwt_ttl", jwtTTL.String(),
+		)
+	}
+
+	// 4-i: middleware accepts optional email + sso verifiers.
+	// 4-ii: pass emailVerifier (nil-OK when email mode disabled); SSO stays nil until 4-iii.
+	middleware := auth.NewMiddleware(store, emailVerifier, nil)
 
 	// --- Triage System Prompt ---
 	// Loads from cfg.LLM.SystemPromptFile if set; else uses bundled prompt.txt.
@@ -145,6 +208,7 @@ func main() {
 		Classifier:   classifier,
 		Builder:      builder,
 		AuthCfg:      cfg.Auth,
+		EmailService: emailSvc,
 	}
 
 	// --- HTTP Server ---
