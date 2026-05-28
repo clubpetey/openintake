@@ -25,11 +25,13 @@ import (
 	"intake/internal/auth/emailjwt"
 	"intake/internal/auth/smtpsend"
 	"intake/internal/auth/sso"
+	"intake/internal/budget"
 	"intake/internal/classify"
 	"intake/internal/config"
 	licensemgr "intake/internal/license"
 	"intake/internal/llm/providers"
 	"intake/internal/payloadbuild"
+	"intake/internal/ratelimit/perip"
 	"intake/internal/router"
 	"intake/internal/server"
 	"intake/internal/triage"
@@ -99,7 +101,18 @@ func main() {
 	model, maxTokens := activeModelConfig(cfg.LLM)
 
 	// --- Session Store + Auth Middleware ---
-	store := auth.NewStore()
+	// Phase 5 (5-ii): Store gains per-session caps + TTL from cfg.RateLimit.PerSession.
+	sessionTTL, err := time.ParseDuration(cfg.RateLimit.PerSession.SessionTTL)
+	if err != nil {
+		logger.Error("relay: invalid ratelimit.per_session.session_ttl", "value", cfg.RateLimit.PerSession.SessionTTL, "err", err)
+		os.Exit(1)
+	}
+	store := auth.NewStoreWithCaps(
+		cfg.RateLimit.PerSession.MaxTurns,
+		cfg.RateLimit.PerSession.MaxInputTokens,
+		sessionTTL,
+		time.Now,
+	)
 
 	// 4-ii: email magic-link wiring.
 	var emailVerifier auth.EmailJWTVerifier // nil unless cfg.Auth.Modes.Email is true
@@ -240,6 +253,32 @@ func main() {
 	// --- Payload Builder (1-iv) ---
 	builder := payloadbuild.New("0.1.0") // widget version default; Phase 5 may read from config
 
+	// Phase 5 (5-ii): per-IP rate limiter + daily-budget tracker.
+	idleTTL, err := time.ParseDuration(cfg.RateLimit.PerIP.IdleTTL)
+	if err != nil {
+		logger.Error("relay: invalid ratelimit.per_ip.idle_ttl", "value", cfg.RateLimit.PerIP.IdleTTL, "err", err)
+		os.Exit(1)
+	}
+	perIPLimiter := perip.New(
+		cfg.RateLimit.PerIP.RequestsPerSecond,
+		cfg.RateLimit.PerIP.Burst,
+		idleTTL,
+		time.Now,
+	)
+	budgetTracker := budget.New(
+		cfg.RateLimit.DailyLLMBudget.MaxInputTokens,
+		cfg.RateLimit.DailyLLMBudget.MaxOutputTokens,
+		time.Now,
+	)
+	logger.Info("relay: rate limits configured",
+		"per_ip_rps", cfg.RateLimit.PerIP.RequestsPerSecond,
+		"per_ip_burst", cfg.RateLimit.PerIP.Burst,
+		"per_session_max_turns", cfg.RateLimit.PerSession.MaxTurns,
+		"per_session_max_input_tokens", cfg.RateLimit.PerSession.MaxInputTokens,
+		"daily_budget_max_input_tokens", cfg.RateLimit.DailyLLMBudget.MaxInputTokens,
+		"daily_budget_max_output_tokens", cfg.RateLimit.DailyLLMBudget.MaxOutputTokens,
+	)
+
 	// --- Deps ---
 	// Deps is a value type (README §6.8). No Config field — config-derived values
 	// are promoted to individual Deps fields. main.go populates these from cfg.
@@ -263,8 +302,8 @@ func main() {
 		// replace nil with the real instances.
 		CaptchaCfg:      cfg.Captcha,
 		CaptchaVerifier: nil,
-		Budget:          nil,
-		PerIP:           nil,
+		Budget:          budgetTracker, // 5-ii
+		PerIP:           perIPLimiter,  // 5-ii
 		TrustedProxies:  trustedProxies,
 	}
 
