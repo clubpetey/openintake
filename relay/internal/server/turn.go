@@ -7,8 +7,10 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
+	"intake/internal/auth"
 	"intake/internal/llm"
 )
 
@@ -127,18 +129,70 @@ func initHandler(deps Deps) http.HandlerFunc {
 
 // turnHandler handles POST /v1/intake/turn (behind the auth middleware).
 //
-// The handler:
-//  1. Decodes TurnRequest from the body.
-//  2. Prepends the triage system prompt as a system message.
-//  3. Calls deps.Provider.Chat with Stream:true.
-//  4. Writes SSE frames: SSEDelta per chunk, SSEDone on completion, SSEError on failure.
-//  5. Respects ctx.Done() (client disconnect).
+// Phase 5 gating, applied in order:
+//  1. Resolve SessionContext (already in ctx from auth middleware).
+//  2. deps.Auth.Store().CheckSession — 429 session_turns/_tokens_exhausted
+//     or 401 session_expired on reject.
+//  3. deps.Budget.Reserve — 503 daily_budget_exhausted on reject.
+//  4. provider.Chat (Phase 1+4 unchanged).
+//  5. On SSEDone: deps.Budget.Commit + deps.Auth.Store().RecordTurn.
+//
+// Reserve uses conservative estimates (4-chars/token input; deps.MaxTokens out)
+// so the gate trips BEFORE the LLM call. An aborted stream means no Commit
+// and no RecordTurn — failed turns don't count against the user.
 func turnHandler(deps Deps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req TurnRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "bad_request", "invalid request body: "+err.Error())
 			return
+		}
+
+		sess, _ := auth.FromContext(r.Context())
+		if sess == nil {
+			writeError(w, http.StatusInternalServerError, "internal", "session context missing")
+			return
+		}
+
+		// Phase 5 gate 1: per-session caps.
+		if deps.Auth != nil {
+			ok, retryAfter, code := deps.Auth.Store().CheckSession(sess.SessionID)
+			if !ok {
+				if code == "session_expired" {
+					writeError(w, http.StatusUnauthorized, "session_expired", "session expired; call POST /v1/intake/init again")
+					return
+				}
+				secs := int(retryAfter.Seconds())
+				if secs < 1 {
+					secs = 1
+				}
+				w.Header().Set("Retry-After", strconv.Itoa(secs))
+				var msg string
+				if code == "session_turns_exhausted" {
+					msg = "session turn limit reached"
+				} else {
+					msg = "session input-token limit reached"
+				}
+				writeError(w, http.StatusTooManyRequests, code, msg)
+				return
+			}
+		}
+
+		// Phase 5 gate 2: daily LLM budget.
+		tenantKey := r.Header.Get("X-Intake-Tenant")
+		estIn := approximateInputTokens(req.Messages)
+		estOut := deps.MaxTokens
+		if deps.Budget != nil {
+			ok, retryAfter := deps.Budget.Reserve(tenantKey, estIn, estOut)
+			if !ok {
+				secs := int(retryAfter.Seconds())
+				if secs < 1 {
+					secs = 1
+				}
+				w.Header().Set("Retry-After", strconv.Itoa(secs))
+				writeError(w, http.StatusServiceUnavailable, "daily_budget_exhausted", "relay daily LLM budget reached")
+				return
+			}
 		}
 
 		// Build the message list for the provider.
@@ -207,6 +261,16 @@ func turnHandler(deps Deps) http.HandlerFunc {
 					}
 				}
 				if chunk.Done {
+					// Phase 5: Commit budget + RecordTurn on successful SSEDone.
+					// Order matters: Budget first (global spend), then per-session record.
+					// Both fire ONLY on the success path (chunk.Done with chunk.Err == nil);
+					// failed/aborted turns produce neither Commit nor RecordTurn.
+					if deps.Budget != nil {
+						deps.Budget.Commit(tenantKey, chunk.InputTokens, chunk.OutputTokens)
+					}
+					if deps.Auth != nil {
+						deps.Auth.Store().RecordTurn(sess.SessionID, chunk.InputTokens)
+					}
 					writeSSEFrame(w, SSEDone{
 						Done:         true,
 						InputTokens:  chunk.InputTokens,
@@ -220,6 +284,20 @@ func turnHandler(deps Deps) http.HandlerFunc {
 			}
 		}
 	}
+}
+
+// approximateInputTokens returns a conservative estimate of the input-token
+// count of the messages, used by budget.Reserve as the pre-flight estimate.
+// Uses a simple 4-chars-per-token heuristic (ceiling division so a 1-char
+// message still costs 1 token); the actual count comes back in SSEDone and
+// replaces this estimate at Commit time.
+func approximateInputTokens(msgs []TurnMessage) int {
+	const charsPerToken = 4
+	total := 0
+	for _, m := range msgs {
+		total += (len(m.Content) + charsPerToken - 1) / charsPerToken
+	}
+	return total
 }
 
 // writeSSEFrame marshals v to JSON and writes it as a single SSE data frame.
