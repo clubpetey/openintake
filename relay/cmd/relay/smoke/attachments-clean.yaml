@@ -1,0 +1,25 @@
+server:
+  addr: ":18086"
+  external_url: "http://127.0.0.1:18086"
+  cors_origins: ["http://localhost:5173"]
+auth:
+  modes:
+    anonymous: true
+  anonymous:
+    allow_without_captcha: true
+adapters:
+  webhook:
+    enabled: true
+    url: "http://127.0.0.1:1/discard"
+routing:
+  default_adapter: "webhook"
+ratelimit:
+  daily_llm_budget:
+    action_on_exceeded: "reject"
+attachments:
+  enabled: true
+  max_size_bytes: 5242880
+  max_total_bytes: 10485760
+  allowed_mime_types: ["image/png", "image/jpeg", "image/webp"]
+  storage:
+    mode: "forward"
