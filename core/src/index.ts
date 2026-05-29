@@ -9,3 +9,14 @@ export { IntakeClient } from './client.js';
 
 // Context capture utilities (exported for widget use)
 export { captureClient, capturePageMetadata } from './context.js';
+
+// Phase 6 — attachments + capture
+export {
+  AttachmentList,
+  AttachmentTooLargeError,
+  AggregateTooLargeError,
+  MimeNotAllowedError,
+} from './attachments.js';
+export type { PendingAttachment, AttachmentLimits } from './attachments.js';
+export { setHtml2Canvas, capturePage, canvasToDataURL } from './capture.js';
+export type { Html2CanvasFn } from './capture.js';
