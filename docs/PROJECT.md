@@ -607,16 +607,22 @@ v0 scope: **screenshots only**.
 - User can blur/redact regions before submission.
 - Encoded as base64 PNG in payload.
 
+Implementation: `core/src/capture.ts` (DI-injectable `html2canvas` wrapper — see L021 for the SSR-safety pattern), `core/src/attachments.ts` (pending-attachment list + aggregate-size accounting), `vue/src/components/ScreenshotRedactor.vue` (full-screen modal + rectangle redaction), `vue/src/components/AttachmentStrip.vue` (pending strip + aggregate-size badge). Operator + UX reference: `docs/attachments.md`.
+
 ### Transport
 
 - Sent inline in the `attachments[]` array on `POST /v1/intake/submit`.
 - Max 5 MB per attachment (configurable). Multiple attachments allowed up to total payload size cap (10 MB default).
 - Relay validates MIME type magic-byte against declared `mime_type`.
 
+Implementation: `relay/internal/attachvalidate/` (magic-byte + size-cap validation; sentinel errors mapped 1:1 to HTTP codes), `relay/internal/server/submit.go` (orchestration: body-cap raise to 14 MB when `cfg.Attachments.Enabled=true`, `attachvalidate.ValidateAll` after `payloadbuild.Build` and before `Router.Route`), `relay/internal/server/init.go` (capabilities intersection emitted under `capabilities.attachments`). Validation error matrix: `docs/attachments.md` "Validation errors".
+
 ### Forwarding
 
 - Each adapter is responsible for forwarding attachments to its downstream system using that system's native upload mechanism (Chatwoot media upload, Zendesk attachments endpoint, Linear file upload, etc.).
 - Relay does not store attachments locally in v0.
+
+Implementation: `relay/internal/adapter/capabilities.go` (optional `CapableAdapter` interface advertising accepted MIME types), per-adapter `Create()` native sequences in `relay/internal/adapter/{webhook,chatwoot,fider,linear,zendesk}/`. Chatwoot uses a three-call flow (contacts → conversations(JSON) → messages(multipart)) because the conversation-create endpoint silently drops `attachments[]` — see L020. Operator-facing per-adapter matrix: `docs/attachments.md` "Per-adapter behavior".
 
 ### v1 enhancements (out of scope)
 
