@@ -7,6 +7,9 @@ export * from './generated/payload.js';
 export type { IntakeConfig, ChatMessage, SubmitResult } from './client-types.js';
 export { IntakeClient } from './client.js';
 
+// HTTP DTO types — needed by widget code that consumes init/submit shapes.
+export type { InitResponse, SubmitRequest, SubmitResponse } from './types.js';
+
 // Context capture utilities (exported for widget use)
 export { captureClient, capturePageMetadata } from './context.js';
 
