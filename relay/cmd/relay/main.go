@@ -72,15 +72,69 @@ func main() {
 	logger.Info("relay: license", "mode", licState.Mode, "detail", licState.Message)
 
 	// --- Q9 consolidated startup gate (Phase 5) ---
-	// All Phase 4 + Phase 5 misconfigs collected into one structured Error line.
-	// Operators fix every problem in one restart cycle, not three.
+	// All Phase 4 + Phase 5 misconfigs collected into a shared problems slice.
+	// Phase 6's validateAttachments() appends to the same slice below, and a
+	// single os.Exit(1) fires AFTER both gates have run — operators see every
+	// startup misconfig (Phase 5 AND Phase 6) in ONE log line and fix them in
+	// one restart cycle, not two.
+	//
+	// Safety: none of the Phase 5 gates touch cfg.Adapters or anything else
+	// buildRegistry() consumes, so it is safe to let buildRegistry() run even
+	// when Phase 5 problems are present.
 	problems, trustedProxies := startupProblems(cfg)
+	// trustedProxies is the parsed []netip.Prefix from cfg.Server.TrustedProxies
+	// — parsed once inside startupProblems; used by clientIPMiddleware via Deps.
+
+	// --- Adapter registry (3-i; 3-ii…3-v add adapters; 3-vi adds the license gate) ---
+	// Moved up so that Phase 6 validateAttachments() can run BEFORE the single
+	// consolidated exit below. buildRegistry only consumes cfg.Adapters + license
+	// state; it does NOT depend on any field that Phase 5 startupProblems() gates,
+	// so it is safe to run even when Phase 5 reported problems.
+	registry, err := buildRegistry(cfg, licState, logger)
+	if err != nil {
+		logger.Error("relay: adapter registry build failed", "error", err)
+		os.Exit(1)
+	}
+	if len(registry) == 0 {
+		logger.Error("relay: no adapters enabled — enable at least one in config.adapters")
+		os.Exit(1)
+	}
+
+	// --- Phase 6 attachments startup gate ---
+	// Runs after buildRegistry because the warn-on-unknown-MIME side-channel
+	// needs the enabled-adapter list. Returns the PARSED AttachmentsConfig per
+	// L016 — consumers below must use `attachmentsCfg`, not `cfg.Attachments`.
+	// Problems are appended to the SHARED `problems` slice so the consolidated
+	// log line below lists every Phase-5 AND Phase-6 misconfig in one go.
+	enabledList := make([]adapter.Adapter, 0, len(registry))
+	for _, ad := range registry {
+		enabledList = append(enabledList, ad)
+	}
+	attachmentsCfg, attProblems := validateAttachments(cfg, enabledList)
+	problems = append(problems, attProblems...)
+
+	// --- Single consolidated exit (Q9 contract) ---
+	// One log line, one os.Exit, every startup misconfig listed — operators
+	// fix every problem in one restart cycle, not two. See README §6 (build-fail
+	// items) and §7 (final smoke "operators fix in one restart cycle").
 	if len(problems) > 0 {
 		logger.Error("relay: startup config errors", "count", len(problems), "problems", problems)
 		os.Exit(1)
 	}
-	// trustedProxies is the parsed []netip.Prefix from cfg.Server.TrustedProxies
-	// — parsed once inside startupProblems; used by clientIPMiddleware via Deps.
+
+	// Compute the published allowlist (cfg ∩ adapter union) — empty list means
+	// /init will omit capabilities.attachments and submitHandler will refuse
+	// non-empty attachments[] with 400 attachments_disabled.
+	attCaps := server.ComputeAttachmentsCaps(attachmentsCfg, enabledList)
+	var attachmentMIMEs []string
+	if attCaps != nil {
+		attachmentMIMEs = attCaps.AllowedMIMETypes
+	}
+	// Body cap: 14 MB when enabled, 1 MB otherwise. Computed once at startup.
+	bodyCapBytes := int64(1 << 20)
+	if attachmentsCfg.Enabled {
+		bodyCapBytes = 14 * (1 << 20)
+	}
 
 	// --- LLM Provider (via factory) ---
 	// providers.New resolves the required secret internally via config.RequireSecret /
@@ -219,44 +273,6 @@ func main() {
 	if err != nil {
 		logger.Error("failed to load system prompt", "error", err)
 		os.Exit(1)
-	}
-
-	// --- Adapter registry (3-i; 3-ii…3-v add adapters; 3-vi adds the license gate) ---
-	registry, err := buildRegistry(cfg, licState, logger)
-	if err != nil {
-		logger.Error("relay: adapter registry build failed", "error", err)
-		os.Exit(1)
-	}
-	if len(registry) == 0 {
-		logger.Error("relay: no adapters enabled — enable at least one in config.adapters")
-		os.Exit(1)
-	}
-
-	// --- Phase 6 attachments startup gate ---
-	// Runs after buildRegistry because the warn-on-unknown-MIME side-channel
-	// needs the enabled-adapter list. Returns the PARSED AttachmentsConfig per
-	// L016 — consumers below must use `attachmentsCfg`, not `cfg.Attachments`.
-	enabledList := make([]adapter.Adapter, 0, len(registry))
-	for _, ad := range registry {
-		enabledList = append(enabledList, ad)
-	}
-	attachmentsCfg, attProblems := validateAttachments(cfg, enabledList)
-	if len(attProblems) > 0 {
-		logger.Error("relay: startup config errors", "count", len(attProblems), "problems", attProblems)
-		os.Exit(1)
-	}
-	// Compute the published allowlist (cfg ∩ adapter union) — empty list means
-	// /init will omit capabilities.attachments and submitHandler will refuse
-	// non-empty attachments[] with 400 attachments_disabled.
-	attCaps := server.ComputeAttachmentsCaps(attachmentsCfg, enabledList)
-	var attachmentMIMEs []string
-	if attCaps != nil {
-		attachmentMIMEs = attCaps.AllowedMIMETypes
-	}
-	// Body cap: 14 MB when enabled, 1 MB otherwise. Computed once at startup.
-	bodyCapBytes := int64(1 << 20)
-	if attachmentsCfg.Enabled {
-		bodyCapBytes = 14 * (1 << 20)
 	}
 
 	// --- Router (3-i) ---

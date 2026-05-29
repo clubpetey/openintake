@@ -340,6 +340,58 @@ func TestValidateAttachments_UnknownMIMETypeIsWarnNotFatal(t *testing.T) {
 	}
 }
 
+// TestStartupGates_CombinedPhase5AndPhase6Problems pins the Q9 contract:
+// when a config has BOTH Phase-5 misconfigs (anonymous-no-captcha + bad CIDR
+// + bad action_on_exceeded) AND Phase-6 misconfigs (storage.mode=s3 +
+// inverted size caps), the combined startup-problems slice — which main.go
+// emits in ONE consolidated "relay: startup config errors" log line and then
+// exits 1 — must contain BOTH families of problems. This mirrors the
+// 6-iv combined-fixture smoke; prior to the fix, the Phase 5 gate exited
+// before validateAttachments() ever ran, hiding the Phase 6 problems.
+func TestStartupGates_CombinedPhase5AndPhase6Problems(t *testing.T) {
+	cfg := &config.Config{}
+	// --- Phase 5 misconfigs ---
+	cfg.Auth.Modes.Anonymous = true
+	cfg.Captcha.Enabled = false
+	cfg.Auth.Anonymous.AllowWithoutCaptcha = false
+	cfg.Server.TrustedProxies = []string{"not-a-cidr"}
+	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "queue"
+	cfg.RateLimit.PerSession.SessionTTL = "1h"
+	cfg.RateLimit.PerIP.IdleTTL = "15m"
+	// --- Phase 6 misconfigs ---
+	cfg.Attachments.Enabled = true
+	cfg.Attachments.Storage.Mode = "s3"
+	cfg.Attachments.MaxSizeBytes = 20_000_000
+	cfg.Attachments.MaxTotalBytes = 10_000_000
+
+	p5Problems, _ := startupProblems(cfg)
+	_, p6Problems := validateAttachments(cfg, nil)
+	combined := append(p5Problems, p6Problems...)
+
+	wantSubstrings := []string{
+		"anonymous",          // Phase 5: anonymous-no-captcha
+		"not-a-cidr",         // Phase 5: bad trusted_proxies CIDR
+		"action_on_exceeded", // Phase 5: bad daily-budget action
+		"storage.mode",       // Phase 6: bad storage mode
+		"max_size_bytes",     // Phase 6: inverted cap pair
+	}
+	for _, want := range wantSubstrings {
+		found := false
+		for _, p := range combined {
+			if strings.Contains(p, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("combined problems missing substring %q\nproblems: %v", want, combined)
+		}
+	}
+	if len(combined) < 5 {
+		t.Errorf("combined problems len = %d; want >= 5 (3 Phase-5 + 2 Phase-6)\nproblems: %v", len(combined), combined)
+	}
+}
+
 func TestValidateAttachments_DisabledShortCircuit(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Attachments.Enabled = false

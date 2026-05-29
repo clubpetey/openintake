@@ -67,4 +67,30 @@ if [ "$log_count" -ne 1 ]; then
   exit 1
 fi
 echo
+
+echo "=== Q9 smoke: attachments-combined (Phase 5 + Phase 6 in ONE log line) ==="
+# Asserts the fix for the 6-iv ordering bug: when a config has BOTH Phase-5
+# AND Phase-6 misconfigs, the SINGLE consolidated "startup config errors"
+# log line must list problems from BOTH gates. Prior to the fix, the Phase 5
+# gate called os.Exit(1) before validateAttachments() ran.
+ac_output=$(cd relay && go run ./cmd/relay --config "../relay/cmd/relay/smoke/attachments-combined.yaml" 2>&1 || true)
+for substr in "anonymous" "not-a-cidr" "action_on_exceeded" "storage.mode" "max_size_bytes"; do
+  if echo "$ac_output" | grep -q "$substr"; then
+    echo "OK: attachments-combined matched '$substr'"
+  else
+    echo "FAIL: attachments-combined missing '$substr'"
+    echo "Output:"
+    echo "$ac_output"
+    exit 1
+  fi
+done
+ac_log_count=$(echo "$ac_output" | grep -c "relay: startup config errors" || true)
+if [ "$ac_log_count" -ne 1 ]; then
+  echo "FAIL: attachments-combined expected exactly 1 'startup config errors' line; got $ac_log_count"
+  echo "Output:"
+  echo "$ac_output"
+  exit 1
+fi
+echo "OK: attachments-combined emitted exactly 1 consolidated log line"
+echo
 echo "All Q9 smokes passed."
