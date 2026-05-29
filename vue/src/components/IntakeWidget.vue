@@ -4,7 +4,10 @@
 // All LLM calls happen inside the relay process — never from this browser widget.
 
 import { ref, onMounted } from 'vue';
+import { capturePage } from '@intake/core';
 import ConversationView from './ConversationView.vue';
+import ScreenshotRedactor from './ScreenshotRedactor.vue';
+import AttachmentStrip from './AttachmentStrip.vue';
 import { useIntake } from '../composables/useIntake';
 
 const props = defineProps<{
@@ -15,7 +18,24 @@ const props = defineProps<{
 const isOpen = ref(false);
 const inputText = ref('');
 
-const { messages, streaming, submitting, result, error, start, sendTurn, submit } = useIntake({
+const {
+  messages,
+  streaming,
+  submitting,
+  result,
+  error,
+  start,
+  sendTurn,
+  submit,
+  pendingAttachments,
+  redactorSource,
+  canAttach,
+  attachLimits,
+  attachAndRedact,
+  commitRedacted,
+  cancelRedactor,
+  removeAttachment,
+} = useIntake({
   relayUrl: props.relayUrl,
   widgetVersion: '0.1.0',
   appContext: props.appContext,
@@ -44,6 +64,23 @@ async function handleSend() {
 async function handleSubmit() {
   if (submitting.value || streaming.value) return;
   await submit();
+}
+
+async function handleAttach() {
+  if (!canAttach.value) return;
+  await attachAndRedact(capturePage);
+}
+
+function handleRedactorSave(dataUrl: string) {
+  commitRedacted(dataUrl);
+}
+
+function handleRedactorCancel() {
+  cancelRedactor();
+}
+
+function handleStripRemove(index: number) {
+  removeAttachment(index);
 }
 
 function handleKeydown(event: KeyboardEvent) {
@@ -116,6 +153,13 @@ function handleKeydown(event: KeyboardEvent) {
           {{ error }}
         </div>
 
+        <!-- Pending attachments strip -->
+        <AttachmentStrip
+          :items="pendingAttachments"
+          :max-total-bytes="attachLimits?.maxTotalBytes ?? 0"
+          @remove="handleStripRemove"
+        />
+
         <!-- Input area -->
         <div class="intake-widget__input-area">
           <textarea
@@ -129,6 +173,16 @@ function handleKeydown(event: KeyboardEvent) {
             @keydown="handleKeydown"
           />
           <div class="intake-widget__actions">
+            <button
+              v-if="canAttach"
+              class="intake-widget__btn intake-widget__btn--ghost"
+              :disabled="streaming || submitting"
+              data-testid="attach-button"
+              aria-label="Attach screenshot"
+              @click="handleAttach"
+            >
+              Attach
+            </button>
             <button
               class="intake-widget__btn intake-widget__btn--send"
               :disabled="!inputText.trim() || streaming"
@@ -149,6 +203,13 @@ function handleKeydown(event: KeyboardEvent) {
         </div>
       </template>
     </div>
+
+    <!-- Redactor modal (rendered when redactorSource is non-null) -->
+    <ScreenshotRedactor
+      :source="redactorSource"
+      @save="handleRedactorSave"
+      @cancel="handleRedactorCancel"
+    />
   </div>
 </template>
 
@@ -280,6 +341,16 @@ function handleKeydown(event: KeyboardEvent) {
 
 .intake-widget__btn--submit:hover:not(:disabled) {
   background-color: #15803d;
+}
+
+.intake-widget__btn--ghost {
+  background-color: #fff;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+}
+
+.intake-widget__btn--ghost:hover:not(:disabled) {
+  background-color: #f1f5f9;
 }
 
 /* ── Result view ─────────────────────────────────────────── */
