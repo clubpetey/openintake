@@ -155,6 +155,28 @@ func (b *Builder) Build(
 		}
 	}
 
+	// Phase 6 (6-i): copy attachments 1:1 from the request. Magic-byte +
+	// size-cap validation happens AFTER Build returns, in submitHandler's
+	// attachvalidate.ValidateAll call — payloadbuild stays focused on shape
+	// while attachvalidate owns content validation.
+	if len(req.Attachments) > 0 {
+		p.Attachments = make([]payload.Attachment, 0, len(req.Attachments))
+		for _, a := range req.Attachments {
+			var labelPtr *string
+			if a.Label != "" {
+				lbl := a.Label
+				labelPtr = &lbl
+			}
+			p.Attachments = append(p.Attachments, payload.Attachment{
+				Type:      payload.AttachmentType(a.Type),
+				MimeType:  a.MIMEType,
+				Url:       a.URL,
+				Label:     labelPtr,
+				SizeBytes: 0, // declared size; attachvalidate substitutes the real value if needed downstream
+			})
+		}
+	}
+
 	// Schema validation (runtime, L003 mitigation).
 	if err := validateAgainstSchema(p); err != nil {
 		return nil, fmt.Errorf("payloadbuild: schema validation failed: %w", err)

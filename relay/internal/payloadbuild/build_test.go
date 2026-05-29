@@ -133,3 +133,74 @@ func TestBuild_EmbeddedSchemaIsIdenticalToCanonical(t *testing.T) {
 			"to regenerate the embedded copy.")
 	}
 }
+
+func TestBuild_PopulatesAttachmentsFromRequest(t *testing.T) {
+	req := &dto.SubmitRequest{
+		Messages: []dto.TurnMessage{{Role: "user", Content: "hi"}},
+		Client: dto.ClientInfo{
+			WidgetVersion: "test",
+			URL:           "https://example.com",
+			UserAgent:     "ua",
+			Viewport:      dto.Viewport{W: 100, H: 100},
+			Locale:        "en",
+		},
+		Attachments: []dto.SubmitAttachment{
+			{Type: "screenshot", MIMEType: "image/png", URL: "data:image/png;base64,iVBORw0KGgo=", Label: "shot-1"},
+			{Type: "screenshot", MIMEType: "image/jpeg", URL: "data:image/jpeg;base64,/9j/4AAQ="},
+		},
+	}
+	cls := &classify.Result{
+		Classification:  "bug",
+		SeverityGuess:   "low",
+		Summary:         "s",
+		TitleSuggestion: "t",
+		TagsSuggested:   []string{},
+		Language:        "en",
+	}
+	sess := &auth.SessionContext{SessionID: "00000000-0000-0000-0000-000000000001", AuthMode: "anonymous"}
+
+	b := payloadbuild.New("0.1.0")
+	p, err := b.Build(context.Background(), req, cls, sess, payloadbuild.NewSubmissionID(), time.Now().UTC())
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(p.Attachments) != 2 {
+		t.Fatalf("p.Attachments len = %d; want 2", len(p.Attachments))
+	}
+	if p.Attachments[0].MimeType != "image/png" || p.Attachments[1].MimeType != "image/jpeg" {
+		t.Errorf("p.Attachments order/mime wrong: %+v", p.Attachments)
+	}
+	if p.Attachments[0].Url != "data:image/png;base64,iVBORw0KGgo=" {
+		t.Errorf("Url not carried verbatim: %q", p.Attachments[0].Url)
+	}
+	if p.Attachments[0].Label == nil || *p.Attachments[0].Label != "shot-1" {
+		t.Errorf("Label not carried: %+v", p.Attachments[0].Label)
+	}
+	if p.Attachments[1].Label != nil {
+		t.Errorf("Empty label should be nil-pointer; got %v", *p.Attachments[1].Label)
+	}
+}
+
+func TestBuild_NoAttachments_NilOrEmpty(t *testing.T) {
+	req := &dto.SubmitRequest{
+		Messages: []dto.TurnMessage{{Role: "user", Content: "hi"}},
+		Client: dto.ClientInfo{
+			WidgetVersion: "test", URL: "https://example.com", UserAgent: "ua",
+			Viewport: dto.Viewport{W: 100, H: 100}, Locale: "en",
+		},
+	}
+	cls := &classify.Result{
+		Classification: "bug", SeverityGuess: "low",
+		Summary: "s", TitleSuggestion: "t", TagsSuggested: []string{}, Language: "en",
+	}
+	sess := &auth.SessionContext{SessionID: "00000000-0000-0000-0000-000000000001", AuthMode: "anonymous"}
+
+	b := payloadbuild.New("0.1.0")
+	p, err := b.Build(context.Background(), req, cls, sess, payloadbuild.NewSubmissionID(), time.Now().UTC())
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if len(p.Attachments) != 0 {
+		t.Errorf("len(p.Attachments) = %d; want 0", len(p.Attachments))
+	}
+}
