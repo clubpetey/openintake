@@ -264,3 +264,91 @@ func TestStartupProblems_BothBadDurations_ReportsBoth(t *testing.T) {
 		t.Errorf("problems len = %d; want 2 (both durations bad)\nproblems: %v", len(problems), problems)
 	}
 }
+
+func TestValidateAttachments_CleanConfig(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Attachments.Enabled = true
+	cfg.Attachments.MaxSizeBytes = 5_242_880
+	cfg.Attachments.MaxTotalBytes = 10_485_760
+	cfg.Attachments.AllowedMIMETypes = []string{"image/png", "image/jpeg", "image/webp"}
+	cfg.Attachments.Storage.Mode = "forward"
+
+	parsed, problems := validateAttachments(cfg, nil)
+	if len(problems) != 0 {
+		t.Errorf("problems = %v; want empty", problems)
+	}
+	if parsed.MaxSizeBytes != 5_242_880 {
+		t.Errorf("parsed.MaxSizeBytes = %d; want 5_242_880", parsed.MaxSizeBytes)
+	}
+}
+
+func TestValidateAttachments_BadStorageMode(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Attachments.Enabled = true
+	cfg.Attachments.Storage.Mode = "s3"
+	cfg.Attachments.MaxSizeBytes = 1
+	cfg.Attachments.MaxTotalBytes = 1
+	cfg.Attachments.AllowedMIMETypes = []string{"image/png"}
+
+	_, problems := validateAttachments(cfg, nil)
+	if len(problems) != 1 {
+		t.Fatalf("problems = %v; want exactly 1", problems)
+	}
+	if !strings.Contains(problems[0], "storage.mode") || !strings.Contains(problems[0], "s3") {
+		t.Errorf("problem %q does not mention storage.mode + s3", problems[0])
+	}
+}
+
+func TestValidateAttachments_CapInverted(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Attachments.Enabled = true
+	cfg.Attachments.MaxSizeBytes = 20_000_000
+	cfg.Attachments.MaxTotalBytes = 10_000_000
+	cfg.Attachments.AllowedMIMETypes = []string{"image/png"}
+
+	_, problems := validateAttachments(cfg, nil)
+	if len(problems) != 1 {
+		t.Fatalf("problems = %v; want exactly 1", problems)
+	}
+	if !strings.Contains(problems[0], "max_size_bytes") || !strings.Contains(problems[0], "max_total_bytes") {
+		t.Errorf("problem %q does not name both caps", problems[0])
+	}
+}
+
+func TestValidateAttachments_CapInvertedSkippedWhenTotalZero(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Attachments.Enabled = true
+	cfg.Attachments.MaxSizeBytes = 20_000_000
+	cfg.Attachments.MaxTotalBytes = 0 // disabled aggregate cap; per-attachment is the only gate
+	cfg.Attachments.AllowedMIMETypes = []string{"image/png"}
+
+	_, problems := validateAttachments(cfg, nil)
+	if len(problems) != 0 {
+		t.Errorf("problems = %v; want empty when total cap is 0", problems)
+	}
+}
+
+func TestValidateAttachments_UnknownMIMETypeIsWarnNotFatal(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Attachments.Enabled = true
+	cfg.Attachments.MaxSizeBytes = 1
+	cfg.Attachments.MaxTotalBytes = 1
+	cfg.Attachments.AllowedMIMETypes = []string{"image/heic"} // no adapter advertises this
+	_, problems := validateAttachments(cfg, nil)
+	if len(problems) != 0 {
+		t.Errorf("problems = %v; want empty (unknown-MIME is warn-not-fatal)", problems)
+	}
+}
+
+func TestValidateAttachments_DisabledShortCircuit(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Attachments.Enabled = false
+	cfg.Attachments.Storage.Mode = "s3" // would normally be fatal — but disabled trumps
+	cfg.Attachments.MaxSizeBytes = 20_000_000
+	cfg.Attachments.MaxTotalBytes = 10_000_000
+
+	_, problems := validateAttachments(cfg, nil)
+	if len(problems) != 0 {
+		t.Errorf("problems = %v; want empty when Enabled=false", problems)
+	}
+}
