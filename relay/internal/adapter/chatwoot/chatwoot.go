@@ -349,7 +349,7 @@ func (a *Adapter) uploadAttachments(ctx context.Context, conversationID string, 
 	respBody, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("chatwoot: upload attachments to conversation %s returned %d: %s",
+		return fmt.Errorf("chatwoot: upload attachments to conversation %s returned %d (conversation exists with transcript; image upload failed): %s",
 			conversationID, resp.StatusCode, adapter.Truncate(string(respBody), 200))
 	}
 	return nil

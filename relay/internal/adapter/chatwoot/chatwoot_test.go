@@ -687,6 +687,9 @@ func TestChatwootCreate_AttachmentUploadFails_ReturnsError(t *testing.T) {
 	if !strings.Contains(msg, "422") {
 		t.Errorf("error should mention status 422, got: %v", err)
 	}
+	if !strings.Contains(msg, "conversation exists with transcript") {
+		t.Errorf("error should clarify orphan-state ('conversation exists with transcript') so operators know the conversation was not rolled back, got: %v", err)
+	}
 	if !strings.Contains(msg, "foo") {
 		t.Errorf("error should contain truncated body fragment 'foo', got: %v", err)
 	}
