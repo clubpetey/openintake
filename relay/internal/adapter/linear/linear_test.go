@@ -899,3 +899,54 @@ func TestLinearConfigure_ResolveNetworkError(t *testing.T) {
 		t.Errorf("api key leaked in network error: %v", err)
 	}
 }
+
+func TestLinearCreate_UploadSuccessFalse_NoIssueCreate(t *testing.T) {
+	var issueSeen bool
+	uploadSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// success=false even with a populated url: orphan-prevention requires we reject this.
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte(`{"success":false,"uploadFile":{"url":"https://example.invalid/asset.png"}}`))
+	}))
+	defer uploadSrv.Close()
+	issueSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		issueSeen = true
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte(`{"data":{"issueCreate":{"success":true,"issue":{"id":"abc","identifier":"REF-1","url":"https://linear/REF-1"}}}}`))
+	}))
+	defer issueSrv.Close()
+
+	a := linear.New()
+	if err := a.Configure(map[string]any{
+		"api_key":         "lin_api_test_key",
+		"team_id":         "00000000-0000-0000-0000-000000000001",
+		"endpoint":        issueSrv.URL,
+		"upload_endpoint": uploadSrv.URL,
+	}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+
+	label := "shot"
+	p := &payload.IntakePayload{
+		Submission:   payload.Submission{Id: "00000000-0000-0000-0000-000000000001", SubmittedAt: time.Now()},
+		Client:       payload.Client{},
+		User:         payload.User{AuthMode: payload.UserAuthModeAnonymous},
+		Conversation: payload.Conversation{TitleSuggestion: "T", Summary: "S", Messages: nil},
+		Attachments: []payload.Attachment{{
+			Type:      payload.AttachmentTypeScreenshot,
+			MimeType:  "image/png",
+			SizeBytes: 8,
+			Url:       "data:image/png;base64,iVBORw0KGgo=",
+			Label:     &label,
+		}},
+	}
+	_, err := a.Create(context.Background(), p)
+	if err == nil {
+		t.Fatalf("Create succeeded; expected error from success=false upload")
+	}
+	if !strings.Contains(err.Error(), "success=false") {
+		t.Errorf("error %q does not mention success=false", err.Error())
+	}
+	if issueSeen {
+		t.Errorf("issueCreate called even though upload reported success=false")
+	}
+}

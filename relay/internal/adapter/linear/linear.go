@@ -384,6 +384,9 @@ func (a *Adapter) uploadAttachments(ctx context.Context, atts []payload.Attachme
 		if err := json.Unmarshal(body, &parsed); err != nil {
 			return nil, fmt.Errorf("linear: upload %d/%d decode response: %w", i+1, len(atts), err)
 		}
+		if !parsed.Success {
+			return nil, fmt.Errorf("linear: upload %d/%d response success=false", i+1, len(atts))
+		}
 		if parsed.UploadFile.URL == "" {
 			return nil, fmt.Errorf("linear: upload %d/%d response missing uploadFile.url", i+1, len(atts))
 		}
