@@ -42,6 +42,15 @@ func (a *Adapter) Name() string { return "webhook" }
 
 func (a *Adapter) RequiresLicense() bool { return false }
 
+// Capabilities advertises the accepted attachment MIME types for /init
+// capability discovery (Phase 6, 6-i). In v0 webhook is a pass-through, so
+// it accepts every type the relay-wide allowlist permits.
+func (a *Adapter) Capabilities() adapter.Capabilities {
+	return adapter.Capabilities{
+		AcceptedMIMETypes: []string{"image/png", "image/jpeg", "image/webp"},
+	}
+}
+
 // Configure reads url, headers, retry.max_attempts, retry.backoff from the map.
 // Keys match config.WebhookConfig yaml tags lowercased. Only url is required.
 func (a *Adapter) Configure(cfg map[string]any) error {

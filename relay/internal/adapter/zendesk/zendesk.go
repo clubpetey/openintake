@@ -50,6 +50,14 @@ func (a *Adapter) Name() string { return "zendesk" }
 
 func (a *Adapter) RequiresLicense() bool { return true }
 
+// Capabilities advertises the accepted attachment MIME types for /init
+// capability discovery (Phase 6, 6-i).
+func (a *Adapter) Capabilities() adapter.Capabilities {
+	return adapter.Capabilities{
+		AcceptedMIMETypes: []string{"image/png", "image/jpeg", "image/webp"},
+	}
+}
+
 // Configure reads subdomain, email, api_token (required), default_priority (optional,
 // defaults to "normal"), and an optional base_url override (a test seam; otherwise
 // baseURL is derived as https://<subdomain>.zendesk.com). The api_token is the RESOLVED

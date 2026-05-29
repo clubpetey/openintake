@@ -47,6 +47,14 @@ func (a *Adapter) Name() string { return "fider" }
 
 func (a *Adapter) RequiresLicense() bool { return false }
 
+// Capabilities advertises the accepted attachment MIME types for /init
+// capability discovery (Phase 6, 6-i).
+func (a *Adapter) Capabilities() adapter.Capabilities {
+	return adapter.Capabilities{
+		AcceptedMIMETypes: []string{"image/png", "image/jpeg", "image/webp"},
+	}
+}
+
 // Configure reads base_url and api_key from the map. Both are required. The
 // api_key value is passed in by main.go (already resolved); this adapter never
 // reads the environment itself.

@@ -60,6 +60,14 @@ func (a *Adapter) Name() string { return "linear" }
 // RequiresLicense reports that linear is a paid adapter.
 func (a *Adapter) RequiresLicense() bool { return true }
 
+// Capabilities advertises the accepted attachment MIME types for /init
+// capability discovery (Phase 6, 6-i).
+func (a *Adapter) Capabilities() adapter.Capabilities {
+	return adapter.Capabilities{
+		AcceptedMIMETypes: []string{"image/png", "image/jpeg", "image/webp"},
+	}
+}
+
 // Configure reads api_key (required), team_id (required), and an optional endpoint
 // override (the test-injection seam; defaults to the live GraphQL endpoint). The
 // api_key value is the RESOLVED secret passed in by main.go — never the env name.

@@ -54,6 +54,14 @@ func (a *Adapter) Name() string { return "chatwoot" }
 
 func (a *Adapter) RequiresLicense() bool { return false }
 
+// Capabilities advertises the accepted attachment MIME types for /init
+// capability discovery (Phase 6, 6-i).
+func (a *Adapter) Capabilities() adapter.Capabilities {
+	return adapter.Capabilities{
+		AcceptedMIMETypes: []string{"image/png", "image/jpeg", "image/webp"},
+	}
+}
+
 // Configure reads base_url, account_id, inbox_id, api_token from the map.
 // base_url and api_token are required; api_token is the RESOLVED token value
 // (main.go resolves it via config.RequireSecret) — the adapter never reads the
