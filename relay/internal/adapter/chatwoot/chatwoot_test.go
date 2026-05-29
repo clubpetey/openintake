@@ -401,6 +401,12 @@ func TestChatwootCreate_AttachmentsMultipart(t *testing.T) {
 	}
 	var msgAttachments []uploadedPart
 
+	// Handler models Chatwoot MessagesController#create
+	// (https://www.chatwoot.com/developers/api/#tag/Messages/operation/create-a-new-message-in-a-conversation).
+	// L020: this is the endpoint that DOES process attachments[]; the
+	// ConversationsController#create endpoint silently drops them, which is
+	// why this fixture asserts the multipart parts land at /messages, not at
+	// /conversations.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/accounts/1/contacts":
