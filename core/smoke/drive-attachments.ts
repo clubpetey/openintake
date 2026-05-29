@@ -8,7 +8,7 @@
  *      (forward smoke).
  *   3. Submit with a 6 MB attachment            -> 413 attachment_too_large
  *   4. Submit with two 6 MB attachments         -> 413 attachment_too_large    (first encountered)
- *   5. Submit with three 4 MB attachments       -> 413 attachments_exceed_total
+ *   5. Submit with three 3.4 MB attachments     -> 413 attachments_exceed_total
  *   6. Submit with declared image/png, JPEG bytes -> 415 attachment_mime_mismatch
  *   7. Submit with mime_type "image/heic"       -> 415 attachment_mime_not_allowed
  *   8. Submit with url "not-a-data-url"         -> 400 attachment_malformed
@@ -37,10 +37,16 @@
  *
  * Fixture sizes (LESSONS L019): max_size_bytes=5MB, max_total_bytes=10MB.
  *   - 6 MB single attachment fires per-attachment cap (smallest case).
- *   - 3x4MB = 12 MB fires aggregate cap (separate larger case, well above per-
- *     attachment cap so the aggregate sentinel wins on first-encountered ordering).
- *   - Two 6 MB attachments fire per-attachment on the FIRST (matches spec wording
- *     "first encountered sentinel error" from attachvalidate.ValidateAll).
+ *   - 3x3.4MB = 10.2 MB fires aggregate cap. Per-attachment size (3.4 MB) clears
+ *     the 5 MB per-attachment cap so the aggregate sentinel wins; total
+ *     base64-encoded body (~13.7 MB) stays under the 14 MB MaxBytesReader so
+ *     the body-cap doesn't shadow the aggregate-cap gate. See step 5's inline
+ *     comment for the fixture-math walk-through.
+ *   - The original "two 6 MB attachments fire per-attachment on the FIRST" case
+ *     was dropped: two 6 MB raw attachments base64-encode to ~16 MB and trip
+ *     the 14 MB body cap first, shadowing the per-attachment gate. The
+ *     first-encountered sentinel ordering is asserted in the attachvalidate
+ *     unit tests instead. See step 4's inline comment.
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
