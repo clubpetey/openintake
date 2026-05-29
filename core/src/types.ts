@@ -26,6 +26,16 @@ export interface InitResponse {
   capabilities: {
     auth_modes: string[];
     streaming: boolean;
+    /**
+     * Attachment capabilities. Null/absent → relay has attachments disabled OR
+     * no enabled adapter accepts any allowed MIME; widget MUST hide its Attach
+     * button entirely (no "disabled but visible" state). Phase 6 §3.3.
+     */
+    attachments?: {
+      max_size_bytes: number;
+      max_total_bytes: number;
+      allowed_mime_types: string[];
+    };
   };
 }
 
@@ -61,6 +71,17 @@ export interface SubmitRequest {
   user_claims: Record<string, unknown>;
   context: ContextInfo;
   routing_hint: string | null;
+  /**
+   * Optional attachments. Each entry's url is a data: URL (data:<mime>;base64,...).
+   * Relay attachvalidate enforces magic-byte + per-attachment + aggregate caps.
+   * Omitted when no pending attachments. Phase 6 README §8.3.
+   */
+  attachments?: Array<{
+    type: 'screenshot';
+    mime_type: string;
+    url: string;
+    label?: string;
+  }>;
 }
 
 export interface SubmitResponse {
