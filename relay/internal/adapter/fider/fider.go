@@ -25,6 +25,24 @@ import (
 // Summary fallback path.
 const maxTitleLen = 80
 
+// mdEscapeAlt escapes markdown alt-text metacharacters so that a user-supplied
+// label cannot break out of the `![<alt>](<url>)` syntax. Replaces backslash,
+// brackets, parens, and embedded newlines/CRs with their escaped forms.
+// Defense-in-depth — Fider's markdown sanitizer should also reject data: URLs
+// with embedded angle brackets, but we don't rely on downstream behavior.
+func mdEscapeAlt(s string) string {
+	r := strings.NewReplacer(
+		`\`, `\\`,
+		`[`, `\[`,
+		`]`, `\]`,
+		`(`, `\(`,
+		`)`, `\)`,
+		"\n", " ",
+		"\r", " ",
+	)
+	return r.Replace(s)
+}
+
 // Adapter creates Fider posts. The api_key is the RESOLVED key value supplied by
 // main.go (via config.RequireSecret), never an env-var name and never logged.
 type Adapter struct {
@@ -201,7 +219,7 @@ func renderBody(p *payload.IntakePayload) string {
 			label = fmt.Sprintf("screenshot %d", i+1)
 		}
 		b.WriteString("\n![")
-		b.WriteString(label)
+		b.WriteString(mdEscapeAlt(label))
 		b.WriteString("](")
 		b.WriteString(att.Url)
 		b.WriteString(")\n")

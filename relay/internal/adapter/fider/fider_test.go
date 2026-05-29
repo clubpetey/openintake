@@ -374,3 +374,61 @@ func TestFiderHealthCheck_OK(t *testing.T) {
 		t.Errorf("health Authorization = %q; want Bearer <key>", gotAuth)
 	}
 }
+
+func TestFiderCreate_MaliciousLabelEscaped(t *testing.T) {
+	// A malicious label tries to break out of the ![<alt>](<url>) syntax.
+	// Defense-in-depth: even if Fider's sanitizer strips javascript: URLs,
+	// we escape the metacharacters at the source so the rendered HTML can
+	// never expose attacker-controlled href content from this codepath.
+	var receivedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte(`{"id":99,"number":7}`))
+	}))
+	defer srv.Close()
+
+	a := fider.New()
+	if err := a.Configure(map[string]any{"base_url": srv.URL, "api_key": "test"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+
+	label := `x](javascript:alert(1))`
+	p := &payload.IntakePayload{
+		Submission:   payload.Submission{Id: "00000000-0000-0000-0000-000000000001", SubmittedAt: time.Now()},
+		Client:       payload.Client{},
+		User:         payload.User{AuthMode: payload.UserAuthModeAnonymous},
+		Conversation: payload.Conversation{TitleSuggestion: "T", Summary: "S", Messages: nil},
+		Attachments: []payload.Attachment{
+			{
+				Type:      payload.AttachmentTypeScreenshot,
+				MimeType:  "image/png",
+				SizeBytes: 8,
+				Url:       "data:image/png;base64,iVBORw0KGgo=",
+				Label:     &label,
+			},
+		},
+	}
+	if _, err := a.Create(context.Background(), p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	var parsed struct {
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal(receivedBody, &parsed); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	// The raw injection MUST NOT appear.
+	forbidden := "[x](javascript:"
+	if strings.Contains(parsed.Description, forbidden) {
+		t.Errorf("description contains unescaped injection %q\nfull description:\n%s", forbidden, parsed.Description)
+	}
+	// The escaped form MUST appear (so the user still sees the label content).
+	// Note: mdEscapeAlt escapes ALL parens, so alert(1) becomes alert\(1\).
+	wantSubstr := `\]\(javascript:alert\(1\)\)`
+	if !strings.Contains(parsed.Description, wantSubstr) {
+		t.Errorf("description missing escaped label substring %q\nfull description:\n%s", wantSubstr, parsed.Description)
+	}
+}
