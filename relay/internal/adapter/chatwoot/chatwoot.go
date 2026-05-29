@@ -1,11 +1,19 @@
 // Package chatwoot is a downstream adapter that creates a Chatwoot conversation
 // in a configured inbox from the canonical intake payload using a confirmed
-// two-call flow (design spec §5.1, live smoke 2026-05-27):
+// two-or-three-call flow (design spec §5.1, live smoke 2026-05-27; attachments
+// path corrected after live smoke 2026-05-29 — see L020):
 //
 //  1. POST /api/v1/accounts/{id}/contacts — creates a contact tied to the inbox
 //     and obtains a contact_inbox.source_id and contact.id from the response.
 //  2. POST /api/v1/accounts/{id}/conversations — creates the conversation using
-//     the source_id and contact_id returned by step 1.
+//     the source_id and contact_id returned by step 1. This call is ALWAYS
+//     application/json. Chatwoot's ConversationsController#create silently
+//     drops file parts when given multipart with attachments[] (it persists
+//     only inbox_id/source_id/contact_id/message[content]), so attachments are
+//     handled in a separate step.
+//  3. POST /api/v1/accounts/{id}/conversations/{conv_id}/messages — ONLY when
+//     p.Attachments is non-empty. Multipart/form-data carrying content,
+//     message_type=outgoing, and one attachments[] part per attachment.
 //
 // Chatwoot Cloud's agent-side conversation endpoint returns 404 when source_id
 // does not map to an existing contact_inbox association; step 1 establishes that
@@ -26,7 +34,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
-	"strconv"
 	"strings"
 	"time"
 
@@ -233,18 +240,23 @@ func (a *Adapter) createContact(ctx context.Context, p *payload.IntakePayload) (
 	return cid, sid, nil
 }
 
-// Create executes the two-call flow: first creates a contact tied to the inbox
-// to obtain a valid source_id, then creates the conversation using that
-// source_id and the contact id.
+// Create executes the two-or-three-call flow: first creates a contact tied to
+// the inbox to obtain a valid source_id, then creates the conversation using
+// that source_id and the contact id. When p.Attachments is non-empty, a third
+// call POSTs a multipart message to the conversation's /messages endpoint
+// carrying the decoded raw bytes.
 //
-// Phase 6 (6-ii): when p.Attachments is non-empty, the conversation-create
-// body switches from application/json to multipart/form-data with one
-// attachments[] part per attachment carrying the decoded raw bytes. When
-// empty, the existing application/json body is used unchanged (L015
-// regression — the JSON path is byte-identical to the Phase 3 behavior).
+// Phase 6 (6-ii, corrected after live smoke 2026-05-29; see L020):
+// conversation-create is ALWAYS application/json — byte-identical to Phase 3.
+// Chatwoot's ConversationsController#create silently drops attachments[] file
+// parts when given a multipart body, so attachments must be uploaded via a
+// SEPARATE POST /messages call. When that upload fails the conversation
+// already exists in chatwoot with text but no image; we return the upload
+// error from Create() (mapped to 502 adapter_error by submitHandler) rather
+// than silently succeeding.
 //
-// Non-2xx at either step returns an error including the truncated response
-// body but never the token.
+// Non-2xx at any step returns an error including the truncated response body
+// but never the token.
 func (a *Adapter) Create(ctx context.Context, p *payload.IntakePayload) (*adapter.CreateResult, error) {
 	// Step 1: create contact and obtain contact_inbox source_id. Unchanged.
 	contactID, sourceID, err := a.createContact(ctx, p)
@@ -252,38 +264,26 @@ func (a *Adapter) Create(ctx context.Context, p *payload.IntakePayload) (*adapte
 		return nil, err
 	}
 
-	// Step 2: create conversation. Two body shapes: JSON (no attachments) or
-	// multipart/form-data (with attachments). The endpoint path is identical.
+	// Step 2: create conversation. Always application/json (Phase 3
+	// byte-identical). See package doc + L020 for why attachments do not
+	// belong here.
 	url := fmt.Sprintf("%s/api/v1/accounts/%d/conversations", a.baseURL, a.accountID)
 
-	var req *http.Request
-	if len(p.Attachments) == 0 {
-		reqBody := conversationRequest{
-			InboxID:   a.inboxID,
-			SourceID:  sourceID,
-			ContactID: contactID,
-			Message:   conversationMsg{Content: renderBody(p)},
-		}
-		body, mErr := json.Marshal(reqBody)
-		if mErr != nil {
-			return nil, fmt.Errorf("chatwoot: marshal conversation request: %w", mErr)
-		}
-		req, err = http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-		if err != nil {
-			return nil, fmt.Errorf("chatwoot: build conversation request: %w", err)
-		}
-		req.Header.Set("Content-Type", "application/json")
-	} else {
-		body, ctype, mpErr := buildConversationMultipart(p, a.inboxID, sourceID, contactID)
-		if mpErr != nil {
-			return nil, mpErr
-		}
-		req, err = http.NewRequestWithContext(ctx, http.MethodPost, url, body)
-		if err != nil {
-			return nil, fmt.Errorf("chatwoot: build conversation request: %w", err)
-		}
-		req.Header.Set("Content-Type", ctype)
+	reqBody := conversationRequest{
+		InboxID:   a.inboxID,
+		SourceID:  sourceID,
+		ContactID: contactID,
+		Message:   conversationMsg{Content: renderBody(p)},
 	}
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("chatwoot: marshal conversation request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("chatwoot: build conversation request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("api_access_token", a.apiToken)
 
 	resp, err := a.client.Do(req)
@@ -303,6 +303,17 @@ func (a *Adapter) Create(ctx context.Context, p *payload.IntakePayload) (*adapte
 		return nil, fmt.Errorf("chatwoot: parse conversation response id: %w", err)
 	}
 
+	// Step 3 (only when attachments are present): upload via /messages.
+	// If this fails, the conversation already exists in chatwoot with the
+	// transcript but no image; we return the upload error unwrapped so the
+	// operator sees what actually failed. Orphan prevention is accepted as a
+	// non-goal for v0 — see L020.
+	if len(p.Attachments) > 0 {
+		if err := a.uploadAttachments(ctx, id, p); err != nil {
+			return nil, err
+		}
+	}
+
 	return &adapter.CreateResult{
 		ExternalID:  id,
 		ExternalURL: fmt.Sprintf("%s/app/accounts/%d/conversations/%s", a.baseURL, a.accountID, id),
@@ -311,30 +322,60 @@ func (a *Adapter) Create(ctx context.Context, p *payload.IntakePayload) (*adapte
 	}, nil
 }
 
-// buildConversationMultipart constructs the multipart/form-data body for the
-// conversation-create call when attachments are present. Returns the body,
-// the Content-Type header value (including the multipart boundary), and any
-// error encountered while decoding an attachment's data: URL or writing the
-// multipart parts.
+// uploadAttachments POSTs a multipart/form-data message to the conversation's
+// /messages endpoint, carrying one attachments[] part per p.Attachments entry.
+// Returns nil on 2xx; on non-2xx returns an error with the truncated body. The
+// api_access_token is sent as a header and never appears in the body or error.
+func (a *Adapter) uploadAttachments(ctx context.Context, conversationID string, p *payload.IntakePayload) error {
+	body, ctype, err := buildMessageMultipart(p)
+	if err != nil {
+		return err
+	}
+
+	url := fmt.Sprintf("%s/api/v1/accounts/%d/conversations/%s/messages",
+		a.baseURL, a.accountID, conversationID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, body)
+	if err != nil {
+		return fmt.Errorf("chatwoot: build message request: %w", err)
+	}
+	req.Header.Set("Content-Type", ctype)
+	req.Header.Set("api_access_token", a.apiToken)
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("chatwoot: message http do: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("chatwoot: upload attachments to conversation %s returned %d: %s",
+			conversationID, resp.StatusCode, adapter.Truncate(string(respBody), 200))
+	}
+	return nil
+}
+
+// buildMessageMultipart constructs the multipart/form-data body for the
+// POST /conversations/{id}/messages call when attachments are present.
+// Returns the body, the Content-Type header value (including the multipart
+// boundary), and any error encountered while decoding an attachment's data:
+// URL or writing the multipart parts.
 //
-// Per design spec §7.2: fields inbox_id, source_id, contact_id, message[content];
-// one attachments[] part per p.Attachments entry. Filename falls back to
-// "screenshot N" (1-indexed) when Label is nil/empty.
-func buildConversationMultipart(p *payload.IntakePayload, inboxID int, sourceID string, contactID json.Number) (*bytes.Buffer, string, error) {
+// Per Chatwoot API (messages_controller#create): fields content (empty when
+// the transcript already lives in the conversation-create message),
+// message_type=outgoing (pin agent-side behavior), and one attachments[] part
+// per p.Attachments entry. Filename falls back to "screenshot N" (1-indexed)
+// when Label is nil/empty. See L020 for why this call exists separately from
+// conversation-create.
+func buildMessageMultipart(p *payload.IntakePayload) (*bytes.Buffer, string, error) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 
-	if err := w.WriteField("inbox_id", strconv.Itoa(inboxID)); err != nil {
-		return nil, "", fmt.Errorf("chatwoot: multipart field inbox_id: %w", err)
+	if err := w.WriteField("content", ""); err != nil {
+		return nil, "", fmt.Errorf("chatwoot: multipart field content: %w", err)
 	}
-	if err := w.WriteField("source_id", sourceID); err != nil {
-		return nil, "", fmt.Errorf("chatwoot: multipart field source_id: %w", err)
-	}
-	if err := w.WriteField("contact_id", contactID.String()); err != nil {
-		return nil, "", fmt.Errorf("chatwoot: multipart field contact_id: %w", err)
-	}
-	if err := w.WriteField("message[content]", renderBody(p)); err != nil {
-		return nil, "", fmt.Errorf("chatwoot: multipart field message[content]: %w", err)
+	if err := w.WriteField("message_type", "outgoing"); err != nil {
+		return nil, "", fmt.Errorf("chatwoot: multipart field message_type: %w", err)
 	}
 
 	for i, att := range p.Attachments {

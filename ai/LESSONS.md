@@ -238,3 +238,17 @@ Phase 5-iii's `captcha.providerVerifier` marks tokens in the in-memory replay se
 Reference: `relay/cmd/relay/smoke/abuse-driver.yaml` budget field (commit `68382c0`); `relay/internal/server/server.go` dispatch order (CheckSession → Reserve → Chat).
 
 ---
+
+### L020: Chatwoot's conversation-create silently drops `attachments[]`; multipart message-create is a SEPARATE call
+
+Phase 6 6-ii shipped a chatwoot adapter that switched `POST /api/v1/accounts/{id}/conversations` from JSON to `multipart/form-data` with an `attachments[]` part whenever `p.Attachments` was non-empty. The 6-ii unit tests verified our multipart shape (the test server's `ParseMultipartForm` found the part and the bytes matched). They did NOT verify what Chatwoot's `ConversationsController#create` actually does with that part — Chatwoot accepts the multipart, persists only the known fields (`inbox_id`, `source_id`, `contact_id`, `message[content]`), and silently drops the `attachments[]` file parts on the floor. Result: conversation created in chatwoot with the transcript text but NO image visible in the UI.
+
+**Where it hit:** Phase 6 6-iv Task 8 live chatwoot smoke (2026-05-29). Maintainer's visual check showed the conversation existed with `user:`/`assistant:` lines but no attached image. Fix: revert conversation-create to byte-identical Phase 3 JSON, and add a third call `POST /api/v1/accounts/{id}/conversations/{conv_id}/messages` with `multipart/form-data` carrying `content` + `message_type=outgoing` + `attachments[]` parts, only when `len(p.Attachments) > 0`. The unit tests were rewritten to assert the THREE-call order (contacts → conversations(JSON) → messages(multipart)) and to assert the conversation-create body is JSON, not multipart. A new test pins the upload-failure error contract (conversation already exists; upload error surfaces from `Create()` mapped to 502 by `submitHandler`; no orphan-prevention attempt).
+
+**Rule:** When an adapter sends a multipart body to an endpoint that may or may not consume specific fields, contract-test assertions on OUR multipart shape are insufficient — a permissive multipart parser on the server side will accept fields it doesn't know what to do with, and the test won't detect the drop. Two mitigations required:
+- The unit-test fixture's handler must include a comment naming the source-of-truth documentation page (Chatwoot API reference URL: `https://www.chatwoot.com/developers/api/`) and the controller name (`ConversationsController#create`, `MessagesController#create`) being modeled, so a reviewer can spot the wrong-endpoint assumption from the test alone.
+- A live smoke against the real downstream is the load-bearing proof — never skip it for adapter changes that alter request shape or split a single call into multiple calls. Generalizes L015: unit tests pass on the assertions they make; only end-to-end smokes against the real downstream catch silent-drop semantics on the receiving side.
+
+Reference: `relay/internal/adapter/chatwoot/chatwoot.go` `uploadAttachments` + `buildMessageMultipart` (the second multipart helper; the original `buildConversationMultipart` was renamed and its body shape changed to remove the conversation-create-only fields).
+
+---
