@@ -101,7 +101,8 @@ export class IntakeClient {
 
   async submit(
     messages: ChatMessage[],
-    routingHint?: string
+    routingHint?: string,
+    attachments?: SubmitRequest['attachments'],
   ): Promise<SubmitResult> {
     if (this.sessionId === null) {
       throw new Error('IntakeClient: call init() before submit()');
@@ -120,6 +121,9 @@ export class IntakeClient {
       },
       routing_hint: routingHint ?? null,
     };
+    if (attachments !== undefined && attachments.length > 0) {
+      body.attachments = attachments;
+    }
 
     const url = `${this.config.relayUrl}/v1/intake/submit`;
     const submitHeaders: Record<string, string> = {
@@ -136,8 +140,28 @@ export class IntakeClient {
     });
 
     if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`submit failed: ${res.status} ${body}`);
+      // Defensively guard res.text() in case a test mock omits it; the
+      // `.catch()` only catches Promise rejections, not a synchronous TypeError.
+      let respBody = '';
+      try {
+        respBody = await res.text().catch(() => '');
+      } catch {
+        respBody = '';
+      }
+      // Phase 6: parse ErrorEnvelope when present and attach `code` to the
+      // thrown Error so useIntake can map it to a friendly banner string.
+      const err = new Error(`submit failed: ${res.status} ${respBody}`) as Error & {
+        code?: string;
+      };
+      try {
+        const parsed = JSON.parse(respBody) as { error?: { code?: string } };
+        if (parsed?.error?.code && typeof parsed.error.code === 'string') {
+          err.code = parsed.error.code;
+        }
+      } catch {
+        // Non-JSON body — leave `code` undefined; message retains status + body.
+      }
+      throw err;
     }
 
     return (await res.json()) as SubmitResponse;

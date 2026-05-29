@@ -420,3 +420,236 @@ describe('IntakeClient.submit()', () => {
     ).rejects.toThrow('init()');
   });
 });
+
+describe('IntakeClient.submit() — attachments threading (Phase 6)', () => {
+  it('omits attachments[] from the POST body when not provided', async () => {
+    const calls: Array<[string, RequestInit]> = [];
+    const fetchStub = vi.fn().mockImplementation((url: string, opts: RequestInit) => {
+      calls.push([url, opts]);
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: () =>
+          Promise.resolve({
+            external_id: 'id-1',
+            external_url: '',
+            adapter_name: 'webhook',
+            created_at: '2026-05-28T00:00:00Z',
+          }),
+      } as unknown as Response);
+    });
+    const client = new IntakeClient(BASE_CONFIG, fetchStub as unknown as typeof fetch);
+    // Need a session_id before submit() is allowed; reuse init() flow.
+    fetchStub.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: () =>
+        Promise.resolve({
+          session_id: 'sess-1',
+          capabilities: { auth_modes: ['anonymous'], streaming: true },
+        }),
+    } as unknown as Response);
+    await client.init();
+
+    await client.submit([{ role: 'user', content: 'hi' }]);
+
+    const submitCall = calls[calls.length - 1];
+    const body = JSON.parse(submitCall[1].body as string) as Record<string, unknown>;
+    expect('attachments' in body).toBe(false);
+  });
+
+  it('includes attachments[] in the POST body when non-empty', async () => {
+    const calls: Array<[string, RequestInit]> = [];
+    const fetchStub = vi.fn().mockImplementation((url: string, opts: RequestInit) => {
+      calls.push([url, opts]);
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: () =>
+          Promise.resolve({
+            external_id: 'id-1',
+            external_url: '',
+            adapter_name: 'webhook',
+            created_at: '2026-05-28T00:00:00Z',
+          }),
+      } as unknown as Response);
+    });
+    const client = new IntakeClient(BASE_CONFIG, fetchStub as unknown as typeof fetch);
+    fetchStub.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: () =>
+        Promise.resolve({
+          session_id: 'sess-1',
+          capabilities: { auth_modes: ['anonymous'], streaming: true },
+        }),
+    } as unknown as Response);
+    await client.init();
+
+    await client.submit(
+      [{ role: 'user', content: 'hi' }],
+      undefined,
+      [
+        {
+          type: 'screenshot',
+          mime_type: 'image/png',
+          url: 'data:image/png;base64,AAAA',
+          label: 'screenshot 1',
+        },
+      ],
+    );
+
+    const submitCall = calls[calls.length - 1];
+    const body = JSON.parse(submitCall[1].body as string) as { attachments: unknown[] };
+    expect(body.attachments).toHaveLength(1);
+    expect(body.attachments[0]).toMatchObject({
+      type: 'screenshot',
+      mime_type: 'image/png',
+      url: 'data:image/png;base64,AAAA',
+      label: 'screenshot 1',
+    });
+  });
+
+  it('omits attachments[] when an empty array is passed', async () => {
+    const calls: Array<[string, RequestInit]> = [];
+    const fetchStub = vi.fn().mockImplementation((url: string, opts: RequestInit) => {
+      calls.push([url, opts]);
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: () =>
+          Promise.resolve({
+            external_id: 'id-1',
+            external_url: '',
+            adapter_name: 'webhook',
+            created_at: '2026-05-28T00:00:00Z',
+          }),
+      } as unknown as Response);
+    });
+    const client = new IntakeClient(BASE_CONFIG, fetchStub as unknown as typeof fetch);
+    fetchStub.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: () =>
+        Promise.resolve({
+          session_id: 'sess-1',
+          capabilities: { auth_modes: ['anonymous'], streaming: true },
+        }),
+    } as unknown as Response);
+    await client.init();
+
+    await client.submit([{ role: 'user', content: 'hi' }], undefined, []);
+
+    const body = JSON.parse(calls[calls.length - 1][1].body as string) as Record<string, unknown>;
+    expect('attachments' in body).toBe(false);
+  });
+
+  it('non-2xx with attachment ErrorEnvelope: thrown Error carries `code` property', async () => {
+    const fetchStub = vi.fn();
+    // First call: init OK
+    fetchStub.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: () =>
+        Promise.resolve({
+          session_id: 'sess-1',
+          capabilities: { auth_modes: ['anonymous'], streaming: true },
+        }),
+    } as unknown as Response);
+    // Second call: submit returns 413 with an ErrorEnvelope
+    fetchStub.mockResolvedValueOnce({
+      ok: false,
+      status: 413,
+      headers: { get: () => 'application/json' },
+      text: () =>
+        Promise.resolve(
+          JSON.stringify({
+            error: { code: 'attachment_too_large', message: 'attachment exceeds max_size_bytes' },
+          }),
+        ),
+    } as unknown as Response);
+
+    const client = new IntakeClient(BASE_CONFIG, fetchStub as unknown as typeof fetch);
+    await client.init();
+    try {
+      await client.submit([{ role: 'user', content: 'hi' }]);
+      throw new Error('expected submit to throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(Error);
+      expect((e as Error & { code?: string }).code).toBe('attachment_too_large');
+    }
+  });
+
+  it('non-2xx with non-JSON body: thrown Error has no `code`, retains status in message', async () => {
+    const fetchStub = vi.fn();
+    fetchStub.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: () =>
+        Promise.resolve({
+          session_id: 'sess-1',
+          capabilities: { auth_modes: ['anonymous'], streaming: true },
+        }),
+    } as unknown as Response);
+    fetchStub.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      headers: { get: () => 'text/plain' },
+      text: () => Promise.resolve('internal'),
+    } as unknown as Response);
+
+    const client = new IntakeClient(BASE_CONFIG, fetchStub as unknown as typeof fetch);
+    await client.init();
+    try {
+      await client.submit([{ role: 'user', content: 'hi' }]);
+      throw new Error('expected submit to throw');
+    } catch (e) {
+      expect((e as Error & { code?: string }).code).toBeUndefined();
+      expect((e as Error).message).toMatch(/500/);
+    }
+  });
+});
+
+describe('IntakeClient.init() — capabilities.attachments parse (Phase 6)', () => {
+  it('parses capabilities.attachments when present', async () => {
+    const mockFetch = makeFetch(200, {
+      session_id: 'sess-1',
+      capabilities: {
+        auth_modes: ['anonymous'],
+        streaming: true,
+        attachments: {
+          max_size_bytes: 5242880,
+          max_total_bytes: 10485760,
+          allowed_mime_types: ['image/png', 'image/jpeg', 'image/webp'],
+        },
+      },
+    });
+    const client = new IntakeClient(BASE_CONFIG, mockFetch);
+    const result = await client.init();
+    expect(result.capabilities.attachments).toBeDefined();
+    expect(result.capabilities.attachments?.max_size_bytes).toBe(5242880);
+    expect(result.capabilities.attachments?.allowed_mime_types).toEqual([
+      'image/png',
+      'image/jpeg',
+      'image/webp',
+    ]);
+  });
+
+  it('leaves capabilities.attachments undefined when relay omits the block', async () => {
+    const mockFetch = makeFetch(200, {
+      session_id: 'sess-1',
+      capabilities: { auth_modes: ['anonymous'], streaming: true },
+    });
+    const client = new IntakeClient(BASE_CONFIG, mockFetch);
+    const result = await client.init();
+    expect(result.capabilities.attachments).toBeUndefined();
+  });
+});
