@@ -459,3 +459,71 @@ Zero matches in either file. PASS — L005 redact-before-error holds end-to-end 
 **Build + tests:** `go build ./... && go vet ./... && go test ./...` — clean.
 
 **Overall:** Phase 5-iii (captcha.Verifier + initHandler verify branch) verified end-to-end against the real Cloudflare Turnstile siteverify endpoint. L005 holds.
+
+## 5-iv Task 9 — Phase 1 + Phase 4 regression smokes (2026-05-28)
+
+These regressions verify that Phase 5's middleware chain (clientIPMiddleware + perIPLimitMiddleware) + dispatcher hardening (SessionContext.SessionID population) + budget gates (per-session caps + daily LLM budget) did NOT regress the Phase 1 anonymous walking-skeleton flow OR the Phase 4 email-auth flow.
+
+Relay binary: `/tmp/intake-relay-smoke` (built from `relay/cmd/relay`).
+
+### Phase 1 anonymous walking-skeleton (clean.yaml — anonymous:true, allow_without_captcha:true)
+
+Fixture: `relay/cmd/relay/smoke/clean.yaml` (the Q9 escape-hatch config from Task 2).
+
+Relay startup log (relevant lines):
+```
+relay: rate limits configured per_ip_rps=1 per_ip_burst=5 per_session_max_turns=20 per_session_max_input_tokens=8000 daily_budget_max_input_tokens=5000000 daily_budget_max_output_tokens=1000000
+relay listening addr=":18080"
+```
+
+```
+$ curl -s -w "\nHTTP_STATUS: %{http_code}" -X POST http://127.0.0.1:18080/v1/intake/init -d '{}'
+{"session_id":"a4082ea9-4840-40d5-b9e7-0aab7dc1e3ba","capabilities":{"auth_modes":["anonymous"],"streaming":true}}
+HTTP_STATUS: 200
+
+$ curl -s -w "\nHTTP_STATUS: %{http_code}\n" -X POST http://127.0.0.1:18080/v1/intake/turn \
+    -H "X-Intake-Session: a4082ea9-4840-40d5-b9e7-0aab7dc1e3ba" \
+    -H 'Content-Type: application/json' \
+    -d '{"messages":[{"role":"user","content":"hi"}]}'
+data: {"error":"anthropic provider error: POST \"https://api.anthropic.com/v1/messages\": 401 Unauthorized (Request-ID: req_011CbVui8AA3nXEPY1osanvB) {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"},\"request_id\":\"req_011CbVui8AA3nXEPY1osanvB\"}"}
+
+HTTP_STATUS: 200
+```
+
+**Verdict:** PASS — Phase 1 anonymous /init returned 200 + UUID session_id with the expected capabilities envelope (auth_modes=["anonymous"]). The /turn request reached the SSE streaming path (HTTP 200, transfer-encoded) and surfaced an `authentication_error` from the real Anthropic API — i.e. the dummy `ANTHROPIC_API_KEY` was rejected upstream of the relay. This is the success signal: the Phase 5 middleware chain (per-IP limiter, session dispatcher, per-session caps, daily budget) all PASSED — the request reached `provider.Chat` and only failed at the provider boundary. No Phase 5 gate fired (no 429 from per-IP / session-turns, no 503 from daily budget).
+
+### Phase 4 email-auth /init capabilities + /auth/email/start path
+
+Fixture: `/tmp/email-regression.yaml` — anonymous:true + email:true, SMTP pointed at 127.0.0.1:1025 (dead host), code_ttl=10m, jwt_ttl=15m.
+
+Relay startup log (relevant lines):
+```
+relay: email auth enabled smtp_host=127.0.0.1 smtp_port=1025 from="Intake <intake@example.com>" code_ttl=10m0s jwt_ttl=15m0s
+relay: rate limits configured per_ip_rps=1 per_ip_burst=5 per_session_max_turns=20 per_session_max_input_tokens=8000 ...
+relay listening addr=":18080"
+```
+
+```
+$ curl -s -w "\nHTTP_STATUS: %{http_code}" -X POST http://127.0.0.1:18080/v1/intake/init -d '{}'
+{"session_id":"41c4c259-e656-4072-b269-a9f416c60aa5","capabilities":{"auth_modes":["anonymous","email"],"streaming":true},"auth":{"email":{"code_ttl_seconds":600}}}
+HTTP_STATUS: 200
+
+$ curl -s -w "\nHTTP_STATUS: %{http_code}\n" -X POST http://127.0.0.1:18080/v1/intake/auth/email/start \
+    -H 'Content-Type: application/json' \
+    -d '{"email":"smoke@example.com"}'
+{"error":{"code":"smtp_error","message":"could not send email"}}
+HTTP_STATUS: 502
+```
+
+Server-side error log on the /auth/email/start call (confirms the request reached the SMTP layer):
+```
+ERROR email start: smtp send failed email_redacted="s***@example.com" err="email: smtp send failed\nsmtpsend: send to smoke@example.com via 127.0.0.1:1025: dial tcp 127.0.0.1:1025: connectex: No connection could be made because the target machine actively refused it."
+```
+
+**Verdict:** PASS — Phase 4 contract preserved end-to-end:
+- /init returned `auth_modes:["anonymous","email"]` and `auth.email.code_ttl_seconds: 600` (Phase 4 capabilities envelope intact under the Phase 5 chain).
+- /auth/email/start reached the SMTP send path and returned 502 `smtp_error` because the SMTP host is fake — NOT a Phase 5 gate rejection (would be 401/429/503). The email_redacted="s***@example.com" log line confirms the captcha-exempt route did NOT block on the 5-iii captcha gate (which would 401 before reaching the email service).
+
+**Build + tests:** `go build ./... && go vet ./... && go test ./...` — clean (all packages cached + ok, no failures).
+
+**Overall:** Phase 5 changes are non-regressive against Phase 1-4 contracts. The Phase 1 anonymous walking-skeleton and the Phase 4 email-auth /init + /auth/email/start paths behave identically under Phase 5 middleware as before. The only failures observed are upstream of the relay (Anthropic 401 on dummy key, SMTP refusal on fake host) — exactly the proof-of-transparency signal this task requires.
