@@ -3,6 +3,7 @@ package server_test
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	webhookadapter "intake/internal/adapter/webhook"
+	"intake/internal/attachvalidate"
 	"intake/internal/auth"
 	"intake/internal/classify"
 	"intake/internal/config"
@@ -78,6 +80,17 @@ func buildSubmitDeps(fa adapter.Adapter) server.Deps {
 		Router:     rtr,
 		Classifier: classifier,
 		Builder:    builder,
+		// Phase 6 (6-i): explicit body cap (Phase 1 used implicit 1<<20).
+		// Tests use the 14 MB cap (attachments enabled) and override
+		// AttachmentsCfg.Enabled per-test as needed.
+		BodyCapBytes: 14 * (1 << 20),
+		AttachmentsCfg: config.AttachmentsConfig{
+			Enabled:          true,
+			MaxSizeBytes:     5_242_880,
+			MaxTotalBytes:    10_485_760,
+			AllowedMIMETypes: []string{"image/png", "image/jpeg", "image/webp"},
+		},
+		AttachmentMIMEs: []string{"image/png", "image/jpeg", "image/webp"},
 	}
 }
 
@@ -211,10 +224,18 @@ func TestSubmitHandler_IntegrationWithHttptestWebhook(t *testing.T) {
 		t.Fatalf("router.New: %v", err)
 	}
 	deps := server.Deps{
-		Auth:       mw,
-		Router:     rtr,
-		Classifier: classifier,
-		Builder:    builder,
+		Auth:         mw,
+		Router:       rtr,
+		Classifier:   classifier,
+		Builder:      builder,
+		BodyCapBytes: 14 * (1 << 20),
+		AttachmentsCfg: config.AttachmentsConfig{
+			Enabled:          true,
+			MaxSizeBytes:     5_242_880,
+			MaxTotalBytes:    10_485_760,
+			AllowedMIMETypes: []string{"image/png", "image/jpeg", "image/webp"},
+		},
+		AttachmentMIMEs: []string{"image/png", "image/jpeg", "image/webp"},
 	}
 	sessionID := store.Issue()
 
@@ -282,5 +303,212 @@ func TestSubmitHandler_IntegrationWithHttptestWebhook(t *testing.T) {
 	}
 	if user["auth_mode"] != "anonymous" {
 		t.Errorf("expected user.auth_mode=anonymous, got %v", user["auth_mode"])
+	}
+}
+
+// --- Phase 6 (6-i) tests for submitHandler ---
+
+func newPNGAttachment(t *testing.T) server.SubmitAttachment {
+	t.Helper()
+	return server.SubmitAttachment{
+		Type:     "screenshot",
+		MIMEType: "image/png",
+		URL:      "data:image/png;base64," + base64.StdEncoding.EncodeToString(attachvalidate.GoldenPNG()),
+	}
+}
+
+func validClient() server.ClientInfo {
+	return server.ClientInfo{
+		WidgetVersion: "test", URL: "https://example.com", UserAgent: "ua",
+		Viewport: server.Viewport{W: 100, H: 100}, Locale: "en",
+	}
+}
+
+func mustMarshal(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return b
+}
+
+func TestSubmit_OverBodyCap_413_RequestBodyTooLarge(t *testing.T) {
+	fa := &fakeAdapter{}
+	deps := buildSubmitDeps(fa)
+	sessionID := issueSession(deps)
+	// Build valid JSON that is > 14 MB. The decoder reads incrementally;
+	// MaxBytesReader returns *http.MaxBytesError as soon as the limit is
+	// exceeded, regardless of whether the JSON would have been valid.
+	// We pad the user-content string so the body is ~15 MB.
+	big := make([]byte, 15*1024*1024)
+	for i := range big {
+		big[i] = 'a'
+	}
+	body := []byte(`{"messages":[{"role":"user","content":"` + string(big) + `"}],"client":{"url":"x","user_agent":"u","widget_version":"v","viewport":{"w":1,"h":1},"locale":"en"}}`)
+	req := httptest.NewRequest("POST", "/v1/intake/submit", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Intake-Session", sessionID)
+	rec := httptest.NewRecorder()
+	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{"http://localhost:5173"}}}
+	mux := server.New(cfg, deps)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("status = %d; want 413; body=%s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("request_body_too_large")) {
+		t.Errorf("body does not contain request_body_too_large: %s", rec.Body.String())
+	}
+}
+
+func TestSubmit_MalformedJSON_400_BadRequest(t *testing.T) {
+	fa := &fakeAdapter{}
+	deps := buildSubmitDeps(fa)
+	sessionID := issueSession(deps)
+	req := httptest.NewRequest("POST", "/v1/intake/submit", bytes.NewReader([]byte("{not json")))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Intake-Session", sessionID)
+	rec := httptest.NewRecorder()
+	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{"http://localhost:5173"}}}
+	mux := server.New(cfg, deps)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d; want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("bad_request")) {
+		t.Errorf("body does not contain bad_request: %s", rec.Body.String())
+	}
+}
+
+func TestSubmit_AttachmentsDisabled_400_AttachmentsDisabled(t *testing.T) {
+	fa := &fakeAdapter{}
+	deps := buildSubmitDeps(fa)
+	// Disable attachments and reduce body cap to mirror disabled-mode startup.
+	deps.AttachmentsCfg.Enabled = false
+	deps.AttachmentMIMEs = nil
+	body := mustMarshal(t, server.SubmitRequest{
+		Messages:    []server.TurnMessage{{Role: "user", Content: "hi"}},
+		Client:      validClient(),
+		Attachments: []server.SubmitAttachment{newPNGAttachment(t)},
+	})
+	sessionID := issueSession(deps)
+	req := httptest.NewRequest("POST", "/v1/intake/submit", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Intake-Session", sessionID)
+	rec := httptest.NewRecorder()
+	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{"http://localhost:5173"}}}
+	mux := server.New(cfg, deps)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d; want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("attachments_disabled")) {
+		t.Errorf("want attachments_disabled; got %s", rec.Body.String())
+	}
+}
+
+func TestSubmit_AttachmentMIMEMismatch_415(t *testing.T) {
+	fa := &fakeAdapter{}
+	deps := buildSubmitDeps(fa)
+	bad := newPNGAttachment(t)
+	bad.MIMEType = "image/jpeg" // declared JPEG, bytes are PNG
+	body := mustMarshal(t, server.SubmitRequest{
+		Messages:    []server.TurnMessage{{Role: "user", Content: "hi"}},
+		Client:      validClient(),
+		Attachments: []server.SubmitAttachment{bad},
+	})
+	sessionID := issueSession(deps)
+	req := httptest.NewRequest("POST", "/v1/intake/submit", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Intake-Session", sessionID)
+	rec := httptest.NewRecorder()
+	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{"http://localhost:5173"}}}
+	mux := server.New(cfg, deps)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnsupportedMediaType {
+		t.Errorf("status = %d; want 415; body=%s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("attachment_mime_mismatch")) {
+		t.Errorf("want attachment_mime_mismatch; got %s", rec.Body.String())
+	}
+}
+
+func TestSubmit_AttachmentTooLarge_413(t *testing.T) {
+	fa := &fakeAdapter{}
+	deps := buildSubmitDeps(fa)
+	deps.AttachmentsCfg.MaxSizeBytes = 10 // tiny
+	body := mustMarshal(t, server.SubmitRequest{
+		Messages:    []server.TurnMessage{{Role: "user", Content: "hi"}},
+		Client:      validClient(),
+		Attachments: []server.SubmitAttachment{newPNGAttachment(t)},
+	})
+	sessionID := issueSession(deps)
+	req := httptest.NewRequest("POST", "/v1/intake/submit", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Intake-Session", sessionID)
+	rec := httptest.NewRecorder()
+	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{"http://localhost:5173"}}}
+	mux := server.New(cfg, deps)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("status = %d; want 413; body=%s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("attachment_too_large")) {
+		t.Errorf("want attachment_too_large; got %s", rec.Body.String())
+	}
+}
+
+// Order-of-operations regression: when attachvalidate rejects, Router.Route
+// MUST NOT be called (the underlying adapter.Create must not run).
+func TestSubmit_AttachvalidateFails_AdapterNotCalled(t *testing.T) {
+	fa := &fakeAdapter{}
+	deps := buildSubmitDeps(fa)
+	bad := newPNGAttachment(t)
+	bad.MIMEType = "image/jpeg" // forces ErrMIMEMismatch
+	body := mustMarshal(t, server.SubmitRequest{
+		Messages:    []server.TurnMessage{{Role: "user", Content: "hi"}},
+		Client:      validClient(),
+		Attachments: []server.SubmitAttachment{bad},
+	})
+	sessionID := issueSession(deps)
+	req := httptest.NewRequest("POST", "/v1/intake/submit", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Intake-Session", sessionID)
+	rec := httptest.NewRecorder()
+	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{"http://localhost:5173"}}}
+	mux := server.New(cfg, deps)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("status = %d; want 415; body=%s", rec.Code, rec.Body.String())
+	}
+	if fa.received != nil {
+		t.Errorf("fakeAdapter.Create was called; want NOT called when attachvalidate fails")
+	}
+}
+
+func TestSubmit_PhaseOneRegression_NoAttachments_200(t *testing.T) {
+	fa := &fakeAdapter{}
+	deps := buildSubmitDeps(fa)
+	body := mustMarshal(t, server.SubmitRequest{
+		Messages: []server.TurnMessage{{Role: "user", Content: "hi"}},
+		Client:   validClient(),
+	})
+	sessionID := issueSession(deps)
+	req := httptest.NewRequest("POST", "/v1/intake/submit", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Intake-Session", sessionID)
+	rec := httptest.NewRecorder()
+	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{"http://localhost:5173"}}}
+	mux := server.New(cfg, deps)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d; want 200 (no attachments path); body=%s", rec.Code, rec.Body.String())
 	}
 }

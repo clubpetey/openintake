@@ -127,8 +127,11 @@ type ContextInfo = dto.ContextInfo
 
 // SubmitRequest is the body of POST /v1/intake/submit.
 // Alias to dto.SubmitRequest to avoid import cycle with payloadbuild.
-// Attachments are deferred to Phase 6.
 type SubmitRequest = dto.SubmitRequest
+
+// SubmitAttachment is the wire shape for one inline attachment (Phase 6).
+// Alias to dto.SubmitAttachment for callers that want a single import.
+type SubmitAttachment = dto.SubmitAttachment
 
 // SubmitResponse is the body returned by POST /v1/intake/submit on success.
 type SubmitResponse struct {
