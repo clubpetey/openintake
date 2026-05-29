@@ -29,10 +29,10 @@ This phase does NOT add: persistent/shared rate-limit state (v1+), per-tenant CA
 
 | # | Plan | Driver | Effort | Status |
 |---|---|---|---|---|
-| 5-i | [Config + middleware chain seam + Q9 startup gate + dispatcher hardening](5-i-config-middleware-seam-Q9-plan.md) | the seam | M | Not started |
-| 5-ii | [Per-IP limiter + per-session counters + daily budget tracker](5-ii-ratelimit-budget-plan.md) | rate-limit primitives | M | Not started |
-| 5-iii | [CAPTCHA verifier + /init two-call dance](5-iii-captcha-plan.md) | CAPTCHA | M | Not started |
-| 5-iv | [Final smoke + docs](5-iv-smoke-docs-plan.md) | live abuse + maintainer-paused CAPTCHA | S | Not started |
+| 5-i | [Config + middleware chain seam + Q9 startup gate + dispatcher hardening](5-i-config-middleware-seam-Q9-plan.md) | the seam | M | Live + smoked |
+| 5-ii | [Per-IP limiter + per-session counters + daily budget tracker](5-ii-ratelimit-budget-plan.md) | rate-limit primitives | M | Live + smoked |
+| 5-iii | [CAPTCHA verifier + /init two-call dance](5-iii-captcha-plan.md) | CAPTCHA | M | Live + smoked |
+| 5-iv | [Final smoke + docs](5-iv-smoke-docs-plan.md) | live abuse + maintainer-paused CAPTCHA | S | Live + smoked |
 
 ## 4. Dependency graph
 
@@ -128,6 +128,28 @@ Proves the Phase 5 deliverable end-to-end. The unit layer (mocked siteverify via
 ```
 
 A phase is NOT done until this smoke passes from a clean state. Steps 1-4 + 6-7 are self-runnable; step 5 (live CAPTCHA) pauses for explicit maintainer go-ahead per the credit/secret guard.
+
+### Smoke status (2026-05-28)
+
+- **Credit-free unit + integration layer — COMPLETE.** All four sub-plans implemented on `phase-5`, each through subagent review with fix-loops. `go build/vet/test -race ./...` green in `relay/`; `scripts/verify-contract.sh` + `scripts/check-pins.sh` green; `go mod tidy` is a no-op (`golang.org/x/time v0.9.0` promoted from indirect to direct with no other go.mod/go.sum drift). Covered credit-free: `perip.Limiter` Allow/eager-GC with injected clock; `budget.Tracker` Reserve/Commit/UTC-day-reset with injected clock + tenant isolation; `auth.Store.CheckSession`/`RecordTurn` turn-cap + token-cap + TTL with injected clock; `captcha.providerVerifier` Turnstile + hCaptcha siteverify + 5-minute single-use replay set + L005 redact-before-error; Q9 strict-anonymous dispatcher branch + consolidated startup gate covering anonymous-without-captcha + sso-both/neither + invalid CIDR + unsupported `action_on_exceeded`; clientIP middleware + trusted-proxy CIDR walking; /init two-call dance with `captcha_required` discovery shape.
+
+- **Q9 startup-gate smoke — COMPLETE.** All 6 misconfig YAMLs (`anonymous-no-captcha`, `sso-both`, `sso-neither`, `bad-cidr`, `bad-action-on-exceeded`, `combined`) exit 1 with the structured `relay: startup config errors` log line listing every distinct problem. The combined YAML emits one log line listing all five problems — operators fix in one restart cycle.
+
+- **Strict-anonymous dispatcher smoke — COMPLETE.** With `auth.modes.anonymous=false`, both an unknown X-Intake-Session and a valid (Store-issued) X-Intake-Session return 401 `anonymous_disabled`; timing-safety verified (constant-time path; no observable branch on session existence).
+
+- **Per-IP rate-limit smoke — COMPLETE.** Burst of 10 requests against `/v1/intake/init` with `{rps:1, burst:5}` → exactly 5×200 + 5×429 with `Retry-After: 1`. Control: same burst against `/v1/health` → 10×200 (probe endpoints exempt from per-IP gate, as required).
+
+- **Per-session cap smoke — COMPLETE.** Drive 3 `/turn` calls with `max_turns:3` → all 200; 4th → 429 `session_turns_exhausted` with `Retry-After` ≈ TTL remainder (within ±1s of expected).
+
+- **Daily-budget smoke — COMPLETE.** First `/turn` burns ~80 tokens against `{max_input:100, max_output:100}`; second `/turn` → 503 `daily_budget_exhausted` with `Retry-After` ≈ secs-to-next-UTC-midnight. Tenant isolation verified: tenant A exhaustion does not affect tenant B's budget.
+
+- **`drive-abuse.ts` — COMPLETE.** All three rate-limit gates exercised end-to-end via @intake/core-style fetch driver. First run failed because the abuse fixture's budget=(100,100) caused the budget gate to fire on turn 3 before `max_turns=3` could fire on turn 4; fix at `68382c0` raised budget to (150,150) so per-session fires first (recorded as L019). Re-run all green.
+
+- **Live CAPTCHA smoke — COMPLETE** (2026-05-28, Cloudflare Turnstile test sitekeys `1x00000000000000000000AA` / `1x0000000000000000000000000000000AA` and `2x0000000000000000000000000000000AA` always-fails). Discovery (`/init` with no body) → 400 `captcha_required` carrying `capabilities.requires_captcha:["anonymous"]` + `captcha.{provider,site_key}`. Mint (`/init` with a passing token) → 200 + session_id. Replay (same token re-presented) → 401 `captcha_failed` with `reason:"duplicate"` from the 5-minute replay set. Fails-secret (always-fails sitekey) → 401 `captcha_failed` with `reason:<provider error-code>`. **L005 confirmed:** grep over the live-smoke log for the secret bytes returned zero matches across all four scenarios.
+
+- **Phase 1 + Phase 4 regression smokes — COMPLETE.** With `auth.anonymous.allow_without_captcha:true` the Phase-1 anonymous /init → /turn flow passes unchanged. With `captcha.enabled:true, captcha.required_for:["anonymous"]`, Phase 4's `drive-auth-email.ts` and `drive-auth-sso.ts` pass unchanged — proves Phase 5's middleware chain (per-IP → clientIP → CAPTCHA-at-/init → auth dispatcher → per-session → budget) does not regress Phase 4. Failure injection: forcing a Phase-5 gate reject (per-session exhausted) confirms the reject reaches the consumer; passing requests still reach the provider/SMTP layer past every Phase-5 gate.
+
+- **Phase 5 coverage: 4/4 guardrails proven** — per-IP (live), per-session (live), daily-budget (live), CAPTCHA (live). Q9 strict-anonymous + consolidated startup gate (live across 6 misconfigs). Frozen Phase-1+4 seams unmodified; auth Handler signature + SessionContext + payloadbuild unchanged.
 
 ## 8. Shared Contracts (SINGLE SOURCE OF TRUTH)
 

@@ -192,3 +192,49 @@ Phase 4's auth dispatcher had three paths producing `auth.SessionContext`: anony
 Reference: `relay/internal/auth/middleware.go` (bearer-branch `SessionID` population); tests `TestDispatcher_EmailMode_SessionIDFromHeader`, `TestDispatcher_SSOMode_SessionIDFromHeader`.
 
 ---
+
+### L016: When a startup gate validates inputs that consumers also need to parse, return the parsed values — never re-parse with the error discarded
+
+The 5-i Task 9 code review caught a subtle silent-failure shape: `startupProblems` in `main.go` validated `server.trusted_proxies` CIDRs via `netip.ParsePrefix`, then the consumer (the `clientIPMiddleware` wiring further down `main.go`) re-parsed the same strings with the error discarded. If a future refactor reordered initialization so the consumer ran first, OR if a code path bypassed the gate, malformed CIDRs would silently become zero-value `netip.Prefix` entries that match no IPs — the per-IP limiter would still install, the trusted-proxy allowlist would be effectively empty, and X-Forwarded-For walking would no-op. No build/test/vet failure; the misbehavior surfaces only at runtime when a real proxy presents X-Forwarded-For. The same pattern surfaced again in 5-ii Task 5 (duration parsing: `idle_ttl`, `session_ttl`) and 5-iii Task 3 (no separate parse, but the lesson generalized).
+
+**Where it hit:** Phase 5 5-i Task 9 code review (commit `6e4e873` — Q9 startup gate returns parsed `[]netip.Prefix`); generalized to duration fields at commit `b09385d` (Q9 returns parsed `time.Duration` values for idle_ttl/session_ttl). Reference: `relay/cmd/relay/main.go` `startupProblems` return shape.
+
+**Rule:** When a startup gate validates inputs that consumers also need to parse, EITHER (a) have the gate RETURN the parsed values for the consumer to reuse — one parse site, one error path, no possibility of silent divergence — OR (b) add a runtime assertion in the consumer that panics if the value is the zero-value-when-invalid form. A re-parse with the error discarded (`v, _ := parse(s)`) is the silent-failure shape PHASE_PLANNING §4 forbids. Add the "re-parse with discarded error" pattern to the build-fail checklist for any phase touching startup configuration. Reference: `relay/cmd/relay/main.go` `startupProblems`.
+
+---
+
+### L017: Soft-cap operators (> vs >=) differ between Reserve-style pre-flight and CheckSession-style post-completion checks — document the asymmetry inline
+
+Phase 5-ii's `budget.Tracker.Reserve` uses `>` (allow exactly-at-cap) because Reserve adds a not-yet-charged estimate to the current counter and rejects only when the projected total would EXCEED the cap; at-cap with zero new estimate is still permitted. Phase 5-ii's `auth.Store.CheckSession` uses `>=` (reject at-cap) because `meta.turns` is the count of COMPLETED turns; if `turns >= max`, the next turn is the (max+1)th and must be rejected. Both operators are correct for their use case, but a reviewer flagged the asymmetry as a "consistency bug" — the natural reading is "same cap, same operator". The fix was a one-line inline comment at each operator site explaining the timing-driven asymmetry.
+
+**Where it hit:** Phase 5-ii code review (commit `d63aa5e` added the inline comment to `CheckSession`). Reference: `relay/internal/budget/budget.go` Reserve vs `relay/internal/auth/store.go` CheckSession.
+
+**Rule:** When the SAME conceptual cap (e.g. "N turns allowed") appears in BOTH a Reserve-style pre-flight check (gate BEFORE the work, counter is what's-already-charged) AND a CheckSession-style post-completion check (gate AFTER the work, counter is what's-already-completed), the comparison operators differ by one based on counter timing — Reserve uses `>` (project-and-compare), CheckSession uses `>=` (count-and-compare). Document the asymmetry inline at BOTH operator sites with a one-line comment so a future reviewer or refactorer does not "fix" the consistency that doesn't actually exist. Reference: `relay/internal/budget/budget.go` Reserve comment + `relay/internal/auth/store.go` CheckSession comment.
+
+---
+
+### L018: Replay-protection: mark BEFORE the network call when defending against per-token spam — document that retry-after-5xx is intentionally a duplicate
+
+Phase 5-iii's `captcha.providerVerifier` marks tokens in the in-memory replay set BEFORE the siteverify HTTP call. This means a transient 5xx from Cloudflare/hCaptcha "burns" the token: the next retry with the same token returns `duplicate` (from the replay-set check) instead of re-attempting siteverify. This is intentional — the threat model is an attacker spamming siteverify with the same token to exhaust per-IP rate limits on the provider side OR to bypass the relay's per-IP gate by retrying the same proven token across many sessions. Marking before the call closes both attacker vectors. The cost is a real user who hits a transient 5xx must solve a new CAPTCHA challenge (rare; Cloudflare/hCaptcha both have >99.9% siteverify uptime).
+
+**Where it hit:** Phase 5-iii code review (commit `cd25123` added the doc comment to `markUnseenOrEvict`). The reviewer initially flagged "retry-after-5xx returns duplicate" as a bug; the fix was a doc comment, not a behavior change. Reference: `relay/internal/captcha/captcha.go` `markUnseenOrEvict`.
+
+**Rule:** Replay-protection sets layered on top of provider-side single-use semantics should mark BEFORE the network call as the defense-in-depth posture (the provider may go down; your gate must not). Document the behavior at the mark site so an operator debugging "my retry didn't work" knows it's intentional, and so a future refactorer does not "fix" the burn-on-transient by moving the mark after the call. If the operational cost (real users losing tokens on transient 5xx) becomes measurable, add a separate retry-with-fresh-token UX in the widget — do not move the mark. Reference: `relay/internal/captcha/captcha.go` `markUnseenOrEvict` doc comment.
+
+---
+
+### L019: When a smoke fixture has multiple caps that could fire on the same request, run the math BEFORE writing the smoke driver
+
+5-iv Task 7's first run of `drive-abuse.ts` failed because the smoke fixture had `daily_llm_budget=(100, 100)` with the fake-llm provider reporting 50 input + 50 output tokens per turn — so the budget gate fired on turn 3 (Reserve check: 100 already-committed + 50 new estimate = 150 > 100 cap) BEFORE the per-session cap (`max_turns=3`) could fire on turn 4. The smoke driver expected turns 1-3 = 200, turn 4 = 429 `session_turns_exhausted`; it got turn 1 = 200, turn 2 = 200, turn 3 = 503 `daily_budget_exhausted`. The fix (commit `68382c0`) raised budget to `(150, 150)` so per-session fires first. The driver's intent was to combine the two gates in one smoke; the fixture math made the budget gate "shadow" the per-session gate.
+
+**Where it hit:** Phase 5-iv Task 7 first run. Smoke driver assumption did not match the dispatcher's gate-ordering math (`CheckSession` → `Reserve` → `Chat`). Fix: raised budget so per-session fires first; alternative would have been to isolate gates per-smoke (the approach Tasks 5+6 took).
+
+**Rule:** When a smoke fixture has MULTIPLE caps that could fire on the SAME request, run the math BEFORE writing the smoke driver:
+- List every cap that gates the endpoint under test (per-IP, per-session, daily-budget, etc.) and the request count at which each fires.
+- Identify which cap should fire FIRST under the smoke's intent.
+- Verify the fixture values make that the case: raise the others' caps so they don't shadow, OR isolate gates per-smoke if combining is fragile.
+- The dispatcher's gate ordering determines which cap fires when both would reject — the smoke driver must align with that ordering, not assume independence.
+
+Reference: `relay/cmd/relay/smoke/abuse-driver.yaml` budget field (commit `68382c0`); `relay/internal/server/server.go` dispatch order (CheckSession → Reserve → Chat).
+
+---
