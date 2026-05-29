@@ -187,4 +187,3 @@ func renderBody(p *payload.IntakePayload) string {
 	}
 	return b.String()
 }
-

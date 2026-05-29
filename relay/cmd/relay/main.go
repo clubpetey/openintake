@@ -356,7 +356,7 @@ func main() {
 		CaptchaCfg:      cfg.Captcha,
 		CaptchaVerifier: captchaVerifier, // 5-iii: nil when cfg.Captcha.Enabled=false; real verifier otherwise
 		Budget:          budgetTracker,   // 5-ii
-		PerIP:           perIPLimiter,  // 5-ii
+		PerIP:           perIPLimiter,    // 5-ii
 		TrustedProxies:  trustedProxies,
 
 		// Phase 6 (6-i):
@@ -637,7 +637,7 @@ func containsString(haystack []string, needle string) bool {
 }
 
 // validateAttachments validates the Phase 6 attachments block. Returns the
-// parsed/defaulted AttachmentsConfig per L016 — consumers (computeAttachmentsCaps,
+// parsed/defaulted AttachmentsConfig per L016 — consumers (ComputeAttachmentsCaps,
 // attachvalidate.Config) MUST use the returned value rather than re-reading cfg.
 //
 // Gates (fatal — append to problems):

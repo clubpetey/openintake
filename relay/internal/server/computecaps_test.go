@@ -11,7 +11,7 @@ import (
 
 func TestComputeAttachmentsCaps_DisabledReturnsNil(t *testing.T) {
 	cfg := config.AttachmentsConfig{Enabled: false, AllowedMIMETypes: []string{"image/png"}}
-	caps := computeAttachmentsCaps(cfg, nil)
+	caps := ComputeAttachmentsCaps(cfg, nil)
 	if caps != nil {
 		t.Errorf("caps = %v; want nil when disabled", caps)
 	}
@@ -19,7 +19,7 @@ func TestComputeAttachmentsCaps_DisabledReturnsNil(t *testing.T) {
 
 func TestComputeAttachmentsCaps_EmptyAllowlistReturnsNil(t *testing.T) {
 	cfg := config.AttachmentsConfig{Enabled: true, AllowedMIMETypes: []string{}}
-	caps := computeAttachmentsCaps(cfg, nil)
+	caps := ComputeAttachmentsCaps(cfg, nil)
 	if caps != nil {
 		t.Errorf("caps = %v; want nil when allowlist empty", caps)
 	}
@@ -30,7 +30,7 @@ func TestComputeAttachmentsCaps_NoCapableAdaptersReturnsNil(t *testing.T) {
 		Enabled:          true,
 		AllowedMIMETypes: []string{"image/png"},
 	}
-	caps := computeAttachmentsCaps(cfg, nil) // no adapters
+	caps := ComputeAttachmentsCaps(cfg, nil) // no adapters
 	if caps != nil {
 		t.Errorf("caps = %v; want nil when no adapter advertises", caps)
 	}
@@ -45,7 +45,7 @@ func TestComputeAttachmentsCaps_Intersection(t *testing.T) {
 		AllowedMIMETypes: []string{"image/png", "image/webp"},
 	}
 	wh := webhook.New()
-	caps := computeAttachmentsCaps(cfg, []adapter.Adapter{wh})
+	caps := ComputeAttachmentsCaps(cfg, []adapter.Adapter{wh})
 	if caps == nil {
 		t.Fatal("caps = nil; want non-nil intersection")
 	}

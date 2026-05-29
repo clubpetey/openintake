@@ -240,8 +240,8 @@ func TestStartupProblems_BadSessionTTL_TreatedAsProblem(t *testing.T) {
 
 func TestStartupProblems_BadIdleTTL_TreatedAsProblem(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.RateLimit.PerSession.SessionTTL = "1h"   // valid
-	cfg.RateLimit.PerIP.IdleTTL = "15min"        // invalid — should be "15m"
+	cfg.RateLimit.PerSession.SessionTTL = "1h" // valid
+	cfg.RateLimit.PerIP.IdleTTL = "15min"      // invalid — should be "15m"
 	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject"
 
 	problems, _ := startupProblems(cfg)

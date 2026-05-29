@@ -1,7 +1,7 @@
 // Phase 6 (6-i): optional Capabilities() seam for adapters that advertise
 // what attachment MIME types they accept. The frozen Adapter interface is
 // UNCHANGED — Capabilities is a separate, optional interface discovered via
-// a type assertion (see server.computeAttachmentsCaps).
+// a type assertion (see server.ComputeAttachmentsCaps).
 //
 // In v0 all five built-in adapters return the same list
 // ["image/png","image/jpeg","image/webp"]. The struct exists so v1+ can

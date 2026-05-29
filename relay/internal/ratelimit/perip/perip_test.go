@@ -12,7 +12,7 @@ import (
 // fakeClock returns time.Time values from a controllable counter.
 type fakeClock struct{ now time.Time }
 
-func (c *fakeClock) Now() time.Time         { return c.now }
+func (c *fakeClock) Now() time.Time          { return c.now }
 func (c *fakeClock) advance(d time.Duration) { c.now = c.now.Add(d) }
 
 func newClock() *fakeClock {

@@ -42,9 +42,9 @@ type fakeAdapter struct {
 	received *payload.IntakePayload
 }
 
-func (a *fakeAdapter) Name() string                    { return "fake-webhook" }
-func (a *fakeAdapter) RequiresLicense() bool           { return false }
-func (a *fakeAdapter) Configure(map[string]any) error  { return nil }
+func (a *fakeAdapter) Name() string                      { return "fake-webhook" }
+func (a *fakeAdapter) RequiresLicense() bool             { return false }
+func (a *fakeAdapter) Configure(map[string]any) error    { return nil }
 func (a *fakeAdapter) HealthCheck(context.Context) error { return nil }
 func (a *fakeAdapter) Create(_ context.Context, p *payload.IntakePayload) (*adapter.CreateResult, error) {
 	a.received = p
@@ -208,7 +208,7 @@ func TestSubmitHandler_IntegrationWithHttptestWebhook(t *testing.T) {
 
 	wh := webhookadapter.New()
 	if err := wh.Configure(map[string]any{
-		"url": receiver.URL,
+		"url":   receiver.URL,
 		"retry": map[string]any{"max_attempts": 1, "backoff": "fixed"},
 	}); err != nil {
 		t.Fatalf("Configure webhook: %v", err)

@@ -5,7 +5,7 @@ package dto
 
 // TurnMessage is a single conversation turn (user or assistant).
 type TurnMessage struct {
-	Role    string `json:"role"`    // "user" | "assistant"
+	Role    string `json:"role"` // "user" | "assistant"
 	Content string `json:"content"`
 }
 
@@ -47,7 +47,8 @@ type SubmitRequest struct {
 // net/http.DetectContentType in attachvalidate.ValidateAll. Type is
 // "screenshot" only in v0; "file" is rejected at attachvalidate with
 // 400 attachment_type_unsupported (schema permits "file" so v1 can enable it
-// without a schema bump).
+// without a schema bump). Label is the optional human-friendly caption;
+// empty string normalised to nil on the canonical payload.
 type SubmitAttachment struct {
 	Type     string `json:"type"`
 	MIMEType string `json:"mime_type"`

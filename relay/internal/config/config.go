@@ -11,12 +11,12 @@ import (
 // additively by later sub-plans (add fields inside the nested structs; do not
 // restructure the top-level shape).
 type Config struct {
-	Server    ServerConfig    `yaml:"server"`
-	LLM       LLMConfig       `yaml:"llm"`
-	Auth      AuthConfig      `yaml:"auth"`
-	Adapters  AdaptersConfig  `yaml:"adapters"`
-	Routing   RoutingConfig   `yaml:"routing"`
-	License   LicenseConfig   `yaml:"license"`
+	Server      ServerConfig      `yaml:"server"`
+	LLM         LLMConfig         `yaml:"llm"`
+	Auth        AuthConfig        `yaml:"auth"`
+	Adapters    AdaptersConfig    `yaml:"adapters"`
+	Routing     RoutingConfig     `yaml:"routing"`
+	License     LicenseConfig     `yaml:"license"`
 	Captcha     CaptchaConfig     `yaml:"captcha"`     // Phase 5
 	RateLimit   RateLimitConfig   `yaml:"ratelimit"`   // Phase 5
 	Attachments AttachmentsConfig `yaml:"attachments"` // Phase 6
@@ -121,10 +121,10 @@ type EmailConfig struct {
 // SSOConfig configures host-app SSO. Exactly one of JWKSURL (RS256) or
 // HS256SecretEnv (HS256) must be set; both-set or neither-set is a startup error.
 type SSOConfig struct {
-	Issuer         string    `yaml:"issuer"`           // expected `iss` claim
-	Audience       string    `yaml:"audience"`         // expected `aud` claim
-	JWKSURL        string    `yaml:"jwks_url"`         // RS256 path
-	HS256SecretEnv string    `yaml:"hs256_secret_env"` // HS256 path; env var name
+	Issuer         string        `yaml:"issuer"`           // expected `iss` claim
+	Audience       string        `yaml:"audience"`         // expected `aud` claim
+	JWKSURL        string        `yaml:"jwks_url"`         // RS256 path
+	HS256SecretEnv string        `yaml:"hs256_secret_env"` // HS256 path; env var name
 	Claims         SSOClaimNames `yaml:"claims"`
 }
 

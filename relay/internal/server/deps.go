@@ -106,7 +106,7 @@ type Deps struct {
 	AttachmentsCfg config.AttachmentsConfig
 
 	// AttachmentMIMEs is the published allowlist (cfg.AllowedMIMETypes ∩ enabled
-	// adapter union), computed once at startup via computeAttachmentsCaps. Empty
+	// adapter union), computed once at startup via ComputeAttachmentsCaps. Empty
 	// → /init omits capabilities.attachments AND submitHandler refuses any
 	// non-empty attachments[] with 400 attachments_disabled.
 	AttachmentMIMEs []string

@@ -147,8 +147,8 @@ func TestStoreWithCaps_RecordTurnClampsNegativeTokens(t *testing.T) {
 	s := auth.NewStoreWithCaps(0, 100, time.Hour, c.Now)
 	id := s.Issue()
 
-	s.RecordTurn(id, 50)     // cumInputTokens = 50
-	s.RecordTurn(id, -1000)  // would decrement to -950 without the clamp
+	s.RecordTurn(id, 50)    // cumInputTokens = 50
+	s.RecordTurn(id, -1000) // would decrement to -950 without the clamp
 
 	// After two RecordTurns, turns should be exactly 2 (the clamp doesn't suppress
 	// the turn increment).

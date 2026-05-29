@@ -31,7 +31,7 @@ type Capabilities struct {
 // accepts any allowed type; widget hides the Attach button. The list is the
 // intersection of cfg.Attachments.AllowedMIMETypes and the union across
 // enabled adapters' Capabilities().AcceptedMIMETypes (computed once at
-// startup in main.go via computeAttachmentsCaps).
+// startup in main.go via ComputeAttachmentsCaps).
 type CapabilitiesAttachments struct {
 	MaxSizeBytes     int      `json:"max_size_bytes"`
 	MaxTotalBytes    int      `json:"max_total_bytes"`

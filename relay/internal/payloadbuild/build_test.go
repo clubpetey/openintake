@@ -51,7 +51,7 @@ func testSubmitRequest() *dto.SubmitRequest {
 		},
 		UserClaims: map[string]any{},
 		Context: dto.ContextInfo{
-			AppContext:    map[string]any{"env": "test"},
+			AppContext:   map[string]any{"env": "test"},
 			PageMetadata: map[string]any{"title": "Home"},
 		},
 	}
@@ -128,8 +128,8 @@ func TestBuild_EmbeddedSchemaIsIdenticalToCanonical(t *testing.T) {
 	}
 
 	if string(embedded) != string(canonical) {
-		t.Errorf("embedded schema.json is NOT byte-identical to schema/payload.v1.json\n"+
-			"Run: cd relay && go generate ./internal/payloadbuild/...\n"+
+		t.Errorf("embedded schema.json is NOT byte-identical to schema/payload.v1.json\n" +
+			"Run: cd relay && go generate ./internal/payloadbuild/...\n" +
 			"to regenerate the embedded copy.")
 	}
 }
@@ -177,7 +177,8 @@ func TestBuild_PopulatesAttachmentsFromRequest(t *testing.T) {
 		t.Errorf("Label not carried: %+v", p.Attachments[0].Label)
 	}
 	if p.Attachments[1].Label != nil {
-		t.Errorf("Empty label should be nil-pointer; got %v", *p.Attachments[1].Label)
+		got := *p.Attachments[1].Label
+		t.Errorf("Empty label should be nil-pointer; got %q", got)
 	}
 }
 

@@ -125,7 +125,7 @@ func initHandler(deps Deps) http.HandlerFunc {
 		}
 		// Phase 6 (6-i): emit capabilities.attachments when the published
 		// allowlist (cfg.AllowedMIMETypes ∩ enabled adapter union, computed
-		// once at startup by computeAttachmentsCaps) is non-empty.
+		// once at startup by ComputeAttachmentsCaps) is non-empty.
 		if deps.AttachmentsCfg.Enabled && len(deps.AttachmentMIMEs) > 0 {
 			caps.Attachments = &CapabilitiesAttachments{
 				MaxSizeBytes:     deps.AttachmentsCfg.MaxSizeBytes,

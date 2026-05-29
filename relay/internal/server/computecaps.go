@@ -5,7 +5,7 @@ import (
 	"intake/internal/config"
 )
 
-// computeAttachmentsCaps returns the CapabilitiesAttachments to advertise on
+// ComputeAttachmentsCaps returns the CapabilitiesAttachments to advertise on
 // /init. Returns nil when:
 //   - cfg.Enabled is false, OR
 //   - cfg.AllowedMIMETypes is empty, OR
@@ -18,7 +18,7 @@ import (
 //
 // Called once at startup from main.go; the result lives in deps.AttachmentMIMEs
 // (the published allowlist) and feeds initHandler's Capabilities emission.
-func computeAttachmentsCaps(cfg config.AttachmentsConfig, enabled []adapter.Adapter) *CapabilitiesAttachments {
+func ComputeAttachmentsCaps(cfg config.AttachmentsConfig, enabled []adapter.Adapter) *CapabilitiesAttachments {
 	if !cfg.Enabled || len(cfg.AllowedMIMETypes) == 0 {
 		return nil
 	}
@@ -49,13 +49,4 @@ func computeAttachmentsCaps(cfg config.AttachmentsConfig, enabled []adapter.Adap
 		MaxTotalBytes:    cfg.MaxTotalBytes,
 		AllowedMIMETypes: allowed,
 	}
-}
-
-// ComputeAttachmentsCaps is the exported wrapper for main.go. The unexported
-// computeAttachmentsCaps is used by initHandler in the same package; this
-// wrapper lets cmd/relay/main.go reuse the same intersection logic so the
-// published allowlist on /init exactly matches the allowlist submitHandler
-// uses to gate incoming attachments.
-func ComputeAttachmentsCaps(cfg config.AttachmentsConfig, enabled []adapter.Adapter) *CapabilitiesAttachments {
-	return computeAttachmentsCaps(cfg, enabled)
 }

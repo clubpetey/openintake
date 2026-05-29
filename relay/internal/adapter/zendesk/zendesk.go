@@ -248,4 +248,3 @@ func (a *Adapter) HealthCheck(ctx context.Context) error {
 	}
 	return nil
 }
-
