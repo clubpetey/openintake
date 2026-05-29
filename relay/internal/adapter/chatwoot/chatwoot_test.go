@@ -1,7 +1,9 @@
 package chatwoot_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -354,6 +356,206 @@ func TestChatwootConfigure_MissingKeys(t *testing.T) {
 			t.Fatalf("expected error naming inbox_id, got %v", err)
 		}
 	})
+}
+
+// goldenPNGBytes is a 1×1 transparent PNG (smallest valid PNG byte sequence)
+// used by attachment tests so DecodeOne's magic-byte path agrees with the
+// declared mime_type.
+var goldenPNGBytes = []byte{
+	0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+	0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+	0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+	0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+	0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41,
+	0x54, 0x78, 0x9C, 0x62, 0x00, 0x01, 0x00, 0x00,
+	0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+	0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+	0x42, 0x60, 0x82,
+}
+
+// goldenPNGDataURL is the base64-encoded data: URL form of goldenPNGBytes.
+var goldenPNGDataURL = "data:image/png;base64," + base64.StdEncoding.EncodeToString(goldenPNGBytes)
+
+// TestChatwootCreate_AttachmentsMultipart asserts the conversation-create call
+// switches to multipart/form-data when attachments are present and the body
+// contains the expected form fields + one attachments[] part per attachment
+// carrying the decoded raw bytes with the correct Content-Type/filename.
+func TestChatwootCreate_AttachmentsMultipart(t *testing.T) {
+	var convCT string
+	var convFields map[string]string
+	type uploadedPart struct {
+		filename string
+		ctype    string
+		bytes    []byte
+	}
+	var convAttachments []uploadedPart
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/accounts/1/contacts":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"payload":{"contact":{"id":50},"contact_inbox":{"id":42,"source_id":"src-uuid-mp"}}}`))
+
+		case "/api/v1/accounts/1/conversations":
+			convCT = r.Header.Get("Content-Type")
+			convFields = map[string]string{}
+			if err := r.ParseMultipartForm(10 << 20); err != nil {
+				t.Fatalf("ParseMultipartForm: %v", err)
+			}
+			for k, vs := range r.MultipartForm.Value {
+				if len(vs) > 0 {
+					convFields[k] = vs[0]
+				}
+			}
+			for _, fh := range r.MultipartForm.File["attachments[]"] {
+				f, err := fh.Open()
+				if err != nil {
+					t.Fatalf("open part: %v", err)
+				}
+				b, err := io.ReadAll(f)
+				_ = f.Close()
+				if err != nil {
+					t.Fatalf("read part: %v", err)
+				}
+				convAttachments = append(convAttachments, uploadedPart{
+					filename: fh.Filename,
+					ctype:    fh.Header.Get("Content-Type"),
+					bytes:    b,
+				})
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":999}`))
+
+		default:
+			t.Errorf("unexpected request path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	p := minimalPayload()
+	label := "before-save.png"
+	p.Attachments = []payload.Attachment{{
+		Type:      payload.AttachmentTypeScreenshot,
+		MimeType:  "image/png",
+		Url:       goldenPNGDataURL,
+		SizeBytes: len(goldenPNGBytes),
+		Label:     &label,
+	}}
+
+	a := configure(t, srv.URL)
+	result, err := a.Create(context.Background(), p)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if !strings.HasPrefix(convCT, "multipart/form-data") {
+		t.Errorf("conversation Content-Type = %q; want multipart/form-data", convCT)
+	}
+	if convFields["inbox_id"] != "3" {
+		t.Errorf("multipart inbox_id = %q; want 3", convFields["inbox_id"])
+	}
+	if convFields["source_id"] != "src-uuid-mp" {
+		t.Errorf("multipart source_id = %q; want src-uuid-mp", convFields["source_id"])
+	}
+	if convFields["contact_id"] != "50" {
+		t.Errorf("multipart contact_id = %q; want 50", convFields["contact_id"])
+	}
+	if got := convFields["message[content]"]; !strings.Contains(got, "Save button does nothing") {
+		t.Errorf("multipart message[content] missing title; got: %q", got)
+	}
+	if len(convAttachments) != 1 {
+		t.Fatalf("attachments[] parts = %d; want 1", len(convAttachments))
+	}
+	part := convAttachments[0]
+	if part.filename != "before-save.png" {
+		t.Errorf("part.filename = %q; want before-save.png", part.filename)
+	}
+	if part.ctype != "image/png" {
+		t.Errorf("part Content-Type = %q; want image/png", part.ctype)
+	}
+	if !bytes.Equal(part.bytes, goldenPNGBytes) {
+		t.Errorf("part bytes mismatch (len=%d, want=%d)", len(part.bytes), len(goldenPNGBytes))
+	}
+	if result.ExternalID != "999" {
+		t.Errorf("ExternalID = %q; want 999", result.ExternalID)
+	}
+}
+
+// TestChatwootCreate_NoAttachmentsJSONPathUnchanged asserts that when
+// p.Attachments is empty the conversation-create body stays application/json
+// (L015 regression — existing JSON path must not flip to multipart by accident).
+func TestChatwootCreate_NoAttachmentsJSONPathUnchanged(t *testing.T) {
+	var convCT string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/accounts/1/contacts":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"payload":{"contact":{"id":50},"contact_inbox":{"id":42,"source_id":"src-uuid"}}}`))
+		case "/api/v1/accounts/1/conversations":
+			convCT = r.Header.Get("Content-Type")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":1}`))
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	a := configure(t, srv.URL)
+	if _, err := a.Create(context.Background(), minimalPayload()); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if convCT != "application/json" {
+		t.Errorf("no-attachments path Content-Type = %q; want application/json", convCT)
+	}
+}
+
+// TestChatwootCreate_AttachmentsLabelFallback asserts a nil/empty Label
+// produces the "screenshot N" (1-indexed) filename per the design matrix.
+func TestChatwootCreate_AttachmentsLabelFallback(t *testing.T) {
+	var filenames []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/accounts/1/contacts":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"payload":{"contact":{"id":50},"contact_inbox":{"id":42,"source_id":"s"}}}`))
+		case "/api/v1/accounts/1/conversations":
+			if err := r.ParseMultipartForm(10 << 20); err != nil {
+				t.Fatalf("ParseMultipartForm: %v", err)
+			}
+			for _, fh := range r.MultipartForm.File["attachments[]"] {
+				filenames = append(filenames, fh.Filename)
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":1}`))
+		}
+	}))
+	defer srv.Close()
+
+	p := minimalPayload()
+	p.Attachments = []payload.Attachment{
+		{Type: payload.AttachmentTypeScreenshot, MimeType: "image/png", Url: goldenPNGDataURL, SizeBytes: len(goldenPNGBytes)},
+		{Type: payload.AttachmentTypeScreenshot, MimeType: "image/png", Url: goldenPNGDataURL, SizeBytes: len(goldenPNGBytes)},
+	}
+	a := configure(t, srv.URL)
+	if _, err := a.Create(context.Background(), p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if len(filenames) != 2 {
+		t.Fatalf("filenames len = %d; want 2", len(filenames))
+	}
+	if filenames[0] != "screenshot 1" {
+		t.Errorf("filenames[0] = %q; want screenshot 1", filenames[0])
+	}
+	if filenames[1] != "screenshot 2" {
+		t.Errorf("filenames[1] = %q; want screenshot 2", filenames[1])
+	}
 }
 
 // TestChatwootConfigure_AcceptsFloatIDs asserts account_id/inbox_id accept the

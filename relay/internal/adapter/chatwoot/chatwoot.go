@@ -23,11 +23,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
+	"strconv"
 	"strings"
 	"time"
 
 	"intake/internal/adapter"
+	"intake/internal/attachvalidate"
 	"intake/internal/payload"
 )
 
@@ -231,33 +235,55 @@ func (a *Adapter) createContact(ctx context.Context, p *payload.IntakePayload) (
 
 // Create executes the two-call flow: first creates a contact tied to the inbox
 // to obtain a valid source_id, then creates the conversation using that
-// source_id and the contact id. Non-2xx at either step returns an error
-// including the truncated response body but never the token.
+// source_id and the contact id.
+//
+// Phase 6 (6-ii): when p.Attachments is non-empty, the conversation-create
+// body switches from application/json to multipart/form-data with one
+// attachments[] part per attachment carrying the decoded raw bytes. When
+// empty, the existing application/json body is used unchanged (L015
+// regression — the JSON path is byte-identical to the Phase 3 behavior).
+//
+// Non-2xx at either step returns an error including the truncated response
+// body but never the token.
 func (a *Adapter) Create(ctx context.Context, p *payload.IntakePayload) (*adapter.CreateResult, error) {
-	// Step 1: create contact and obtain contact_inbox source_id.
+	// Step 1: create contact and obtain contact_inbox source_id. Unchanged.
 	contactID, sourceID, err := a.createContact(ctx, p)
 	if err != nil {
 		return nil, err
 	}
 
-	// Step 2: create conversation using the returned source_id and contact id.
-	reqBody := conversationRequest{
-		InboxID:   a.inboxID,
-		SourceID:  sourceID,
-		ContactID: contactID,
-		Message:   conversationMsg{Content: renderBody(p)},
-	}
-	body, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("chatwoot: marshal conversation request: %w", err)
-	}
-
+	// Step 2: create conversation. Two body shapes: JSON (no attachments) or
+	// multipart/form-data (with attachments). The endpoint path is identical.
 	url := fmt.Sprintf("%s/api/v1/accounts/%d/conversations", a.baseURL, a.accountID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("chatwoot: build conversation request: %w", err)
+
+	var req *http.Request
+	if len(p.Attachments) == 0 {
+		reqBody := conversationRequest{
+			InboxID:   a.inboxID,
+			SourceID:  sourceID,
+			ContactID: contactID,
+			Message:   conversationMsg{Content: renderBody(p)},
+		}
+		body, mErr := json.Marshal(reqBody)
+		if mErr != nil {
+			return nil, fmt.Errorf("chatwoot: marshal conversation request: %w", mErr)
+		}
+		req, err = http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+		if err != nil {
+			return nil, fmt.Errorf("chatwoot: build conversation request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+	} else {
+		body, ctype, mpErr := buildConversationMultipart(p, a.inboxID, sourceID, contactID)
+		if mpErr != nil {
+			return nil, mpErr
+		}
+		req, err = http.NewRequestWithContext(ctx, http.MethodPost, url, body)
+		if err != nil {
+			return nil, fmt.Errorf("chatwoot: build conversation request: %w", err)
+		}
+		req.Header.Set("Content-Type", ctype)
 	}
-	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("api_access_token", a.apiToken)
 
 	resp, err := a.client.Do(req)
@@ -283,6 +309,63 @@ func (a *Adapter) Create(ctx context.Context, p *payload.IntakePayload) (*adapte
 		AdapterName: "chatwoot",
 		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
 	}, nil
+}
+
+// buildConversationMultipart constructs the multipart/form-data body for the
+// conversation-create call when attachments are present. Returns the body,
+// the Content-Type header value (including the multipart boundary), and any
+// error encountered while decoding an attachment's data: URL or writing the
+// multipart parts.
+//
+// Per design spec §7.2: fields inbox_id, source_id, contact_id, message[content];
+// one attachments[] part per p.Attachments entry. Filename falls back to
+// "screenshot N" (1-indexed) when Label is nil/empty.
+func buildConversationMultipart(p *payload.IntakePayload, inboxID int, sourceID string, contactID json.Number) (*bytes.Buffer, string, error) {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+
+	if err := w.WriteField("inbox_id", strconv.Itoa(inboxID)); err != nil {
+		return nil, "", fmt.Errorf("chatwoot: multipart field inbox_id: %w", err)
+	}
+	if err := w.WriteField("source_id", sourceID); err != nil {
+		return nil, "", fmt.Errorf("chatwoot: multipart field source_id: %w", err)
+	}
+	if err := w.WriteField("contact_id", contactID.String()); err != nil {
+		return nil, "", fmt.Errorf("chatwoot: multipart field contact_id: %w", err)
+	}
+	if err := w.WriteField("message[content]", renderBody(p)); err != nil {
+		return nil, "", fmt.Errorf("chatwoot: multipart field message[content]: %w", err)
+	}
+
+	for i, att := range p.Attachments {
+		raw, _, err := attachvalidate.DecodeOne(att)
+		if err != nil {
+			return nil, "", fmt.Errorf("chatwoot: decode attachment %d: %w", i+1, err)
+		}
+		filename := ""
+		if att.Label != nil {
+			filename = *att.Label
+		}
+		if filename == "" {
+			filename = fmt.Sprintf("screenshot %d", i+1)
+		}
+		hdr := textproto.MIMEHeader{
+			"Content-Disposition": []string{fmt.Sprintf(`form-data; name="attachments[]"; filename=%q`, filename)},
+			"Content-Type":        []string{att.MimeType},
+		}
+		part, err := w.CreatePart(hdr)
+		if err != nil {
+			return nil, "", fmt.Errorf("chatwoot: multipart create part %d: %w", i+1, err)
+		}
+		if _, err := part.Write(raw); err != nil {
+			return nil, "", fmt.Errorf("chatwoot: multipart write part %d: %w", i+1, err)
+		}
+	}
+
+	if err := w.Close(); err != nil {
+		return nil, "", fmt.Errorf("chatwoot: multipart close: %w", err)
+	}
+	return &buf, w.FormDataContentType(), nil
 }
 
 // extractConversationID parses {"id": <number>} from the response. Chatwoot
