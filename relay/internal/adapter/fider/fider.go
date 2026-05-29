@@ -175,6 +175,13 @@ func (a *Adapter) HealthCheck(ctx context.Context) error {
 // renderBody builds the post description: the summary, a blank line, then each
 // message as "<Role>: <Content>". Unlike chatwoot, the title is a separate Fider
 // API field (the `title` POST field) and is deliberately NOT repeated here.
+//
+// Phase 6 (6-ii): when p.Attachments is non-empty, each attachment is appended
+// as a markdown image reference using the original data: URL verbatim — Label
+// as alt text, falling back to "screenshot N" (1-indexed) when Label is nil
+// or empty. The Fider markdown renderer inlines data: URLs as <img src=…>;
+// if a deployment's sanitizer strips them, the post still has the full
+// conversation text (graceful degradation per design spec §3 Q-B).
 func renderBody(p *payload.IntakePayload) string {
 	var b strings.Builder
 	b.WriteString(p.Conversation.Summary)
@@ -184,6 +191,20 @@ func renderBody(p *payload.IntakePayload) string {
 		b.WriteString(": ")
 		b.WriteString(m.Content)
 		b.WriteString("\n")
+	}
+	for i, att := range p.Attachments {
+		label := ""
+		if att.Label != nil {
+			label = *att.Label
+		}
+		if label == "" {
+			label = fmt.Sprintf("screenshot %d", i+1)
+		}
+		b.WriteString("\n![")
+		b.WriteString(label)
+		b.WriteString("](")
+		b.WriteString(att.Url)
+		b.WriteString(")\n")
 	}
 	return b.String()
 }
