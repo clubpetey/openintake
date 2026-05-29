@@ -111,3 +111,10 @@ ratelimit:
     max_input_tokens: 1000000
     max_output_tokens: 200000
     action_on_exceeded: "reject"
+attachments:
+  enabled: true
+  max_size_bytes: 5242880
+  max_total_bytes: 10485760
+  allowed_mime_types: ["image/png", "image/jpeg", "image/webp"]
+  storage:
+    mode: "forward"
