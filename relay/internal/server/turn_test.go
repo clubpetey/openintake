@@ -606,3 +606,40 @@ func TestInitHandler_CaptchaTokenIgnoredWhenNotRequired(t *testing.T) {
 		t.Errorf("Verifier called %d times; want 0 (captcha disabled)", v.calls)
 	}
 }
+
+func TestCapabilities_AttachmentsRoundTrip(t *testing.T) {
+	caps := server.Capabilities{
+		AuthModes: []string{"anonymous"},
+		Streaming: true,
+		Attachments: &server.CapabilitiesAttachments{
+			MaxSizeBytes:     5_242_880,
+			MaxTotalBytes:    10_485_760,
+			AllowedMIMETypes: []string{"image/png", "image/jpeg", "image/webp"},
+		},
+	}
+	raw, err := json.Marshal(caps)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var out server.Capabilities
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out.Attachments == nil {
+		t.Fatal("Attachments round-tripped to nil")
+	}
+	if out.Attachments.MaxSizeBytes != 5_242_880 {
+		t.Errorf("MaxSizeBytes = %d; want 5_242_880", out.Attachments.MaxSizeBytes)
+	}
+}
+
+func TestCapabilities_AttachmentsNilOmitsKey(t *testing.T) {
+	caps := server.Capabilities{AuthModes: []string{"anonymous"}, Streaming: true}
+	raw, err := json.Marshal(caps)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(raw), "attachments") {
+		t.Errorf("nil Attachments should omit the key; got %s", string(raw))
+	}
+}
