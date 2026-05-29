@@ -282,28 +282,28 @@ async function smokeEnabledArm(): Promise<void> {
       '6 MB attachment code is attachment_too_large',
     );
 
-    // 4. two 6 MB attachments -> 413 attachment_too_large (first encountered).
-    const r4 = await submit(session, [
-      { type: 'screenshot', mime_type: 'image/png', url: big },
-      { type: 'screenshot', mime_type: 'image/png', url: big },
-    ]);
-    assert(r4.status === 413, `two 6 MB attachments returns 413 (got ${r4.status})`);
-    assert(
-      parseErr(r4.body)?.error.code === 'attachment_too_large',
-      'two 6 MB attachments code is attachment_too_large (first sentinel)',
-    );
+    // 4. Note: the sub-plan's original "two 6 MB attachments" case is dropped
+    //    because two 6 MB raw attachments base64-encode to ~16 MB, exceeding the
+    //    14 MB body cap; the request_body_too_large gate fires before the
+    //    per-attachment cap can be evaluated. This is L019 territory (don't
+    //    shadow gates). Step 3 above already exercises the per-attachment cap;
+    //    step 5 below exercises the aggregate cap. The "first encountered
+    //    sentinel" ordering is asserted in attachvalidate unit tests, not here.
 
-    // 5. three 4 MB attachments -> 413 attachments_exceed_total.
-    const four = makeSizedDataURL('image/png', 4 * 1024 * 1024);
+    // 5. aggregate cap: three 3.4 MB attachments = 10.2 MB raw (> 10 MB total cap)
+    //    but base64-encoded body ~13.7 MB stays under the 14 MB MaxBytesReader.
+    //    Fixture math (L019): per-attachment cap is 5 MB so 3.4 MB clears it;
+    //    aggregate is 10.2 MB so the sentinel fires.
+    const mid = makeSizedDataURL('image/png', Math.floor(3.4 * 1024 * 1024));
     const r5 = await submit(session, [
-      { type: 'screenshot', mime_type: 'image/png', url: four },
-      { type: 'screenshot', mime_type: 'image/png', url: four },
-      { type: 'screenshot', mime_type: 'image/png', url: four },
+      { type: 'screenshot', mime_type: 'image/png', url: mid },
+      { type: 'screenshot', mime_type: 'image/png', url: mid },
+      { type: 'screenshot', mime_type: 'image/png', url: mid },
     ]);
-    assert(r5.status === 413, `three 4 MB attachments returns 413 (got ${r5.status})`);
+    assert(r5.status === 413, `three 3.4 MB attachments returns 413 (got ${r5.status})`);
     assert(
       parseErr(r5.body)?.error.code === 'attachments_exceed_total',
-      'three 4 MB attachments code is attachments_exceed_total',
+      'three 3.4 MB attachments code is attachments_exceed_total',
     );
 
     // 6. MIME mismatch: declared image/png but JPEG bytes -> 415.
