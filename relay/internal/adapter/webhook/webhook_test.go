@@ -204,6 +204,100 @@ func TestWebhookCreate_CtxCancelDuringBackoff(t *testing.T) {
 	t.Logf("Create returned in %v with error: %v", elapsed, err)
 }
 
+// TestWebhookCreate_AttachmentsPassthrough asserts that p.Attachments are
+// serialized in the JSON body verbatim (the data: URLs survive intact).
+// This is the Phase 6 6-ii contract for the webhook adapter: no native upload,
+// just JSON pass-through, so receivers can decode the data: URLs themselves.
+func TestWebhookCreate_AttachmentsPassthrough(t *testing.T) {
+	const dataURL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+
+	var received []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var err error
+		received, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	a := webhook.New()
+	if err := a.Configure(map[string]any{"url": srv.URL}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+
+	p := minimalPayload()
+	label := "screenshot 1"
+	p.Attachments = []payload.Attachment{{
+		Type:      payload.AttachmentTypeScreenshot,
+		MimeType:  "image/png",
+		Url:       dataURL,
+		SizeBytes: 70,
+		Label:     &label,
+	}}
+	if _, err := a.Create(context.Background(), p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	var parsed struct {
+		Attachments []struct {
+			Type     string `json:"type"`
+			MimeType string `json:"mime_type"`
+			URL      string `json:"url"`
+			Label    string `json:"label"`
+		} `json:"attachments"`
+	}
+	if err := json.Unmarshal(received, &parsed); err != nil {
+		t.Fatalf("receiver body not valid JSON: %v\nbody: %s", err, received)
+	}
+	if len(parsed.Attachments) != 1 {
+		t.Fatalf("attachments len = %d; want 1", len(parsed.Attachments))
+	}
+	got := parsed.Attachments[0]
+	if got.Type != "screenshot" {
+		t.Errorf("attachments[0].type = %q; want screenshot", got.Type)
+	}
+	if got.MimeType != "image/png" {
+		t.Errorf("attachments[0].mime_type = %q; want image/png", got.MimeType)
+	}
+	if got.URL != dataURL {
+		t.Errorf("attachments[0].url not preserved verbatim:\n got: %q\nwant: %q", got.URL, dataURL)
+	}
+	if got.Label != "screenshot 1" {
+		t.Errorf("attachments[0].label = %q; want screenshot 1", got.Label)
+	}
+}
+
+// TestWebhookCreate_NoAttachmentsOmitsField asserts the no-attachments path
+// (L015 regression) — when p.Attachments is empty, the marshaled JSON must
+// omit the field entirely (omitempty on the generated type).
+func TestWebhookCreate_NoAttachmentsOmitsField(t *testing.T) {
+	var received []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	a := webhook.New()
+	if err := a.Configure(map[string]any{"url": srv.URL}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	if _, err := a.Create(context.Background(), minimalPayload()); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(received, &parsed); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if _, has := parsed["attachments"]; has {
+		t.Errorf("attachments key present in JSON when empty; want omitted (omitempty)")
+	}
+}
+
 // TestWebhookCreate_CustomHeaders asserts configured headers are sent.
 func TestWebhookCreate_CustomHeaders(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
