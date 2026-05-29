@@ -11,19 +11,22 @@ import (
 // additively by later sub-plans (add fields inside the nested structs; do not
 // restructure the top-level shape).
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	LLM      LLMConfig      `yaml:"llm"`
-	Auth     AuthConfig     `yaml:"auth"`
-	Adapters AdaptersConfig `yaml:"adapters"`
-	Routing  RoutingConfig  `yaml:"routing"`
-	License  LicenseConfig  `yaml:"license"`
+	Server    ServerConfig    `yaml:"server"`
+	LLM       LLMConfig       `yaml:"llm"`
+	Auth      AuthConfig      `yaml:"auth"`
+	Adapters  AdaptersConfig  `yaml:"adapters"`
+	Routing   RoutingConfig   `yaml:"routing"`
+	License   LicenseConfig   `yaml:"license"`
+	Captcha   CaptchaConfig   `yaml:"captcha"`   // Phase 5
+	RateLimit RateLimitConfig `yaml:"ratelimit"` // Phase 5
 }
 
 // ServerConfig holds HTTP server and CORS settings.
 type ServerConfig struct {
-	Addr        string   `yaml:"addr"`
-	ExternalURL string   `yaml:"external_url"`
-	CORSOrigins []string `yaml:"cors_origins"`
+	Addr           string   `yaml:"addr"`
+	ExternalURL    string   `yaml:"external_url"`
+	CORSOrigins    []string `yaml:"cors_origins"`
+	TrustedProxies []string `yaml:"trusted_proxies"` // Phase 5: CIDR list; empty = always use RemoteAddr
 }
 
 // LLMConfig selects the active provider and holds per-provider config.
@@ -75,9 +78,18 @@ type OllamaConfig struct {
 
 // AuthConfig selects which auth modes are enabled and configures email/SSO.
 type AuthConfig struct {
-	Modes AuthModes   `yaml:"modes"`
-	Email EmailConfig `yaml:"email"`
-	SSO   SSOConfig   `yaml:"sso"`
+	Modes     AuthModes       `yaml:"modes"`
+	Email     EmailConfig     `yaml:"email"`
+	SSO       SSOConfig       `yaml:"sso"`
+	Anonymous AnonymousConfig `yaml:"anonymous"` // Phase 5 Q9 escape hatch
+}
+
+// AnonymousConfig configures anonymous mode (Phase 5).
+type AnonymousConfig struct {
+	// AllowWithoutCaptcha is the Q9 escape hatch (PROJECT.md §19 Q9):
+	// when true, the relay starts even though auth.modes.anonymous=true and
+	// captcha is not gating anonymous. Default false (fail-closed).
+	AllowWithoutCaptcha bool `yaml:"allow_without_captcha"`
 }
 
 // AuthModes enables or disables specific auth strategies.
@@ -230,6 +242,77 @@ func (s *StringList) UnmarshalYAML(value *yaml.Node) error {
 	return nil
 }
 
+// CaptchaConfig configures the optional CAPTCHA challenge gate at /v1/intake/init.
+// All secrets reference an env var name; the value resolves via ResolveSecret in main.go.
+type CaptchaConfig struct {
+	Enabled      bool   `yaml:"enabled"`
+	Provider     string `yaml:"provider"`       // "turnstile" | "hcaptcha"
+	SiteKey      string `yaml:"site_key"`       // public; safe to commit
+	SecretKeyEnv string `yaml:"secret_key_env"` // env var name; ResolveSecret
+	// RequiredFor lists the auth modes that must solve a CAPTCHA before /init mints
+	// a session. Default applied by applyDefaults when YAML omits the key: ["anonymous"].
+	// An explicit empty list `required_for: []` is honored (operator opted out).
+	RequiredFor []string `yaml:"required_for"`
+}
+
+// captchaConfigRaw lets us detect "key omitted entirely" vs "explicit empty list".
+type captchaConfigRaw struct {
+	Enabled      bool      `yaml:"enabled"`
+	Provider     string    `yaml:"provider"`
+	SiteKey      string    `yaml:"site_key"`
+	SecretKeyEnv string    `yaml:"secret_key_env"`
+	RequiredFor  *[]string `yaml:"required_for"` // pointer distinguishes nil vs []
+}
+
+// UnmarshalYAML implements yaml.Unmarshaler so we can distinguish a missing
+// required_for key (apply default) from an explicit empty list (honor as-is).
+func (c *CaptchaConfig) UnmarshalYAML(value *yaml.Node) error {
+	var raw captchaConfigRaw
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	c.Enabled = raw.Enabled
+	c.Provider = raw.Provider
+	c.SiteKey = raw.SiteKey
+	c.SecretKeyEnv = raw.SecretKeyEnv
+	if raw.RequiredFor != nil {
+		c.RequiredFor = *raw.RequiredFor
+		if c.RequiredFor == nil {
+			c.RequiredFor = []string{} // normalise: explicit empty is non-nil
+		}
+	}
+	// raw.RequiredFor == nil → leave c.RequiredFor as nil; applyDefaults will populate
+	return nil
+}
+
+// RateLimitConfig holds the Phase-5 abuse-control sub-configurations.
+type RateLimitConfig struct {
+	PerIP          PerIPConfig          `yaml:"per_ip"`
+	PerSession     PerSessionConfig     `yaml:"per_session"`
+	DailyLLMBudget DailyLLMBudgetConfig `yaml:"daily_llm_budget"`
+}
+
+// PerIPConfig configures the per-IP token bucket.
+type PerIPConfig struct {
+	RequestsPerSecond float64 `yaml:"requests_per_second"` // default 1.0
+	Burst             int     `yaml:"burst"`               // default 5
+	IdleTTL           string  `yaml:"idle_ttl"`            // default "15m"
+}
+
+// PerSessionConfig configures per-session counters and TTL.
+type PerSessionConfig struct {
+	MaxTurns       int    `yaml:"max_turns"`        // default 20
+	MaxInputTokens int    `yaml:"max_input_tokens"` // default 8000
+	SessionTTL     string `yaml:"session_ttl"`      // default "1h"
+}
+
+// DailyLLMBudgetConfig configures the daily LLM spend cap.
+type DailyLLMBudgetConfig struct {
+	MaxInputTokens   int    `yaml:"max_input_tokens"`   // default 5_000_000
+	MaxOutputTokens  int    `yaml:"max_output_tokens"`  // default 1_000_000
+	ActionOnExceeded string `yaml:"action_on_exceeded"` // "reject" only in v0; "queue" is v1+
+}
+
 // applyDefaults applies sane default values for any field not set by the YAML file.
 // Called after unmarshalling so that explicit zeros in the file override defaults
 // only for non-zero types; for structs we apply defaults after unmarshal and check
@@ -312,6 +395,39 @@ func applyDefaults(c *Config) {
 	if c.Adapters.Webhook.Retry.Backoff == "" {
 		c.Adapters.Webhook.Retry.Backoff = "exponential"
 	}
+	// Phase 5 defaults
+	if c.RateLimit.PerIP.RequestsPerSecond == 0 {
+		c.RateLimit.PerIP.RequestsPerSecond = 1.0
+	}
+	if c.RateLimit.PerIP.Burst == 0 {
+		c.RateLimit.PerIP.Burst = 5
+	}
+	if c.RateLimit.PerIP.IdleTTL == "" {
+		c.RateLimit.PerIP.IdleTTL = "15m"
+	}
+	if c.RateLimit.PerSession.MaxTurns == 0 {
+		c.RateLimit.PerSession.MaxTurns = 20
+	}
+	if c.RateLimit.PerSession.MaxInputTokens == 0 {
+		c.RateLimit.PerSession.MaxInputTokens = 8000
+	}
+	if c.RateLimit.PerSession.SessionTTL == "" {
+		c.RateLimit.PerSession.SessionTTL = "1h"
+	}
+	if c.RateLimit.DailyLLMBudget.MaxInputTokens == 0 {
+		c.RateLimit.DailyLLMBudget.MaxInputTokens = 5_000_000
+	}
+	if c.RateLimit.DailyLLMBudget.MaxOutputTokens == 0 {
+		c.RateLimit.DailyLLMBudget.MaxOutputTokens = 1_000_000
+	}
+	if c.RateLimit.DailyLLMBudget.ActionOnExceeded == "" {
+		c.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject"
+	}
+	// Captcha: only populate RequiredFor when nil (UnmarshalYAML leaves it nil
+	// for "key omitted" and [] for "explicit empty"). Default: ["anonymous"].
+	if c.Captcha.RequiredFor == nil {
+		c.Captcha.RequiredFor = []string{"anonymous"}
+	}
 }
 
 // Load reads the YAML config file at path, applies defaults for missing fields,
@@ -331,4 +447,23 @@ func Load(path string) (*Config, error) {
 	}
 	applyDefaults(&cfg)
 	return &cfg, nil
+}
+
+// Validate enforces invariants that defaults alone can't express. Currently:
+//   - DailyLLMBudget.ActionOnExceeded must be "reject" (v0 only ships reject;
+//     "queue" is documented as v1+ per PROJECT.md §10).
+//
+// Returns the first invariant violation as an error. Callers (main.go) append
+// this to the Q9 consolidated startup-gate slice. If future rules require
+// surfacing multiple violations at once, switch to errors.Join over a []error.
+func (c *Config) Validate() error {
+	switch c.RateLimit.DailyLLMBudget.ActionOnExceeded {
+	case "reject":
+		return nil
+	case "":
+		// applyDefaults should have populated this; treat as a programmer error.
+		return fmt.Errorf("ratelimit.daily_llm_budget.action_on_exceeded is empty; if constructing Config directly, set it explicitly, otherwise Load should have defaulted to \"reject\"")
+	default:
+		return fmt.Errorf("ratelimit.daily_llm_budget.action_on_exceeded=%q is not supported in v0; only \"reject\" is supported (\"queue\" is documented as v1+)", c.RateLimit.DailyLLMBudget.ActionOnExceeded)
+	}
 }

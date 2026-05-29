@@ -561,11 +561,15 @@ observability:
 
 Token bucket: 1 req/s, burst 5 by default. Configurable. Applied to all `/v1/intake/*` endpoints.
 
+Implementation: `relay/internal/ratelimit/perip` — `golang.org/x/time/rate`-backed bucket per client IP, eager-GC.
+
 ### Per-session
 
 - Max 20 turns per session.
 - Max 8000 input tokens cumulative per session.
 - Session bucket TTL: 1 hour from creation.
+
+Implementation: `relay/internal/auth` (`NewStoreWithCaps` + `CheckSession` + `RecordTurn`).
 
 ### Daily LLM spend cap
 
@@ -574,16 +578,22 @@ Token bucket: 1 req/s, burst 5 by default. Configurable. Applied to all `/v1/int
 - Counters reset at 00:00 UTC.
 - Per-tenant counters supported when `tenant_id` present (hosted relay).
 
+Implementation: `relay/internal/budget` — Reserve/Commit + UTC-day reset + tenant isolation.
+
 ### CAPTCHA
 
 - Optional; configurable per auth mode (default: required for anonymous, off for verified).
 - v0 supports Cloudflare Turnstile (recommended; free) and hCaptcha.
 - Challenge solved at `/v1/intake/init`; token bound to session_id.
 
+Implementation: `relay/internal/captcha` — Turnstile + hCaptcha siteverify + 5-minute single-use replay set.
+
 ### Origin enforcement
 
 - `cors_origins` allowlist enforced strictly on browser requests.
 - Server-to-server callers (e.g., webhook adapter receivers verifying signatures) use a separate auth path with signed requests.
+
+Implementation: `relay/internal/server/server.go` `corsMiddleware` (Phase 1; unchanged in Phase 5).
 
 ---
 
@@ -873,6 +883,7 @@ The hosted relay will be a separate binary (or build mode) that wraps the OSS re
 - CORS: strict allowlist; no wildcards in production guidance.
 - LLM provider API keys: never logged; redacted in error messages.
 - License private key: never in the repo; maintainer-only.
+- CAPTCHA siteverify secret: never logged; never in any returned error (`relay/internal/captcha` — redact-before-error per LESSONS L005).
 
 A `SECURITY.md` file documents vulnerability disclosure process.
 

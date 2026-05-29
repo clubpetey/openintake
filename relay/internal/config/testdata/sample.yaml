@@ -4,6 +4,9 @@ server:
   cors_origins:
     - "http://localhost:5173"
     - "http://localhost:3000"
+  trusted_proxies:
+    - "10.0.0.0/8"
+    - "192.168.0.0/16"
 llm:
   provider: "anthropic"
   anthropic:
@@ -47,6 +50,8 @@ auth:
       user_id: "sub"
       email: "email"
       display_name: "name"
+  anonymous:
+    allow_without_captcha: false
 adapters:
   webhook:
     enabled: true
@@ -87,3 +92,22 @@ routing:
       to: "chatwoot"
 license:
   file: "/etc/intake/license.json"
+captcha:
+  enabled: false
+  provider: "turnstile"
+  site_key: "0x4AAA000000ExampleSiteKey"
+  secret_key_env: "INTAKE_TURNSTILE_SECRET"
+  required_for: ["anonymous"]
+ratelimit:
+  per_ip:
+    requests_per_second: 2.0
+    burst: 10
+    idle_ttl: "5m"
+  per_session:
+    max_turns: 30
+    max_input_tokens: 12000
+    session_ttl: "30m"
+  daily_llm_budget:
+    max_input_tokens: 1000000
+    max_output_tokens: 200000
+    action_on_exceeded: "reject"

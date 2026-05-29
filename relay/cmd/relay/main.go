@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"sort"
@@ -24,11 +25,14 @@ import (
 	"intake/internal/auth/emailjwt"
 	"intake/internal/auth/smtpsend"
 	"intake/internal/auth/sso"
+	"intake/internal/budget"
+	"intake/internal/captcha"
 	"intake/internal/classify"
 	"intake/internal/config"
 	licensemgr "intake/internal/license"
 	"intake/internal/llm/providers"
 	"intake/internal/payloadbuild"
+	"intake/internal/ratelimit/perip"
 	"intake/internal/router"
 	"intake/internal/server"
 	"intake/internal/triage"
@@ -67,6 +71,17 @@ func main() {
 	}
 	logger.Info("relay: license", "mode", licState.Mode, "detail", licState.Message)
 
+	// --- Q9 consolidated startup gate (Phase 5) ---
+	// All Phase 4 + Phase 5 misconfigs collected into one structured Error line.
+	// Operators fix every problem in one restart cycle, not three.
+	problems, trustedProxies := startupProblems(cfg)
+	if len(problems) > 0 {
+		logger.Error("relay: startup config errors", "count", len(problems), "problems", problems)
+		os.Exit(1)
+	}
+	// trustedProxies is the parsed []netip.Prefix from cfg.Server.TrustedProxies
+	// — parsed once inside startupProblems; used by clientIPMiddleware via Deps.
+
 	// --- LLM Provider (via factory) ---
 	// providers.New resolves the required secret internally via config.RequireSecret /
 	// config.ResolveSecret. The key is NEVER logged or embedded in any error surfaced here.
@@ -87,7 +102,18 @@ func main() {
 	model, maxTokens := activeModelConfig(cfg.LLM)
 
 	// --- Session Store + Auth Middleware ---
-	store := auth.NewStore()
+	// Phase 5 (5-ii): Store gains per-session caps + TTL from cfg.RateLimit.PerSession.
+	sessionTTL, err := time.ParseDuration(cfg.RateLimit.PerSession.SessionTTL)
+	if err != nil {
+		logger.Error("relay: invalid ratelimit.per_session.session_ttl", "value", cfg.RateLimit.PerSession.SessionTTL, "err", err)
+		os.Exit(1)
+	}
+	store := auth.NewStoreWithCaps(
+		cfg.RateLimit.PerSession.MaxTurns,
+		cfg.RateLimit.PerSession.MaxInputTokens,
+		sessionTTL,
+		time.Now,
+	)
 
 	// 4-ii: email magic-link wiring.
 	var emailVerifier auth.EmailJWTVerifier // nil unless cfg.Auth.Modes.Email is true
@@ -183,7 +209,9 @@ func main() {
 	// 4-i: middleware accepts optional email + sso verifiers.
 	// 4-ii: emailVerifier is nil-OK when email mode disabled.
 	// 4-iii: ssoVerifier is nil-OK when sso mode disabled.
-	middleware := auth.NewMiddleware(store, emailVerifier, ssoVerifier)
+	// Phase 5: switch to the modes-aware constructor; modesAnonymous is read directly
+	// from cfg so the dispatcher rejects anonymous when the operator disabled the mode.
+	middleware := auth.NewMiddlewareWithModes(store, emailVerifier, ssoVerifier, cfg.Auth.Modes.Anonymous)
 
 	// --- Triage System Prompt ---
 	// Loads from cfg.LLM.SystemPromptFile if set; else uses bundled prompt.txt.
@@ -226,6 +254,57 @@ func main() {
 	// --- Payload Builder (1-iv) ---
 	builder := payloadbuild.New("0.1.0") // widget version default; Phase 5 may read from config
 
+	// Phase 5 (5-ii): per-IP rate limiter + daily-budget tracker.
+	idleTTL, err := time.ParseDuration(cfg.RateLimit.PerIP.IdleTTL)
+	if err != nil {
+		logger.Error("relay: invalid ratelimit.per_ip.idle_ttl", "value", cfg.RateLimit.PerIP.IdleTTL, "err", err)
+		os.Exit(1)
+	}
+	perIPLimiter := perip.New(
+		cfg.RateLimit.PerIP.RequestsPerSecond,
+		cfg.RateLimit.PerIP.Burst,
+		idleTTL,
+		time.Now,
+	)
+	budgetTracker := budget.New(
+		cfg.RateLimit.DailyLLMBudget.MaxInputTokens,
+		cfg.RateLimit.DailyLLMBudget.MaxOutputTokens,
+		time.Now,
+	)
+	logger.Info("relay: rate limits configured",
+		"per_ip_rps", cfg.RateLimit.PerIP.RequestsPerSecond,
+		"per_ip_burst", cfg.RateLimit.PerIP.Burst,
+		"per_session_max_turns", cfg.RateLimit.PerSession.MaxTurns,
+		"per_session_max_input_tokens", cfg.RateLimit.PerSession.MaxInputTokens,
+		"daily_budget_max_input_tokens", cfg.RateLimit.DailyLLMBudget.MaxInputTokens,
+		"daily_budget_max_output_tokens", cfg.RateLimit.DailyLLMBudget.MaxOutputTokens,
+	)
+
+	// Phase 5 (5-iii): construct the captcha verifier when enabled.
+	var captchaVerifier captcha.Verifier
+	if cfg.Captcha.Enabled {
+		if cfg.Captcha.SecretKeyEnv == "" {
+			logger.Error("relay: captcha.enabled=true requires captcha.secret_key_env")
+			os.Exit(1)
+		}
+		secret, err := config.RequireSecret(cfg.Captcha.SecretKeyEnv)
+		if err != nil {
+			logger.Error("captcha: resolve secret", "env", cfg.Captcha.SecretKeyEnv, "err", err)
+			os.Exit(1)
+		}
+		v, err := captcha.New(cfg.Captcha.Provider, secret, nil, time.Now)
+		if err != nil {
+			logger.Error("captcha: construct verifier", "provider", cfg.Captcha.Provider, "err", err)
+			os.Exit(1)
+		}
+		captchaVerifier = v
+		// Log NEVER includes the secret; provider + site_key + required_for are safe.
+		logger.Info("relay: captcha enabled",
+			"provider", cfg.Captcha.Provider,
+			"required_for", cfg.Captcha.RequiredFor,
+		)
+	}
+
 	// --- Deps ---
 	// Deps is a value type (README §6.8). No Config field — config-derived values
 	// are promoted to individual Deps fields. main.go populates these from cfg.
@@ -243,6 +322,15 @@ func main() {
 		Builder:      builder,
 		AuthCfg:      cfg.Auth,
 		EmailService: emailSvc,
+
+		// Phase 5 (5-i): config + parsed prefixes wired in; the actual
+		// Limiter, Budget, and CaptchaVerifier are nil here — 5-ii and 5-iii
+		// replace nil with the real instances.
+		CaptchaCfg:      cfg.Captcha,
+		CaptchaVerifier: captchaVerifier, // 5-iii: nil when cfg.Captcha.Enabled=false; real verifier otherwise
+		Budget:          budgetTracker,   // 5-ii
+		PerIP:           perIPLimiter,  // 5-ii
+		TrustedProxies:  trustedProxies,
 	}
 
 	// --- HTTP Server ---
@@ -441,4 +529,77 @@ func adapterNames(reg map[string]adapter.Adapter) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// startupProblems enumerates every Phase 4 + Phase 5 misconfig in cfg as a flat
+// []string. main() logs the slice in one structured Error line and exits 1 when
+// non-empty (PROJECT.md §19 Q9 fail-closed; PHASE_PLANNING §4 build-fail discipline).
+//
+// Also returns the parsed []netip.Prefix from cfg.Server.TrustedProxies as a side
+// product of validation. Callers that proceed past the gate (problems is empty)
+// can use the parsed slice directly, avoiding a re-parse with discarded errors.
+// Each problem string is self-describing — names the offending key, the value
+// it found, and the fix. Order: anonymous gate, SSO mutual-exclusivity,
+// trusted-proxy CIDR parse, config.Validate (currently action_on_exceeded).
+func startupProblems(cfg *config.Config) (problems []string, trustedProxies []netip.Prefix) {
+	// Q9: anonymous-without-captcha-gating.
+	if cfg.Auth.Modes.Anonymous {
+		anonymousProtected := cfg.Captcha.Enabled && containsString(cfg.Captcha.RequiredFor, "anonymous")
+		if !anonymousProtected && !cfg.Auth.Anonymous.AllowWithoutCaptcha {
+			problems = append(problems, `auth.modes.anonymous=true requires captcha.enabled=true AND captcha.required_for to include "anonymous"; or set auth.anonymous.allow_without_captcha=true to acknowledge the risk (PROJECT.md §19 Q9)`)
+		}
+	}
+
+	// SSO mutual-exclusivity (Phase 4; consolidated here so all gates fire in one pass).
+	if cfg.Auth.Modes.SSO {
+		jwks := cfg.Auth.SSO.JWKSURL != ""
+		hs := cfg.Auth.SSO.HS256SecretEnv != ""
+		if jwks && hs {
+			problems = append(problems, "auth.modes.sso=true: both jwks_url and hs256_secret_env are set; exactly one required")
+		}
+		if !jwks && !hs {
+			problems = append(problems, "auth.modes.sso=true: neither jwks_url nor hs256_secret_env is set; exactly one required")
+		}
+	}
+
+	// Trusted-proxy CIDRs — fatal at startup, not at first request.
+	// Successfully parsed prefixes are returned alongside problems so the caller
+	// can use them directly without a re-parse.
+	trustedProxies = make([]netip.Prefix, 0, len(cfg.Server.TrustedProxies))
+	for _, raw := range cfg.Server.TrustedProxies {
+		p, err := netip.ParsePrefix(raw)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("server.trusted_proxies contains an invalid CIDR %q: %v", raw, err))
+			continue
+		}
+		trustedProxies = append(trustedProxies, p)
+	}
+
+	// Phase 5: validate rate-limit duration fields parse cleanly. main.go's
+	// inline ParseDuration calls are defense-in-depth, but having the check
+	// here means an operator with multiple bad durations sees one consolidated
+	// error log line, not one per restart cycle.
+	if _, err := time.ParseDuration(cfg.RateLimit.PerSession.SessionTTL); err != nil {
+		problems = append(problems, fmt.Sprintf("ratelimit.per_session.session_ttl=%q is not a valid Go duration (e.g. \"1h\", \"30m\"): %v", cfg.RateLimit.PerSession.SessionTTL, err))
+	}
+	if _, err := time.ParseDuration(cfg.RateLimit.PerIP.IdleTTL); err != nil {
+		problems = append(problems, fmt.Sprintf("ratelimit.per_ip.idle_ttl=%q is not a valid Go duration (e.g. \"15m\", \"5m\"): %v", cfg.RateLimit.PerIP.IdleTTL, err))
+	}
+
+	// Config-level validation (action_on_exceeded etc.).
+	if err := cfg.Validate(); err != nil {
+		problems = append(problems, err.Error())
+	}
+
+	return problems, trustedProxies
+}
+
+// containsString reports whether haystack contains needle (case-sensitive).
+func containsString(haystack []string, needle string) bool {
+	for _, s := range haystack {
+		if s == needle {
+			return true
+		}
+	}
+	return false
 }

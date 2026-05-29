@@ -42,6 +42,11 @@ if grep -E 'MicahParks/keyfunc/v3' relay/go.mod | grep -E '(\^|@latest)'; then
   echo "ERROR: github.com/MicahParks/keyfunc/v3 is caret/latest-pinned in relay/go.mod; PHASE_PLANNING §5 requires exact pins" >&2
   fail=1
 fi
+# Gate: golang.org/x/time must be exact-pinned (no caret, no @latest) in go.mod. Phase 5.
+if grep -E 'golang.org/x/time' relay/go.mod | grep -E '(\^|@latest)'; then
+  echo "ERROR: golang.org/x/time is caret/latest-pinned in relay/go.mod; PHASE_PLANNING §5 requires exact pins" >&2
+  fail=1
+fi
 # Gate: no go install/get ...@latest in install scripts (excludes this file to avoid self-match).
 if grep --exclude=check-pins.sh -rE 'go (install|get) .*@latest' scripts/; then
   echo "ERROR: an install script uses @latest; pin an exact version" >&2

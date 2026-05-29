@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"intake/internal/auth"
 	"intake/internal/config"
 	"intake/internal/server"
 	"intake/internal/version"
@@ -152,6 +154,50 @@ func TestCORS_OptionsWithoutOriginPassesThrough(t *testing.T) {
 
 	if w.Code == http.StatusForbidden {
 		t.Errorf("OPTIONS without Origin returned 403; want router response (e.g. 405), not a CORS block")
+	}
+}
+
+// ---- Task 7 (5-i): /v1/intake group wires clientIP + perIP middlewares ----
+
+// TestServerNew_HealthAndIntakeRouteRegistration verifies that:
+//   - /v1/health responds 200 (registered at the top level, outside /v1/intake)
+//   - /v1/intake/init responds 200 (registered inside the /v1/intake group)
+// Both new Phase 5 middlewares (clientIPMiddleware, perIPLimitMiddleware) are
+// wired into the /v1/intake group but are no-ops with PerIP=nil and
+// TrustedProxies=nil, so this test does NOT verify they actually run.
+// The behavioral verification lives in 5-ii Task 1's perip.Limiter tests,
+// which exercise the full chain with a rejecting Limiter: /v1/intake/init
+// returns 429 while /v1/health continues to return 200.
+func TestServerNew_HealthAndIntakeRouteRegistration(t *testing.T) {
+	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{}}}
+	deps := server.Deps{
+		Auth:           auth.NewMiddleware(auth.NewStore(), nil, nil),
+		AuthCfg:        config.AuthConfig{Modes: config.AuthModes{Anonymous: true}},
+		TrustedProxies: nil, // empty list — default behavior
+		PerIP:          nil, // nil limiter → always-allow
+		Version:        version.BuildInfo{Version: "test"},
+	}
+	srv := server.New(cfg, deps)
+
+	// /v1/health is OUTSIDE /v1/intake — no rate limit, no client-IP middleware.
+	{
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/v1/health", nil)
+		srv.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("/v1/health status = %d; want 200", rec.Code)
+		}
+	}
+
+	// /v1/intake/init flows through clientIPMiddleware + perIPLimitMiddleware.
+	{
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("POST", "/v1/intake/init", strings.NewReader(`{}`))
+		req.RemoteAddr = "203.0.113.10:12345"
+		srv.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("/v1/intake/init status = %d; want 200 (body: %s)", rec.Code, rec.Body.String())
+		}
 	}
 }
 

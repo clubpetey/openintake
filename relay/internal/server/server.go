@@ -13,6 +13,12 @@ import (
 // New constructs the relay HTTP handler (a chi Mux) with all middleware and
 // built-in routes wired. Routes specific to intake sessions are registered via
 // registerIntakeRoutes, which 1-iii and 1-iv extend.
+//
+// Phase 5 (5-i): the /v1/intake group gains two new middlewares —
+// clientIPMiddleware (resolves the client IP per server.trusted_proxies) and
+// perIPLimitMiddleware (per-IP token bucket; 5-i passes nil so the gate is
+// inert, 5-ii lands the real Limiter). /v1/health and /v1/version stay OUTSIDE
+// the /v1/intake group so liveness probes are not rate-limited.
 func New(cfg *config.Config, deps Deps) http.Handler {
 	r := chi.NewMux()
 
@@ -21,12 +27,15 @@ func New(cfg *config.Config, deps Deps) http.Handler {
 	r.Use(middleware.Recoverer)
 	r.Use(corsMiddleware(deps.CORSOrigins))
 
-	// Built-in relay endpoints.
+	// Built-in relay endpoints (NOT rate-limited — load-balancer liveness probes).
 	r.Get("/v1/health", handleHealth)
 	r.Get("/v1/version", handleVersion(deps))
 
 	// Intake session endpoints — seam for 1-iii and 1-iv.
+	// Phase 5: wrap the group with clientIP + per-IP limit middlewares.
 	r.Route("/v1/intake", func(r chi.Router) {
+		r.Use(clientIPMiddleware(deps.TrustedProxies))
+		r.Use(perIPLimitMiddleware(deps.PerIP))
 		registerIntakeRoutes(r, deps)
 	})
 

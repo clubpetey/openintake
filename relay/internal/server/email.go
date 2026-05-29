@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"net/mail"
-	"strconv"
 
 	"intake/internal/auth/emailcode"
 )
@@ -60,11 +59,7 @@ func emailStartHandler(deps Deps) http.HandlerFunc {
 		switch {
 		case errors.Is(ierr, emailcode.ErrRateLimited):
 			// Anti-enumeration: generic body, detail only via Retry-After header.
-			seconds := int(retry.Seconds())
-			if seconds < 1 {
-				seconds = 1
-			}
-			w.Header().Set("Retry-After", strconv.Itoa(seconds))
+			setRetryAfter(w, retry)
 			writeError(w, http.StatusTooManyRequests, "rate_limited", "too many codes requested for this email; retry later")
 			return
 		case errors.Is(ierr, ErrSMTP):

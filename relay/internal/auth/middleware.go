@@ -17,23 +17,35 @@ import (
 //          Verified:true, UserID, Email?, DisplayName?, Custom}.
 //       c. Bearer present but no verifier accepted → 401 unauthorized.
 //          (A present-but-invalid bearer is NEVER silently downgraded to anonymous.)
-//  2. No Authorization header:
-//       a. X-Intake-Session present + store.Validate → SessionContext{AuthMode:"anonymous"}.
-//       b. Else → 401.
+//  2. No Authorization header (in runtime order):
+//       a. modesAnonymous=false → 401 (Phase 5 Q9 strict enforcement).
+//       b. modesAnonymous=true AND X-Intake-Session present + store.Validate →
+//          SessionContext{AuthMode:"anonymous"}.
+//       c. otherwise → 401.
 //
 // The /init endpoint is NOT behind this middleware (it issues anonymous sessions).
 // The /auth/email/start and /auth/email/verify endpoints are ALSO not behind this
 // middleware (they bootstrap email JWTs — see sub-plan 4-ii).
 type Middleware struct {
-	store *Store
-	email EmailJWTVerifier // nil → email mode off
-	sso   SSOVerifier      // nil → sso mode off
+	store          *Store
+	email          EmailJWTVerifier // nil → email mode off
+	sso            SSOVerifier      // nil → sso mode off
+	modesAnonymous bool             // Phase 5: false → reject anonymous even with valid X-Intake-Session
 }
 
 // NewMiddleware returns a Middleware backed by the given Store. email and sso
 // are optional; pass nil to disable the corresponding bearer-token validator.
+// Phase 1+4 wrapper around NewMiddlewareWithModes — defaults modesAnonymous=true
+// so callers that haven't migrated see no behavior change.
 func NewMiddleware(store *Store, email EmailJWTVerifier, sso SSOVerifier) *Middleware {
-	return &Middleware{store: store, email: email, sso: sso}
+	return NewMiddlewareWithModes(store, email, sso, true)
+}
+
+// NewMiddlewareWithModes is the Phase 5 constructor. modesAnonymous=false →
+// the anonymous fall-through branch returns 401 even when a valid
+// X-Intake-Session is presented (Q9 strict enforcement; PROJECT.md §19 Q9).
+func NewMiddlewareWithModes(store *Store, email EmailJWTVerifier, sso SSOVerifier, modesAnonymous bool) *Middleware {
+	return &Middleware{store: store, email: email, sso: sso, modesAnonymous: modesAnonymous}
 }
 
 // Store returns the underlying session store. Used by initHandler to issue
@@ -97,6 +109,17 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		}
 
 		// Anonymous fallback.
+		// Phase 5 Q9 strict: modesAnonymous=false → never serve anonymous,
+		// even when a valid X-Intake-Session is presented.
+		if !m.modesAnonymous {
+			authWriteJSON(w, http.StatusUnauthorized, map[string]any{
+				"error": map[string]any{
+					"code":    "unauthorized",
+					"message": "anonymous mode is disabled on this relay",
+				},
+			})
+			return
+		}
 		sessionID := r.Header.Get("X-Intake-Session")
 		if sessionID == "" || !m.store.Validate(sessionID) {
 			authWriteJSON(w, http.StatusUnauthorized, map[string]any{

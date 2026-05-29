@@ -1,0 +1,19 @@
+server:
+  addr: ":18080"
+  trusted_proxies:
+    - "10.0.0.0/8"
+    - "not-a-cidr"
+auth:
+  modes:
+    anonymous: true
+  anonymous:
+    allow_without_captcha: true
+ratelimit:
+  daily_llm_budget:
+    action_on_exceeded: "reject"
+adapters:
+  webhook:
+    enabled: true
+    url: "http://127.0.0.1:19099/intake"
+routing:
+  default_adapter: "webhook"

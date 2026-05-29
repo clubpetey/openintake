@@ -318,3 +318,291 @@ func TestTurnHandler_SSEErrorFrame(t *testing.T) {
 		t.Errorf("got %d frames after error frame; want 0: %v", len(afterError), afterError)
 	}
 }
+
+func TestInitHandler_EmitsRequiresCaptchaWhenAnonymousAndEnabled(t *testing.T) {
+	// Build a Deps with captcha enabled and required_for ["anonymous"];
+	// no CaptchaVerifier wired (Phase 5-i pre-5-iii), so the handler should
+	// still return 400 captcha_required + the discovery hint fields.
+	cfg := &config.Config{
+		Server: config.ServerConfig{CORSOrigins: []string{"http://localhost:5173"}},
+		Auth: config.AuthConfig{
+			Modes: config.AuthModes{Anonymous: true},
+		},
+		Captcha: config.CaptchaConfig{
+			Enabled:     true,
+			Provider:    "turnstile",
+			SiteKey:     "0x4AAA000000Test",
+			RequiredFor: []string{"anonymous"},
+		},
+	}
+	deps := server.Deps{
+		Auth: auth.NewMiddleware(auth.NewStore(), nil, nil),
+		AuthCfg: config.AuthConfig{
+			Modes: config.AuthModes{Anonymous: true},
+		},
+		CaptchaCfg: config.CaptchaConfig{
+			Enabled:     true,
+			Provider:    "turnstile",
+			SiteKey:     "0x4AAA000000Test",
+			RequiredFor: []string{"anonymous"},
+		},
+	}
+	mux := server.New(cfg, deps)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/intake/init", strings.NewReader(`{}`))
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d; want 400 (captcha_required)", rec.Code)
+	}
+	var body server.CaptchaRequiredResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body: %v (raw: %s)", err, rec.Body.String())
+	}
+	if body.Error.Code != "captcha_required" {
+		t.Errorf("error.code = %q; want captcha_required", body.Error.Code)
+	}
+	if body.Captcha == nil || body.Captcha.Provider != "turnstile" || body.Captcha.SiteKey != "0x4AAA000000Test" {
+		t.Errorf("body.captcha = %+v; want {turnstile, 0x4AAA000000Test}", body.Captcha)
+	}
+	if len(body.Capabilities.RequiresCaptcha) != 1 || body.Capabilities.RequiresCaptcha[0] != "anonymous" {
+		t.Errorf("capabilities.requires_captcha = %v; want [anonymous]", body.Capabilities.RequiresCaptcha)
+	}
+}
+
+func TestInitHandler_NoCaptchaConfig_MintsSessionAsBefore(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{CORSOrigins: []string{"http://localhost:5173"}},
+		Auth: config.AuthConfig{
+			Modes: config.AuthModes{Anonymous: true},
+		},
+	}
+	deps := server.Deps{
+		Auth: auth.NewMiddleware(auth.NewStore(), nil, nil),
+		AuthCfg: config.AuthConfig{
+			Modes: config.AuthModes{Anonymous: true},
+		},
+		// CaptchaCfg.Enabled defaults to false.
+	}
+	mux := server.New(cfg, deps)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/intake/init", strings.NewReader(`{}`))
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200", rec.Code)
+	}
+	var body server.InitResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.SessionID == "" {
+		t.Error("session_id is empty; want a UUID")
+	}
+	if body.Captcha != nil {
+		t.Errorf("body.captcha = %+v; want nil (captcha disabled)", body.Captcha)
+	}
+	if body.Capabilities.RequiresCaptcha != nil {
+		t.Errorf("capabilities.requires_captcha = %v; want nil/omitted", body.Capabilities.RequiresCaptcha)
+	}
+}
+
+func TestInitHandler_CaptchaEnabledButNoModeIntersection_MintsSession(t *testing.T) {
+	// captcha is enabled and configured for "email", but only anonymous mode
+	// is on. The intersection is empty → no captcha gate, no captcha hint,
+	// session minted normally.
+	deps := server.Deps{
+		Auth: auth.NewMiddleware(auth.NewStore(), nil, nil),
+		AuthCfg: config.AuthConfig{
+			Modes: config.AuthModes{Anonymous: true}, // only anonymous
+		},
+		CaptchaCfg: config.CaptchaConfig{
+			Enabled:     true,
+			Provider:    "turnstile",
+			SiteKey:     "0x4AAA000000Test",
+			RequiredFor: []string{"email"}, // excludes anonymous
+		},
+	}
+
+	// Wire through server.New so the routing is honored (same pattern as
+	// the existing init handler tests).
+	cfg := &config.Config{
+		Server: config.ServerConfig{CORSOrigins: []string{}},
+	}
+	srv := server.New(cfg, deps)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/intake/init", strings.NewReader(`{}`))
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200 (intersection is empty → no captcha gate)\nbody: %s", rec.Code, rec.Body.String())
+	}
+	var body server.InitResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.SessionID == "" {
+		t.Error("session_id is empty; want a UUID")
+	}
+	if body.Captcha != nil {
+		t.Errorf("body.captcha = %+v; want nil (RequiredFor excludes anonymous → no hint emitted)", body.Captcha)
+	}
+	if body.Capabilities.RequiresCaptcha != nil {
+		t.Errorf("capabilities.requires_captcha = %v; want nil (empty intersection)", body.Capabilities.RequiresCaptcha)
+	}
+}
+
+// --- 5-iii: deps.CaptchaVerifier integration tests ---
+
+// fakeVerifier is a test double for captcha.Verifier. Behavior is set per test instance.
+type fakeVerifier struct {
+	ok     bool
+	reason string
+	err    error
+	calls  int
+}
+
+func (f *fakeVerifier) Verify(ctx context.Context, token, remoteIP string) (bool, string, error) {
+	f.calls++
+	return f.ok, f.reason, f.err
+}
+func (f *fakeVerifier) Provider() string { return "fake" }
+
+func TestInitHandler_WithValidCaptchaToken_MintsSession(t *testing.T) {
+	v := &fakeVerifier{ok: true}
+	deps := server.Deps{
+		Auth: auth.NewMiddleware(auth.NewStore(), nil, nil),
+		AuthCfg: config.AuthConfig{
+			Modes: config.AuthModes{Anonymous: true},
+		},
+		CaptchaCfg: config.CaptchaConfig{
+			Enabled:     true,
+			Provider:    "turnstile",
+			SiteKey:     "0x4AAA000000Test",
+			RequiredFor: []string{"anonymous"},
+		},
+		CaptchaVerifier: v,
+	}
+	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{}}}
+	srv := server.New(cfg, deps)
+
+	body := `{"captcha_token":"tok-123"}`
+	req := httptest.NewRequest("POST", "/v1/intake/init", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200 (body: %s)", rec.Code, rec.Body.String())
+	}
+	var resp server.InitResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.SessionID == "" {
+		t.Error("session_id missing")
+	}
+	if v.calls != 1 {
+		t.Errorf("Verifier.Verify called %d times; want 1", v.calls)
+	}
+}
+
+func TestInitHandler_InvalidCaptchaToken_Returns401(t *testing.T) {
+	v := &fakeVerifier{ok: false, reason: "invalid-input-response"}
+	deps := server.Deps{
+		Auth: auth.NewMiddleware(auth.NewStore(), nil, nil),
+		AuthCfg: config.AuthConfig{
+			Modes: config.AuthModes{Anonymous: true},
+		},
+		CaptchaCfg: config.CaptchaConfig{
+			Enabled:     true,
+			Provider:    "turnstile",
+			SiteKey:     "0x4AAA000000Test",
+			RequiredFor: []string{"anonymous"},
+		},
+		CaptchaVerifier: v,
+	}
+	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{}}}
+	srv := server.New(cfg, deps)
+
+	body := `{"captcha_token":"bad"}`
+	req := httptest.NewRequest("POST", "/v1/intake/init", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d; want 401", rec.Code)
+	}
+	var respBody server.CaptchaFailedResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &respBody); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if respBody.Error.Code != "captcha_failed" {
+		t.Errorf("error.code = %q; want captcha_failed", respBody.Error.Code)
+	}
+	if respBody.Error.Reason != "invalid-input-response" {
+		t.Errorf("error.reason = %q; want invalid-input-response", respBody.Error.Reason)
+	}
+}
+
+func TestInitHandler_CaptchaVerifierErr_Returns502(t *testing.T) {
+	v := &fakeVerifier{err: errors.New("upstream-flaky")}
+	deps := server.Deps{
+		Auth: auth.NewMiddleware(auth.NewStore(), nil, nil),
+		AuthCfg: config.AuthConfig{
+			Modes: config.AuthModes{Anonymous: true},
+		},
+		CaptchaCfg: config.CaptchaConfig{
+			Enabled:     true,
+			Provider:    "turnstile",
+			SiteKey:     "0x4AAA000000Test",
+			RequiredFor: []string{"anonymous"},
+		},
+		CaptchaVerifier: v,
+	}
+	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{}}}
+	srv := server.New(cfg, deps)
+
+	body := `{"captcha_token":"tok"}`
+	req := httptest.NewRequest("POST", "/v1/intake/init", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d; want 502", rec.Code)
+	}
+	var body2 server.ErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &body2); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body2.Error.Code != "captcha_unavailable" {
+		t.Errorf("code = %q; want captcha_unavailable", body2.Error.Code)
+	}
+}
+
+func TestInitHandler_CaptchaTokenIgnoredWhenNotRequired(t *testing.T) {
+	// captcha.enabled=false → token in body is ignored; verifier never called.
+	v := &fakeVerifier{ok: false, err: errors.New("would never be called")}
+	deps := server.Deps{
+		Auth: auth.NewMiddleware(auth.NewStore(), nil, nil),
+		AuthCfg: config.AuthConfig{
+			Modes: config.AuthModes{Anonymous: true},
+		},
+		CaptchaCfg:      config.CaptchaConfig{Enabled: false},
+		CaptchaVerifier: v,
+	}
+	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{}}}
+	srv := server.New(cfg, deps)
+
+	body := `{"captcha_token":"tok"}`
+	req := httptest.NewRequest("POST", "/v1/intake/init", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200 (captcha disabled)", rec.Code)
+	}
+	if v.calls != 0 {
+		t.Errorf("Verifier called %d times; want 0 (captcha disabled)", v.calls)
+	}
+}
