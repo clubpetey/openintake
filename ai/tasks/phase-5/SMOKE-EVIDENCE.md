@@ -390,3 +390,72 @@ OK: Retry-After header present and >=1
 ```
 
 **Verdict:** PASS — all three abuse gates verified end-to-end via the @intake/core-style fetch driver.
+
+## 5-iv Task 8 — Live CAPTCHA smoke (2026-05-28)
+
+**Config:** `relay/cmd/relay/smoke/captcha-live.yaml`
+
+**Setup:**
+- Cloudflare Turnstile published test keys (https://developers.cloudflare.com/turnstile/troubleshooting/testing/)
+- Always-passes: sitekey `1x00000000000000000000AA`, secret `1x0000000000000000000000000000000AA`
+- Always-fails: sitekey `2x00000000000000000000AB`, secret `2x0000000000000000000000000000000AA`
+- Zero LLM credit cost; siteverify endpoint is free
+- L005: secret resolved via `config.RequireSecret("INTAKE_TURNSTILE_SECRET")` — never in YAML, never logged
+- Relay startup log line confirms: `"relay: captcha enabled" provider=turnstile required_for=["anonymous"]` (no secret in the log line)
+
+**Sub-smoke a — Discovery (no token):**
+```
+$ curl -s -w "\nHTTP_STATUS: %{http_code}\n" -X POST http://127.0.0.1:18080/v1/intake/init \
+    -H 'Content-Type: application/json' -d '{}'
+{"error":{"code":"captcha_required","message":"call /init again with a solved captcha_token"},"capabilities":{"auth_modes":["anonymous"],"streaming":true,"requires_captcha":["anonymous"]},"captcha":{"provider":"turnstile","site_key":"1x00000000000000000000AA"}}
+HTTP_STATUS: 400
+```
+**Verdict:** PASS — 400 captcha_required with discovery fields (capabilities.requires_captcha=["anonymous"] + captcha.{provider:"turnstile",site_key:"1x00000000000000000000AA"}).
+
+**Sub-smoke b — Valid mint (always-passes secret):**
+```
+$ curl -s -w "\nHTTP_STATUS: %{http_code}\n" -X POST http://127.0.0.1:18080/v1/intake/init \
+    -H 'Content-Type: application/json' -d '{"captcha_token":"XXXX.SMOKE-1.XXXX"}'
+{"session_id":"d6a663a6-f6a2-411d-ada9-3887a17401b1","capabilities":{"auth_modes":["anonymous"],"streaming":true,"requires_captcha":["anonymous"]},"captcha":{"provider":"turnstile","site_key":"1x00000000000000000000AA"}}
+HTTP_STATUS: 200
+```
+**Verdict:** PASS — 200 with session_id. siteverify called against real Cloudflare endpoint; always-passes secret accepted the token.
+
+**Sub-smoke c — Replay (same token, within 5min):**
+```
+$ curl -s -w "\nHTTP_STATUS: %{http_code}\n" -X POST http://127.0.0.1:18080/v1/intake/init \
+    -H 'Content-Type: application/json' -d '{"captcha_token":"XXXX.SMOKE-1.XXXX"}'
+{"error":{"code":"captcha_failed","message":"captcha verification failed","reason":"duplicate"}}
+HTTP_STATUS: 401
+```
+**Verdict:** PASS — 401 captcha_failed reason="duplicate". The in-process replay-protection set (Phase 5-iii Task 1) caught it BEFORE siteverify was called (defense in depth).
+
+**Sub-smoke d — Always-fails secret:**
+```
+$ export INTAKE_TURNSTILE_SECRET="2x0000000000000000000000000000000AA"
+$ # restart relay with same fixture, then:
+$ curl -s -w "\nHTTP_STATUS: %{http_code}\n" -X POST http://127.0.0.1:18080/v1/intake/init \
+    -H 'Content-Type: application/json' -d '{"captcha_token":"XXXX.SMOKE-2.XXXX"}'
+{"error":{"code":"captcha_failed","message":"captcha verification failed","reason":"invalid-input-response"}}
+HTTP_STATUS: 401
+```
+**Verdict:** PASS — 401 captcha_failed reason="invalid-input-response" (Cloudflare's documented error code for a token the always-fails secret rejects). siteverify round-trip confirmed against real Cloudflare endpoint.
+
+**L005 verification (secret never in logs):**
+```
+$ grep "1x0000000000000000000000000000000AA" /tmp/captcha-smoke.log /tmp/captcha-smoke-fails.log
+$ grep "2x0000000000000000000000000000000AA" /tmp/captcha-smoke.log /tmp/captcha-smoke-fails.log
+$ grep -c "1x0000000000000000000000000000000AA" /tmp/captcha-smoke.log /tmp/captcha-smoke-fails.log
+/tmp/captcha-smoke.log:0
+/tmp/captcha-smoke-fails.log:0
+$ grep -c "2x0000000000000000000000000000000AA" /tmp/captcha-smoke.log /tmp/captcha-smoke-fails.log
+/tmp/captcha-smoke.log:0
+/tmp/captcha-smoke-fails.log:0
+```
+Zero matches in either file. PASS — L005 redact-before-error holds end-to-end (neither the always-passes nor always-fails secret appears in any structured log line, including the captcha-construct, captcha-enabled, or per-request error paths).
+
+**(Optional) hCaptcha variant:** skipped — `INTAKE_HCAPTCHA_SECRET` was not present in the environment and the Turnstile variant already exercises the same provider-abstract code path (captcha.New → captcha.Verifier → initHandler verify branch).
+
+**Build + tests:** `go build ./... && go vet ./... && go test ./...` — clean.
+
+**Overall:** Phase 5-iii (captcha.Verifier + initHandler verify branch) verified end-to-end against the real Cloudflare Turnstile siteverify endpoint. L005 holds.
