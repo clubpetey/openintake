@@ -96,4 +96,23 @@ type Deps struct {
 	// TrustedProxies is the parsed CIDR list (parsed once at startup in main.go;
 	// consumed by clientIPMiddleware in server.New).
 	TrustedProxies []netip.Prefix
+
+	// from 6-i (Phase 6):
+
+	// AttachmentsCfg is the attachments section of the loaded config. submitHandler
+	// reads it to construct the attachvalidate.Config and to enforce the
+	// attachments_disabled short-circuit when Enabled=false; initHandler reads it
+	// to populate Capabilities.Attachments (in conjunction with AttachmentMIMEs).
+	AttachmentsCfg config.AttachmentsConfig
+
+	// AttachmentMIMEs is the published allowlist (cfg.AllowedMIMETypes ∩ enabled
+	// adapter union), computed once at startup via computeAttachmentsCaps. Empty
+	// → /init omits capabilities.attachments AND submitHandler refuses any
+	// non-empty attachments[] with 400 attachments_disabled.
+	AttachmentMIMEs []string
+
+	// BodyCapBytes is the per-request MaxBytesReader cap on /submit. 14*1<<20 (14 MB)
+	// when cfg.Attachments.Enabled=true; 1<<20 (1 MB) otherwise. main.go sets it
+	// once at startup based on cfg.Attachments.Enabled.
+	BodyCapBytes int64
 }
