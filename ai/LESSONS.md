@@ -252,3 +252,41 @@ Phase 6 6-ii shipped a chatwoot adapter that switched `POST /api/v1/accounts/{id
 Reference: `relay/internal/adapter/chatwoot/chatwoot.go` `uploadAttachments` + `buildMessageMultipart` (the second multipart helper; the original `buildConversationMultipart` was renamed and its body shape changed to remove the conversation-create-only fields).
 
 ---
+
+### L021: SSR-safe browser APIs need dependency injection at construction, NOT lazy module-level imports
+
+`html2canvas` is a browser-only library. Importing it at the top of `core/src/capture.ts` works in the browser bundle but breaks SSR (Vite SSR, Nuxt, Astro, the Vue test-utils `mount` with `global.stubs`), because the import-time side effects touch `window` / `document` / `Image` / etc. Two anti-patterns to avoid: (a) `const html2canvas = typeof window === 'undefined' ? null : require('html2canvas')` — module-level `require` in a TS ESM module is a build-time error in modern tooling; the `typeof window` check runs only at first import and gets cached. (b) `let h2c: any; if (typeof window !== 'undefined') import('html2canvas').then(m => h2c = m.default)` — race condition; first `capturePage()` call may run before the dynamic import resolves; tests that mock `window` AFTER the module imports see the wrong value.
+
+**The clean answer:** dependency-inject the capture function at construction. `core/src/capture.ts` exports `setHtml2Canvas(fn)` and `capturePage()`. Production code calls `setHtml2Canvas(html2canvas)` once at widget bootstrap (inside an `if (typeof window !== 'undefined')` guard that protects the import statement itself via a dynamic `await import('html2canvas')`). Tests call `setHtml2Canvas(stubFn)` to inject a stub canvas — no real library load, no `window` touched.
+
+**Where it hit:** Phase 6-iii widget design. The Vue test-utils mount step for `ScreenshotRedactor.spec.ts` failed under jsdom because the real `html2canvas` import touched `Image.prototype.crossOrigin` which jsdom doesn't fully implement. The DI rewrite made the test trivially passable AND fixed an unrelated SSR-build warning that would have shipped silently into the v1 Nuxt example.
+
+**Rule:** For any browser-only dependency that the widget loads (canvas APIs, ResizeObserver polyfills, Notifications, Service Workers, IndexedDB), inject the capability through a single `setX(fn)` setter and a single `getX()` accessor. The production widget call site is the ONLY place that imports the real module — and it imports it dynamically (`await import('lib')`) inside an `if (typeof window !== 'undefined')` guard. Tests inject stubs through the setter. This pattern also makes "swap to a different capture engine for v1" a one-line config change rather than a refactor.
+
+Reference: `core/src/capture.ts` `setHtml2Canvas` + `capturePage`; `vue/src/composables/useIntake.ts` (production bootstrap inside `onMounted`); tests in `core/src/capture.test.ts` stub-injection cases.
+
+---
+
+### L022: Stage Q9 startup gates so EVERY subsystem contributes to ONE consolidated log line — never `os.Exit(1)` after the first subsystem's problems
+
+Phase 5's Q9 contract (L016) is "one consolidated `relay: startup config errors` log line listing every distinct problem so the operator fixes everything in one restart cycle." Phase 6 added a SECOND startup gate (`validateAttachments` in `main.go`) for the new `attachments:` config block. The first 6-i implementation called `validateAttachments` AFTER Phase 5's `startupProblems`, and each gate independently called `os.Exit(1)` when its own `problems` slice was non-empty. Result: a YAML with BOTH Phase-5 misconfigs (bad CIDR, anonymous-no-captcha, bad action_on_exceeded) AND Phase-6 misconfigs (storage.mode:"s3", inverted caps) emitted the Phase 5 log line, exited, and the operator never saw the Phase 6 problems on the same restart — fixed Phase 5, restarted, then saw Phase 6 problems, fixed those, restarted again. Two restart cycles where Q9 promises one.
+
+**Where it hit:** Phase 6 6-iv Task 3 Q9 combined-fixture smoke (2026-05-29). The combined fixture (`attachments-combined.yaml` — three Phase-5 + two Phase-6 misconfigs in one file) failed the "exactly one consolidated log line listing every problem" assertion. Fix at commit `5275070`: accumulate problems from EVERY startup gate into a single `startupProblems []string` slice, log ONE consolidated line, exit ONCE. Each subsystem's gate function appends to the shared slice and RETURNS the parsed/defaulted values (L016 — no re-parse-with-discarded-error); the single `if len(startupProblems) > 0 { log + exit }` block at the end of startup is the only exit site.
+
+**Rule:** Every startup gate function (`startupProblems`, `validateAttachments`, anything Phase 7+ adds) MUST accumulate into a SHARED `[]string` and return parsed values for consumers. There is exactly ONE `os.Exit(1)` site in `main.go`, called once after all gates have run. Add the "second `os.Exit(1)` site introduced for a new subsystem's gate" pattern to the build-fail checklist for any phase that adds a startup-time config validation. The combined-fixture smoke (Phase 6 `attachments-combined.yaml`; Phase 5 `combined-misconfig.yaml`) is the load-bearing regression test — every new phase that adds a startup gate MUST extend the combined fixture with at least one of its own misconfigs and assert the consolidated log line contains substrings from EVERY subsystem.
+
+Reference: `relay/cmd/relay/main.go` `startupProblems` accumulation + `validateAttachments` returning parsed `AttachmentsConfig`; combined fixture `relay/cmd/relay/smoke/attachments-combined.yaml`; commit `5275070` (fix).
+
+---
+
+### L023: When an adapter's downstream returns HTTP 200 with a logical-failure field (`success:false`), the unused-but-parsed field IS the load-bearing assertion
+
+Phase 6-ii's first Linear adapter implementation parsed the file-upload response's `success` boolean field into a local struct but never read it — the adapter only checked HTTP status. The Linear file-upload endpoint returns HTTP 200 with `{"success":false, "fileUpload":null, ...}` on logical failure (asset URL not minted, quota exceeded, MIME rejected by Linear's own validator). Without checking `success`, the adapter would proceed to `issueCreate` with a nil/empty asset URL and create an orphan Linear issue with broken attachment references. The 6-ii code review caught this — the `success` field was in the struct definition, in the JSON unmarshal, but never in an `if !resp.Success` branch. Fix at commit `78bba55`: read `success`, reject the upload (without calling `issueCreate`) when false. L011 orphan-prevention preserved.
+
+**Where it hit:** Phase 6-ii code review (commit `78bba55`). Same family of bugs as L005's "200-with-errors[]" pattern (GraphQL returns 200 on logical errors). Generalizes beyond Linear: any downstream that signals success/failure in the JSON body (not the HTTP status) requires explicit parsing AND explicit branching on that field.
+
+**Rule:** When defining a Go struct to parse a downstream response that signals logical success in a body field (`success`, `ok`, `errors[]`, `error_code`, `status:"failed"`), the body-field check MUST run BEFORE any downstream-state-changing call (issue create, ticket create, conversation create). The smoke test for that adapter MUST include a fixture where the downstream returns HTTP 200 with the logical-failure field set, and assert that the state-changing call is NOT made. If the field exists in the struct definition but no `if` branch reads it, that is a silent-failure shape — add a build-fail item: "any struct field parsed from a downstream success/failure body must be read in a control-flow branch before any state-changing call."
+
+Reference: `relay/internal/adapter/linear/linear.go` upload-response `Success` field check; tests `TestLinear_Upload_SuccessFalse_NoIssueCreate`; commit `78bba55` (fix).
+
+---
