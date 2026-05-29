@@ -84,7 +84,7 @@ export class AttachmentList {
     this.list = [];
   }
 
-  items(): PendingAttachment[] {
+  items(): readonly PendingAttachment[] {
     return this.list;
   }
 

@@ -38,23 +38,9 @@ const CAPS_ENABLED = {
   },
 };
 
-// Stub HTMLCanvasElement.prototype.getContext globally so jsdom-less canvas
-// operations in ScreenshotRedactor (drawImage/fillRect on the offscreen
-// flatten canvas) don't return null and bail out.
-const fakeCtx = {
-  drawImage: vi.fn(),
-  fillRect: vi.fn(),
-  clearRect: vi.fn(),
-  strokeRect: vi.fn(),
-  fillStyle: '',
-  strokeStyle: '',
-  lineWidth: 1,
-  globalAlpha: 1,
-  setLineDash: vi.fn(),
-};
-HTMLCanvasElement.prototype.getContext = (function () {
-  return fakeCtx as unknown as CanvasRenderingContext2D;
-}) as unknown as typeof HTMLCanvasElement.prototype.getContext;
+// Canvas stubs (getContext/toDataURL/toBlob) are installed once in
+// vue/vitest.setup.ts (Phase 6-iii cleanup); individual tests below override
+// toDataURL when they need a deterministic return value.
 
 beforeEach(() => {
   vi.clearAllMocks();
