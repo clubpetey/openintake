@@ -32,11 +32,25 @@ type ContextInfo struct {
 }
 
 // SubmitRequest is the body of POST /v1/intake/submit.
-// Attachments are deferred to Phase 6.
 type SubmitRequest struct {
-	Messages    []TurnMessage  `json:"messages"`
-	Client      ClientInfo     `json:"client"`
-	UserClaims  map[string]any `json:"user_claims"`
-	Context     ContextInfo    `json:"context"`
-	RoutingHint *string        `json:"routing_hint"`
+	Messages    []TurnMessage      `json:"messages"`
+	Client      ClientInfo         `json:"client"`
+	UserClaims  map[string]any     `json:"user_claims"`
+	Context     ContextInfo        `json:"context"`
+	RoutingHint *string            `json:"routing_hint"`
+	Attachments []SubmitAttachment `json:"attachments,omitempty"` // Phase 6
+}
+
+// SubmitAttachment is the wire shape for one inline attachment (Phase 6).
+// URL is a data: URL (e.g. "data:image/png;base64,iVBORw0KGgo..."); MIMEType
+// is the declared content-type and is validated against the actual bytes via
+// net/http.DetectContentType in attachvalidate.ValidateAll. Type is
+// "screenshot" only in v0; "file" is rejected at attachvalidate with
+// 400 attachment_type_unsupported (schema permits "file" so v1 can enable it
+// without a schema bump).
+type SubmitAttachment struct {
+	Type     string `json:"type"`
+	MIMEType string `json:"mime_type"`
+	URL      string `json:"url"`
+	Label    string `json:"label,omitempty"`
 }
