@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	anthropicpkg "intake/internal/llm/anthropic"
 	"intake/internal/llm"
+	anthropicpkg "intake/internal/llm/anthropic"
 )
 
 // TestIntegration_RealStream performs a live Anthropic API call.

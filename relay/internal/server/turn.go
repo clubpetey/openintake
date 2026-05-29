@@ -118,14 +118,26 @@ func initHandler(deps Deps) http.HandlerFunc {
 
 		sessionID := deps.Auth.Store().Issue()
 
+		caps := Capabilities{
+			AuthModes:       modes,
+			Streaming:       true,
+			RequiresCaptcha: requiresCaptcha,
+		}
+		// Phase 6 (6-i): emit capabilities.attachments when the published
+		// allowlist (cfg.AllowedMIMETypes ∩ enabled adapter union, computed
+		// once at startup by ComputeAttachmentsCaps) is non-empty.
+		if deps.AttachmentsCfg.Enabled && len(deps.AttachmentMIMEs) > 0 {
+			caps.Attachments = &CapabilitiesAttachments{
+				MaxSizeBytes:     deps.AttachmentsCfg.MaxSizeBytes,
+				MaxTotalBytes:    deps.AttachmentsCfg.MaxTotalBytes,
+				AllowedMIMETypes: deps.AttachmentMIMEs,
+			}
+		}
+
 		resp := InitResponse{
-			SessionID: sessionID,
-			Capabilities: Capabilities{
-				AuthModes:       modes,
-				Streaming:       true,
-				RequiresCaptcha: requiresCaptcha,
-			},
-			Captcha: captchaHint,
+			SessionID:    sessionID,
+			Capabilities: caps,
+			Captcha:      captchaHint,
 		}
 
 		if deps.AuthCfg.Modes.Email {

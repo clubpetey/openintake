@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -400,6 +401,64 @@ func TestValidate_AcceptsReject(t *testing.T) {
 	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject"
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("Validate() returned error for action_on_exceeded=reject: %v", err)
+	}
+}
+
+func TestLoad_AppliesPhase6DefaultsForAttachments(t *testing.T) {
+	cfg, err := config.Load("testdata/minimal.yaml")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Attachments.Enabled {
+		t.Error("default Attachments.Enabled = false; want true")
+	}
+	if cfg.Attachments.MaxSizeBytes != 5_242_880 {
+		t.Errorf("default MaxSizeBytes = %d; want 5_242_880 (5 MB)", cfg.Attachments.MaxSizeBytes)
+	}
+	if cfg.Attachments.MaxTotalBytes != 10_485_760 {
+		t.Errorf("default MaxTotalBytes = %d; want 10_485_760 (10 MB)", cfg.Attachments.MaxTotalBytes)
+	}
+	want := []string{"image/png", "image/jpeg", "image/webp"}
+	if !reflect.DeepEqual(cfg.Attachments.AllowedMIMETypes, want) {
+		t.Errorf("default AllowedMIMETypes = %v; want %v", cfg.Attachments.AllowedMIMETypes, want)
+	}
+	if cfg.Attachments.Storage.Mode != "" {
+		t.Errorf("default Storage.Mode = %q; want \"\" (empty defaults to forward semantics)", cfg.Attachments.Storage.Mode)
+	}
+}
+
+func TestLoad_ExplicitDisabledAttachmentsHonored(t *testing.T) {
+	tmp := t.TempDir() + "/disabled.yaml"
+	body := []byte("attachments:\n  enabled: false\n")
+	if err := os.WriteFile(tmp, body, 0o600); err != nil {
+		t.Fatalf("write tmp: %v", err)
+	}
+	cfg, err := config.Load(tmp)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Attachments.Enabled {
+		t.Error("Attachments.Enabled = true; want false (explicit disable honored)")
+	}
+	// Other defaults still apply on the disabled path so reading them is safe.
+	if cfg.Attachments.MaxSizeBytes != 5_242_880 {
+		t.Errorf("MaxSizeBytes = %d; want 5_242_880 even on disabled path", cfg.Attachments.MaxSizeBytes)
+	}
+}
+
+func TestLoad_ParsesSampleYAMLPhase6AttachmentsBlock(t *testing.T) {
+	cfg, err := config.Load("testdata/sample.yaml")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Attachments.Enabled {
+		t.Error("sample.yaml has enabled:true; got false")
+	}
+	if cfg.Attachments.Storage.Mode != "forward" {
+		t.Errorf("sample.yaml storage.mode = %q; want forward", cfg.Attachments.Storage.Mode)
+	}
+	if len(cfg.Attachments.AllowedMIMETypes) != 3 {
+		t.Errorf("sample.yaml AllowedMIMETypes len = %d; want 3", len(cfg.Attachments.AllowedMIMETypes))
 	}
 }
 

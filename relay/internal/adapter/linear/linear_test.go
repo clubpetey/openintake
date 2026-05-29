@@ -1,9 +1,13 @@
 package linear_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +17,39 @@ import (
 	"intake/internal/adapter/linear"
 	"intake/internal/payload"
 )
+
+// goldenPNGBytes is the smallest valid 1×1 PNG for upload-flow tests.
+var goldenPNGBytes = []byte{
+	0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+	0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+	0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+	0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+	0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41,
+	0x54, 0x78, 0x9C, 0x62, 0x00, 0x01, 0x00, 0x00,
+	0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+	0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+	0x42, 0x60, 0x82,
+}
+
+var goldenPNGDataURL = "data:image/png;base64," + base64.StdEncoding.EncodeToString(goldenPNGBytes)
+
+// configuredWithUploads builds an adapter pointed at separate GraphQL and
+// upload endpoints. Linear's production GraphQL endpoint and uploads endpoint
+// are on different hosts; the adapter accepts upload_endpoint as a sibling of
+// endpoint for test injection.
+func configuredWithUploads(t *testing.T, graphqlURL, uploadsURL string) *linear.Adapter {
+	t.Helper()
+	a := linear.New()
+	if err := a.Configure(map[string]any{
+		"api_key":         testAPIKey,
+		"team_id":         testTeamUUID,
+		"endpoint":        graphqlURL,
+		"upload_endpoint": uploadsURL,
+	}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	return a
+}
 
 const testAPIKey = "lin_api_SUPERSECRETKEY_should_never_leak"
 
@@ -594,6 +631,250 @@ func TestLinearConfigure_ResolveNon2xx(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Phase 6 (6-ii) tests: attachment uploads before issueCreate
+// ---------------------------------------------------------------------------
+
+// TestLinearCreate_AttachmentsUploadThenIssueCreate asserts:
+//  1. N upload POSTs precede the issueCreate POST.
+//  2. Each upload carries multipart/form-data + the raw bytes.
+//  3. The issueCreate mutation's input.attachmentLinks references the
+//     returned upload URLs with the attachment labels as titles.
+func TestLinearCreate_AttachmentsUploadThenIssueCreate(t *testing.T) {
+	var (
+		uploadCount    int
+		uploadBytes    [][]byte
+		issueSeen      bool
+		issueVariables map[string]any
+	)
+
+	uploadsSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if issueSeen {
+			t.Errorf("uploads called AFTER issueCreate — order regression (L011)")
+		}
+		uploadCount++
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			t.Fatalf("upload ParseMultipartForm: %v", err)
+		}
+		var fh *multipart.FileHeader
+		for _, files := range r.MultipartForm.File {
+			if len(files) > 0 {
+				fh = files[0]
+				break
+			}
+		}
+		if fh == nil {
+			t.Fatal("upload missing file part")
+		}
+		f, err := fh.Open()
+		if err != nil {
+			t.Fatalf("open file part: %v", err)
+		}
+		b, _ := io.ReadAll(f)
+		_ = f.Close()
+		uploadBytes = append(uploadBytes, b)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(fmt.Sprintf(`{"success":true,"uploadFile":{"url":"https://uploads.linear.app/assets/uuid-%d.png"}}`, uploadCount)))
+	}))
+	defer uploadsSrv.Close()
+
+	graphqlSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		issueSeen = true
+		var body struct {
+			Variables map[string]any `json:"variables"`
+		}
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &body)
+		issueVariables = body.Variables
+		happyIssueHandler(w, r)
+	}))
+	defer graphqlSrv.Close()
+
+	p := minimalPayload()
+	label1 := "before"
+	label2 := "after"
+	p.Attachments = []payload.Attachment{
+		{Type: payload.AttachmentTypeScreenshot, MimeType: "image/png", Url: goldenPNGDataURL, SizeBytes: len(goldenPNGBytes), Label: &label1},
+		{Type: payload.AttachmentTypeScreenshot, MimeType: "image/png", Url: goldenPNGDataURL, SizeBytes: len(goldenPNGBytes), Label: &label2},
+	}
+
+	a := configuredWithUploads(t, graphqlSrv.URL, uploadsSrv.URL)
+	if _, err := a.Create(context.Background(), p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if uploadCount != 2 {
+		t.Fatalf("uploadCount = %d; want 2", uploadCount)
+	}
+	for i, b := range uploadBytes {
+		if !bytes.Equal(b, goldenPNGBytes) {
+			t.Errorf("upload[%d] bytes mismatch (len=%d, want=%d)", i, len(b), len(goldenPNGBytes))
+		}
+	}
+	input, _ := issueVariables["input"].(map[string]any)
+	if input == nil {
+		t.Fatalf("issueCreate variables missing input: %v", issueVariables)
+	}
+	links, _ := input["attachmentLinks"].([]any)
+	if len(links) != 2 {
+		t.Fatalf("attachmentLinks len = %d; want 2", len(links))
+	}
+	l0, _ := links[0].(map[string]any)
+	l1, _ := links[1].(map[string]any)
+	if l0["url"] != "https://uploads.linear.app/assets/uuid-1.png" {
+		t.Errorf("attachmentLinks[0].url = %v; want uuid-1.png", l0["url"])
+	}
+	if l0["title"] != "before" {
+		t.Errorf("attachmentLinks[0].title = %v; want before", l0["title"])
+	}
+	if l1["url"] != "https://uploads.linear.app/assets/uuid-2.png" {
+		t.Errorf("attachmentLinks[1].url = %v; want uuid-2.png", l1["url"])
+	}
+	if l1["title"] != "after" {
+		t.Errorf("attachmentLinks[1].title = %v; want after", l1["title"])
+	}
+}
+
+// TestLinearCreate_NoAttachmentsRegression asserts the no-attachments path
+// does not call the uploads endpoint and does not pass attachmentLinks in
+// the issueCreate input (L015).
+func TestLinearCreate_NoAttachmentsRegression(t *testing.T) {
+	var (
+		uploadCalled   bool
+		issueVariables map[string]any
+	)
+	uploadsSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		uploadCalled = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer uploadsSrv.Close()
+	graphqlSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Variables map[string]any `json:"variables"`
+		}
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &body)
+		issueVariables = body.Variables
+		happyIssueHandler(w, r)
+	}))
+	defer graphqlSrv.Close()
+
+	a := configuredWithUploads(t, graphqlSrv.URL, uploadsSrv.URL)
+	if _, err := a.Create(context.Background(), minimalPayload()); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if uploadCalled {
+		t.Error("uploads called when no attachments present")
+	}
+	input, _ := issueVariables["input"].(map[string]any)
+	if _, has := input["attachmentLinks"]; has {
+		t.Errorf("attachmentLinks present when no attachments; got: %v", input["attachmentLinks"])
+	}
+}
+
+// TestLinearCreate_FirstUploadFails_NoIssueCreate asserts orphan prevention.
+func TestLinearCreate_FirstUploadFails_NoIssueCreate(t *testing.T) {
+	var issueSeen bool
+	uploadsSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"success":false,"error":"upstream broken"}`))
+	}))
+	defer uploadsSrv.Close()
+	graphqlSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		issueSeen = true
+		happyIssueHandler(w, r)
+	}))
+	defer graphqlSrv.Close()
+
+	p := minimalPayload()
+	p.Attachments = []payload.Attachment{
+		{Type: payload.AttachmentTypeScreenshot, MimeType: "image/png", Url: goldenPNGDataURL, SizeBytes: len(goldenPNGBytes)},
+	}
+	a := configuredWithUploads(t, graphqlSrv.URL, uploadsSrv.URL)
+	_, err := a.Create(context.Background(), p)
+	if err == nil {
+		t.Fatal("expected error on upload 502")
+	}
+	if issueSeen {
+		t.Errorf("issueCreate happened despite upload failure (L011 regression)")
+	}
+	if !strings.Contains(err.Error(), "502") {
+		t.Errorf("error should mention status 502; got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "1/1") {
+		t.Errorf("error should mention upload index 1/1; got: %v", err)
+	}
+}
+
+// TestLinearCreate_UploadMissingURL_NoIssueCreate asserts that a 200 upload
+// response without a uploadFile.url returns an error before issueCreate.
+func TestLinearCreate_UploadMissingURL_NoIssueCreate(t *testing.T) {
+	var issueSeen bool
+	uploadsSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"success":true,"uploadFile":{}}`))
+	}))
+	defer uploadsSrv.Close()
+	graphqlSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		issueSeen = true
+		happyIssueHandler(w, r)
+	}))
+	defer graphqlSrv.Close()
+
+	p := minimalPayload()
+	p.Attachments = []payload.Attachment{
+		{Type: payload.AttachmentTypeScreenshot, MimeType: "image/png", Url: goldenPNGDataURL, SizeBytes: len(goldenPNGBytes)},
+	}
+	a := configuredWithUploads(t, graphqlSrv.URL, uploadsSrv.URL)
+	_, err := a.Create(context.Background(), p)
+	if err == nil {
+		t.Fatal("expected error on missing uploadFile.url")
+	}
+	if issueSeen {
+		t.Errorf("issueCreate happened despite missing upload url (L011 regression)")
+	}
+	if !strings.Contains(err.Error(), "url") {
+		t.Errorf("error should mention missing url; got: %v", err)
+	}
+}
+
+// TestLinearCreate_UploadKeyNeverLeaks_LongPrefix replicates the existing
+// KeyNeverLeaks_LongPrefix pattern for the new asset-upload error path: the
+// server's error body contains the api key after 180 chars of filler. The
+// adapter must redact BEFORE truncate so the key cannot survive in the error.
+func TestLinearCreate_UploadKeyNeverLeaks_LongPrefix(t *testing.T) {
+	longPrefix := strings.Repeat("x", 180)
+	echoMsg := longPrefix + " token " + testAPIKey + " is invalid"
+
+	uploadsSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(echoMsg))
+	}))
+	defer uploadsSrv.Close()
+	graphqlSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("issueCreate must not be called when upload fails")
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer graphqlSrv.Close()
+
+	p := minimalPayload()
+	p.Attachments = []payload.Attachment{
+		{Type: payload.AttachmentTypeScreenshot, MimeType: "image/png", Url: goldenPNGDataURL, SizeBytes: len(goldenPNGBytes)},
+	}
+	a := configuredWithUploads(t, graphqlSrv.URL, uploadsSrv.URL)
+	_, err := a.Create(context.Background(), p)
+	if err == nil {
+		t.Fatal("expected error on upload 401")
+	}
+	if strings.Contains(err.Error(), testAPIKey) {
+		t.Fatalf("L011: api key leaked in upload error (redact-before-truncate ordering broken): %v", err)
+	}
+	if !strings.Contains(err.Error(), "401") {
+		t.Errorf("error should mention status 401; got: %v", err)
+	}
+}
+
 // TestLinearConfigure_ResolveNetworkError verifies that a transport-level failure
 // during key resolution returns a non-nil error without leaking the api_key.
 func TestLinearConfigure_ResolveNetworkError(t *testing.T) {
@@ -616,5 +897,56 @@ func TestLinearConfigure_ResolveNetworkError(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), testAPIKey) {
 		t.Errorf("api key leaked in network error: %v", err)
+	}
+}
+
+func TestLinearCreate_UploadSuccessFalse_NoIssueCreate(t *testing.T) {
+	var issueSeen bool
+	uploadSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// success=false even with a populated url: orphan-prevention requires we reject this.
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte(`{"success":false,"uploadFile":{"url":"https://example.invalid/asset.png"}}`))
+	}))
+	defer uploadSrv.Close()
+	issueSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		issueSeen = true
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte(`{"data":{"issueCreate":{"success":true,"issue":{"id":"abc","identifier":"REF-1","url":"https://linear/REF-1"}}}}`))
+	}))
+	defer issueSrv.Close()
+
+	a := linear.New()
+	if err := a.Configure(map[string]any{
+		"api_key":         "lin_api_test_key",
+		"team_id":         "00000000-0000-0000-0000-000000000001",
+		"endpoint":        issueSrv.URL,
+		"upload_endpoint": uploadSrv.URL,
+	}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+
+	label := "shot"
+	p := &payload.IntakePayload{
+		Submission:   payload.Submission{Id: "00000000-0000-0000-0000-000000000001", SubmittedAt: time.Now()},
+		Client:       payload.Client{},
+		User:         payload.User{AuthMode: payload.UserAuthModeAnonymous},
+		Conversation: payload.Conversation{TitleSuggestion: "T", Summary: "S", Messages: nil},
+		Attachments: []payload.Attachment{{
+			Type:      payload.AttachmentTypeScreenshot,
+			MimeType:  "image/png",
+			SizeBytes: 8,
+			Url:       "data:image/png;base64,iVBORw0KGgo=",
+			Label:     &label,
+		}},
+	}
+	_, err := a.Create(context.Background(), p)
+	if err == nil {
+		t.Fatalf("Create succeeded; expected error from success=false upload")
+	}
+	if !strings.Contains(err.Error(), "success=false") {
+		t.Errorf("error %q does not mention success=false", err.Error())
+	}
+	if issueSeen {
+		t.Errorf("issueCreate called even though upload reported success=false")
 	}
 }

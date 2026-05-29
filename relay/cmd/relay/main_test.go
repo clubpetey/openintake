@@ -240,8 +240,8 @@ func TestStartupProblems_BadSessionTTL_TreatedAsProblem(t *testing.T) {
 
 func TestStartupProblems_BadIdleTTL_TreatedAsProblem(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.RateLimit.PerSession.SessionTTL = "1h"   // valid
-	cfg.RateLimit.PerIP.IdleTTL = "15min"        // invalid — should be "15m"
+	cfg.RateLimit.PerSession.SessionTTL = "1h" // valid
+	cfg.RateLimit.PerIP.IdleTTL = "15min"      // invalid — should be "15m"
 	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject"
 
 	problems, _ := startupProblems(cfg)
@@ -262,5 +262,145 @@ func TestStartupProblems_BothBadDurations_ReportsBoth(t *testing.T) {
 	problems, _ := startupProblems(cfg)
 	if len(problems) != 2 {
 		t.Errorf("problems len = %d; want 2 (both durations bad)\nproblems: %v", len(problems), problems)
+	}
+}
+
+func TestValidateAttachments_CleanConfig(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Attachments.Enabled = true
+	cfg.Attachments.MaxSizeBytes = 5_242_880
+	cfg.Attachments.MaxTotalBytes = 10_485_760
+	cfg.Attachments.AllowedMIMETypes = []string{"image/png", "image/jpeg", "image/webp"}
+	cfg.Attachments.Storage.Mode = "forward"
+
+	parsed, problems := validateAttachments(cfg, nil)
+	if len(problems) != 0 {
+		t.Errorf("problems = %v; want empty", problems)
+	}
+	if parsed.MaxSizeBytes != 5_242_880 {
+		t.Errorf("parsed.MaxSizeBytes = %d; want 5_242_880", parsed.MaxSizeBytes)
+	}
+}
+
+func TestValidateAttachments_BadStorageMode(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Attachments.Enabled = true
+	cfg.Attachments.Storage.Mode = "s3"
+	cfg.Attachments.MaxSizeBytes = 1
+	cfg.Attachments.MaxTotalBytes = 1
+	cfg.Attachments.AllowedMIMETypes = []string{"image/png"}
+
+	_, problems := validateAttachments(cfg, nil)
+	if len(problems) != 1 {
+		t.Fatalf("problems = %v; want exactly 1", problems)
+	}
+	if !strings.Contains(problems[0], "storage.mode") || !strings.Contains(problems[0], "s3") {
+		t.Errorf("problem %q does not mention storage.mode + s3", problems[0])
+	}
+}
+
+func TestValidateAttachments_CapInverted(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Attachments.Enabled = true
+	cfg.Attachments.MaxSizeBytes = 20_000_000
+	cfg.Attachments.MaxTotalBytes = 10_000_000
+	cfg.Attachments.AllowedMIMETypes = []string{"image/png"}
+
+	_, problems := validateAttachments(cfg, nil)
+	if len(problems) != 1 {
+		t.Fatalf("problems = %v; want exactly 1", problems)
+	}
+	if !strings.Contains(problems[0], "max_size_bytes") || !strings.Contains(problems[0], "max_total_bytes") {
+		t.Errorf("problem %q does not name both caps", problems[0])
+	}
+}
+
+func TestValidateAttachments_CapInvertedSkippedWhenTotalZero(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Attachments.Enabled = true
+	cfg.Attachments.MaxSizeBytes = 20_000_000
+	cfg.Attachments.MaxTotalBytes = 0 // disabled aggregate cap; per-attachment is the only gate
+	cfg.Attachments.AllowedMIMETypes = []string{"image/png"}
+
+	_, problems := validateAttachments(cfg, nil)
+	if len(problems) != 0 {
+		t.Errorf("problems = %v; want empty when total cap is 0", problems)
+	}
+}
+
+func TestValidateAttachments_UnknownMIMETypeIsWarnNotFatal(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Attachments.Enabled = true
+	cfg.Attachments.MaxSizeBytes = 1
+	cfg.Attachments.MaxTotalBytes = 1
+	cfg.Attachments.AllowedMIMETypes = []string{"image/heic"} // no adapter advertises this
+	_, problems := validateAttachments(cfg, nil)
+	if len(problems) != 0 {
+		t.Errorf("problems = %v; want empty (unknown-MIME is warn-not-fatal)", problems)
+	}
+}
+
+// TestStartupGates_CombinedPhase5AndPhase6Problems pins the Q9 contract:
+// when a config has BOTH Phase-5 misconfigs (anonymous-no-captcha + bad CIDR
+// + bad action_on_exceeded) AND Phase-6 misconfigs (storage.mode=s3 +
+// inverted size caps), the combined startup-problems slice — which main.go
+// emits in ONE consolidated "relay: startup config errors" log line and then
+// exits 1 — must contain BOTH families of problems. This mirrors the
+// 6-iv combined-fixture smoke; prior to the fix, the Phase 5 gate exited
+// before validateAttachments() ever ran, hiding the Phase 6 problems.
+func TestStartupGates_CombinedPhase5AndPhase6Problems(t *testing.T) {
+	cfg := &config.Config{}
+	// --- Phase 5 misconfigs ---
+	cfg.Auth.Modes.Anonymous = true
+	cfg.Captcha.Enabled = false
+	cfg.Auth.Anonymous.AllowWithoutCaptcha = false
+	cfg.Server.TrustedProxies = []string{"not-a-cidr"}
+	cfg.RateLimit.DailyLLMBudget.ActionOnExceeded = "queue"
+	cfg.RateLimit.PerSession.SessionTTL = "1h"
+	cfg.RateLimit.PerIP.IdleTTL = "15m"
+	// --- Phase 6 misconfigs ---
+	cfg.Attachments.Enabled = true
+	cfg.Attachments.Storage.Mode = "s3"
+	cfg.Attachments.MaxSizeBytes = 20_000_000
+	cfg.Attachments.MaxTotalBytes = 10_000_000
+
+	p5Problems, _ := startupProblems(cfg)
+	_, p6Problems := validateAttachments(cfg, nil)
+	combined := append(p5Problems, p6Problems...)
+
+	wantSubstrings := []string{
+		"anonymous",          // Phase 5: anonymous-no-captcha
+		"not-a-cidr",         // Phase 5: bad trusted_proxies CIDR
+		"action_on_exceeded", // Phase 5: bad daily-budget action
+		"storage.mode",       // Phase 6: bad storage mode
+		"max_size_bytes",     // Phase 6: inverted cap pair
+	}
+	for _, want := range wantSubstrings {
+		found := false
+		for _, p := range combined {
+			if strings.Contains(p, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("combined problems missing substring %q\nproblems: %v", want, combined)
+		}
+	}
+	if len(combined) < 5 {
+		t.Errorf("combined problems len = %d; want >= 5 (3 Phase-5 + 2 Phase-6)\nproblems: %v", len(combined), combined)
+	}
+}
+
+func TestValidateAttachments_DisabledShortCircuit(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Attachments.Enabled = false
+	cfg.Attachments.Storage.Mode = "s3" // would normally be fatal — but disabled trumps
+	cfg.Attachments.MaxSizeBytes = 20_000_000
+	cfg.Attachments.MaxTotalBytes = 10_000_000
+
+	_, problems := validateAttachments(cfg, nil)
+	if len(problems) != 0 {
+		t.Errorf("problems = %v; want empty when Enabled=false", problems)
 	}
 }

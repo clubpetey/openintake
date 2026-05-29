@@ -162,6 +162,7 @@ func TestCORS_OptionsWithoutOriginPassesThrough(t *testing.T) {
 // TestServerNew_HealthAndIntakeRouteRegistration verifies that:
 //   - /v1/health responds 200 (registered at the top level, outside /v1/intake)
 //   - /v1/intake/init responds 200 (registered inside the /v1/intake group)
+//
 // Both new Phase 5 middlewares (clientIPMiddleware, perIPLimitMiddleware) are
 // wired into the /v1/intake group but are no-ops with PerIP=nil and
 // TrustedProxies=nil, so this test does NOT verify they actually run.

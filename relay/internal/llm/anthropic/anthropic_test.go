@@ -154,7 +154,11 @@ func TestChat_ContextCancellation(t *testing.T) {
 
 	// Drain the channel with a timeout; a hang here means a goroutine leaked.
 	done := make(chan struct{})
-	go func() { for range ch {}; close(done) }()
+	go func() {
+		for range ch {
+		}
+		close(done)
+	}()
 	select {
 	case <-done:
 	case <-time.After(3 * time.Second):

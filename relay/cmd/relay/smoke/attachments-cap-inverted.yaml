@@ -1,0 +1,30 @@
+server:
+  addr: ":18089"
+  external_url: "http://127.0.0.1:18089"
+  cors_origins: ["http://localhost:5173"]
+llm:
+  provider: "ollama"
+  ollama:
+    base_url: "http://127.0.0.1:11434"
+    model: "fake"
+    max_tokens: 50
+auth:
+  modes:
+    anonymous: true
+  anonymous:
+    allow_without_captcha: true
+ratelimit:
+  daily_llm_budget:
+    action_on_exceeded: "reject"
+attachments:
+  enabled: true
+  max_size_bytes: 20000000
+  max_total_bytes: 10000000
+  storage:
+    mode: "forward"
+adapters:
+  webhook:
+    enabled: true
+    url: "http://127.0.0.1:1/discard"
+routing:
+  default_adapter: "webhook"

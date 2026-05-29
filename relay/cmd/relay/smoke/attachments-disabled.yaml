@@ -1,0 +1,36 @@
+server:
+  addr: ":18087"
+  external_url: "http://127.0.0.1:18087"
+  cors_origins: ["http://localhost:5173"]
+llm:
+  provider: "ollama"
+  ollama:
+    base_url: "http://127.0.0.1:11434"
+    model: "fake"
+    max_tokens: 50
+auth:
+  modes:
+    anonymous: true
+  anonymous:
+    allow_without_captcha: true
+ratelimit:
+  per_ip:
+    requests_per_second: 100.0
+    burst: 200
+    idle_ttl: "15m"
+  per_session:
+    max_turns: 100
+    max_input_tokens: 1000000
+    session_ttl: "1h"
+  daily_llm_budget:
+    max_input_tokens: 1000000
+    max_output_tokens: 1000000
+    action_on_exceeded: "reject"
+attachments:
+  enabled: false
+adapters:
+  webhook:
+    enabled: true
+    url: "http://127.0.0.1:19099/intake"
+routing:
+  default_adapter: "webhook"

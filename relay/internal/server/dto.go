@@ -20,9 +20,22 @@ type InitResponse struct {
 
 // Capabilities advertises relay feature flags to the widget.
 type Capabilities struct {
-	AuthModes       []string `json:"auth_modes"`
-	Streaming       bool     `json:"streaming"`
-	RequiresCaptcha []string `json:"requires_captcha,omitempty"` // 5-i: subset of AuthModes; only when captcha gates ≥1 mode
+	AuthModes       []string                 `json:"auth_modes"`
+	Streaming       bool                     `json:"streaming"`
+	RequiresCaptcha []string                 `json:"requires_captcha,omitempty"` // 5-i: subset of AuthModes; only when captcha gates ≥1 mode
+	Attachments     *CapabilitiesAttachments `json:"attachments,omitempty"`      // 6-i
+}
+
+// CapabilitiesAttachments advertises the inline-attachment policy when the
+// relay accepts attachments. nil → attachments disabled OR no enabled adapter
+// accepts any allowed type; widget hides the Attach button. The list is the
+// intersection of cfg.Attachments.AllowedMIMETypes and the union across
+// enabled adapters' Capabilities().AcceptedMIMETypes (computed once at
+// startup in main.go via ComputeAttachmentsCaps).
+type CapabilitiesAttachments struct {
+	MaxSizeBytes     int      `json:"max_size_bytes"`
+	MaxTotalBytes    int      `json:"max_total_bytes"`
+	AllowedMIMETypes []string `json:"allowed_mime_types"`
 }
 
 // InitAuth carries per-mode initialization hints. Only emitted when at least
@@ -114,8 +127,11 @@ type ContextInfo = dto.ContextInfo
 
 // SubmitRequest is the body of POST /v1/intake/submit.
 // Alias to dto.SubmitRequest to avoid import cycle with payloadbuild.
-// Attachments are deferred to Phase 6.
 type SubmitRequest = dto.SubmitRequest
+
+// SubmitAttachment is the wire shape for one inline attachment (Phase 6).
+// Alias to dto.SubmitAttachment for callers that want a single import.
+type SubmitAttachment = dto.SubmitAttachment
 
 // SubmitResponse is the body returned by POST /v1/intake/submit on success.
 type SubmitResponse struct {

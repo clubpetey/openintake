@@ -272,6 +272,90 @@ func TestFiderCreate_EmptyResponseBodyTolerated(t *testing.T) {
 	}
 }
 
+// TestFiderCreate_AttachmentsAppendsMarkdownImages asserts each attachment is
+// appended as a markdown image reference using its data: URL verbatim, with
+// the label as alt text. The order matches p.Attachments order, separated by
+// a blank line.
+func TestFiderCreate_AttachmentsAppendsMarkdownImages(t *testing.T) {
+	const url1 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+	const url2 = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAA=="
+
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":1,"number":1}`))
+	}))
+	defer srv.Close()
+
+	a := configure(t, srv.URL)
+	p := minimalPayload()
+	label1 := "before save"
+	// Second attachment has no label → renderer falls back to "screenshot 2".
+	p.Attachments = []payload.Attachment{
+		{Type: payload.AttachmentTypeScreenshot, MimeType: "image/png", Url: url1, SizeBytes: 70, Label: &label1},
+		{Type: payload.AttachmentTypeScreenshot, MimeType: "image/jpeg", Url: url2, SizeBytes: 32},
+	}
+	if _, err := a.Create(context.Background(), p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	var sent struct {
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal(gotBody, &sent); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+
+	want1 := "![before save](" + url1 + ")"
+	want2 := "![screenshot 2](" + url2 + ")"
+	if !strings.Contains(sent.Description, want1) {
+		t.Errorf("description missing first attachment ref %q\ngot: %q", want1, sent.Description)
+	}
+	if !strings.Contains(sent.Description, want2) {
+		t.Errorf("description missing second attachment ref %q\ngot: %q", want2, sent.Description)
+	}
+	// Order regression: first must appear before second.
+	if i1, i2 := strings.Index(sent.Description, want1), strings.Index(sent.Description, want2); i1 < 0 || i2 < 0 || i1 > i2 {
+		t.Errorf("attachment order not preserved (i1=%d, i2=%d)", i1, i2)
+	}
+	// Conversation text must still be present (graceful degradation contract).
+	if !strings.Contains(sent.Description, "Export button is unresponsive on the reports page.") {
+		t.Errorf("description lost summary after attachment append\ngot: %q", sent.Description)
+	}
+}
+
+// TestFiderCreate_NoAttachmentsRegression asserts the no-attachments path is
+// byte-identical to the existing 5-i behavior (L015 regression — no stray
+// trailing newlines, no spurious markdown).
+func TestFiderCreate_NoAttachmentsRegression(t *testing.T) {
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":1,"number":1}`))
+	}))
+	defer srv.Close()
+
+	a := configure(t, srv.URL)
+	if _, err := a.Create(context.Background(), minimalPayload()); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	var sent struct {
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal(gotBody, &sent); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if strings.Contains(sent.Description, "![") {
+		t.Errorf("description contains markdown image ref when no attachments present; got: %q", sent.Description)
+	}
+	if strings.Contains(sent.Description, "data:") {
+		t.Errorf("description contains data: URL when no attachments present; got: %q", sent.Description)
+	}
+}
+
 // TestFiderHealthCheck_OK asserts a non-5xx response (with the Bearer header set)
 // is healthy.
 func TestFiderHealthCheck_OK(t *testing.T) {
@@ -288,5 +372,63 @@ func TestFiderHealthCheck_OK(t *testing.T) {
 	}
 	if gotAuth != "Bearer "+testKey {
 		t.Errorf("health Authorization = %q; want Bearer <key>", gotAuth)
+	}
+}
+
+func TestFiderCreate_MaliciousLabelEscaped(t *testing.T) {
+	// A malicious label tries to break out of the ![<alt>](<url>) syntax.
+	// Defense-in-depth: even if Fider's sanitizer strips javascript: URLs,
+	// we escape the metacharacters at the source so the rendered HTML can
+	// never expose attacker-controlled href content from this codepath.
+	var receivedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte(`{"id":99,"number":7}`))
+	}))
+	defer srv.Close()
+
+	a := fider.New()
+	if err := a.Configure(map[string]any{"base_url": srv.URL, "api_key": "test"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+
+	label := `x](javascript:alert(1))`
+	p := &payload.IntakePayload{
+		Submission:   payload.Submission{Id: "00000000-0000-0000-0000-000000000001", SubmittedAt: time.Now()},
+		Client:       payload.Client{},
+		User:         payload.User{AuthMode: payload.UserAuthModeAnonymous},
+		Conversation: payload.Conversation{TitleSuggestion: "T", Summary: "S", Messages: nil},
+		Attachments: []payload.Attachment{
+			{
+				Type:      payload.AttachmentTypeScreenshot,
+				MimeType:  "image/png",
+				SizeBytes: 8,
+				Url:       "data:image/png;base64,iVBORw0KGgo=",
+				Label:     &label,
+			},
+		},
+	}
+	if _, err := a.Create(context.Background(), p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	var parsed struct {
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal(receivedBody, &parsed); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	// The raw injection MUST NOT appear.
+	forbidden := "[x](javascript:"
+	if strings.Contains(parsed.Description, forbidden) {
+		t.Errorf("description contains unescaped injection %q\nfull description:\n%s", forbidden, parsed.Description)
+	}
+	// The escaped form MUST appear (so the user still sees the label content).
+	// Note: mdEscapeAlt escapes ALL parens, so alert(1) becomes alert\(1\).
+	wantSubstr := `\]\(javascript:alert\(1\)\)`
+	if !strings.Contains(parsed.Description, wantSubstr) {
+		t.Errorf("description missing escaped label substring %q\nfull description:\n%s", wantSubstr, parsed.Description)
 	}
 }

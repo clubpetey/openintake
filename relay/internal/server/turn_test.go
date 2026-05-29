@@ -606,3 +606,124 @@ func TestInitHandler_CaptchaTokenIgnoredWhenNotRequired(t *testing.T) {
 		t.Errorf("Verifier called %d times; want 0 (captcha disabled)", v.calls)
 	}
 }
+
+func TestCapabilities_AttachmentsRoundTrip(t *testing.T) {
+	caps := server.Capabilities{
+		AuthModes: []string{"anonymous"},
+		Streaming: true,
+		Attachments: &server.CapabilitiesAttachments{
+			MaxSizeBytes:     5_242_880,
+			MaxTotalBytes:    10_485_760,
+			AllowedMIMETypes: []string{"image/png", "image/jpeg", "image/webp"},
+		},
+	}
+	raw, err := json.Marshal(caps)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var out server.Capabilities
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out.Attachments == nil {
+		t.Fatal("Attachments round-tripped to nil")
+	}
+	if out.Attachments.MaxSizeBytes != 5_242_880 {
+		t.Errorf("MaxSizeBytes = %d; want 5_242_880", out.Attachments.MaxSizeBytes)
+	}
+}
+
+func TestCapabilities_AttachmentsNilOmitsKey(t *testing.T) {
+	caps := server.Capabilities{AuthModes: []string{"anonymous"}, Streaming: true}
+	raw, err := json.Marshal(caps)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(raw), "attachments") {
+		t.Errorf("nil Attachments should omit the key; got %s", string(raw))
+	}
+}
+
+func TestInitHandler_EmitsCapabilitiesAttachmentsWhenEnabled(t *testing.T) {
+	store := auth.NewStore()
+	mw := auth.NewMiddleware(store, nil, nil)
+	deps := server.Deps{
+		Auth:    mw,
+		AuthCfg: config.AuthConfig{Modes: config.AuthModes{Anonymous: true}},
+		AttachmentsCfg: config.AttachmentsConfig{
+			Enabled:          true,
+			MaxSizeBytes:     5_242_880,
+			MaxTotalBytes:    10_485_760,
+			AllowedMIMETypes: []string{"image/png", "image/jpeg", "image/webp"},
+		},
+		AttachmentMIMEs: []string{"image/png", "image/jpeg", "image/webp"},
+	}
+	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{"http://localhost:5173"}}}
+	mux := server.New(cfg, deps)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/intake/init", strings.NewReader(`{}`))
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body server.InitResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Capabilities.Attachments == nil {
+		t.Fatal("Capabilities.Attachments is nil; want populated")
+	}
+	if body.Capabilities.Attachments.MaxSizeBytes != 5_242_880 {
+		t.Errorf("MaxSizeBytes = %d; want 5_242_880", body.Capabilities.Attachments.MaxSizeBytes)
+	}
+	if len(body.Capabilities.Attachments.AllowedMIMETypes) != 3 {
+		t.Errorf("AllowedMIMETypes len = %d; want 3", len(body.Capabilities.Attachments.AllowedMIMETypes))
+	}
+}
+
+func TestInitHandler_OmitsAttachmentsWhenDisabled(t *testing.T) {
+	store := auth.NewStore()
+	mw := auth.NewMiddleware(store, nil, nil)
+	deps := server.Deps{
+		Auth:            mw,
+		AuthCfg:         config.AuthConfig{Modes: config.AuthModes{Anonymous: true}},
+		AttachmentsCfg:  config.AttachmentsConfig{Enabled: false},
+		AttachmentMIMEs: nil,
+	}
+	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{"http://localhost:5173"}}}
+	mux := server.New(cfg, deps)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/intake/init", strings.NewReader(`{}`))
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), `"attachments"`) {
+		t.Errorf("body contains attachments key; want omitted: %s", rec.Body.String())
+	}
+}
+
+func TestInitHandler_OmitsAttachmentsWhenIntersectionEmpty(t *testing.T) {
+	store := auth.NewStore()
+	mw := auth.NewMiddleware(store, nil, nil)
+	deps := server.Deps{
+		Auth:            mw,
+		AuthCfg:         config.AuthConfig{Modes: config.AuthModes{Anonymous: true}},
+		AttachmentsCfg:  config.AttachmentsConfig{Enabled: true, MaxSizeBytes: 1, MaxTotalBytes: 1},
+		AttachmentMIMEs: []string{}, // empty intersection
+	}
+	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{"http://localhost:5173"}}}
+	mux := server.New(cfg, deps)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/v1/intake/init", strings.NewReader(`{}`))
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), `"attachments"`) {
+		t.Errorf("body contains attachments key on empty intersection; want omitted: %s", rec.Body.String())
+	}
+}

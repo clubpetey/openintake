@@ -3,7 +3,7 @@ package llm
 import "context"
 
 type Message struct {
-	Role    string `json:"role"`    // "system" | "user" | "assistant"
+	Role    string `json:"role"` // "system" | "user" | "assistant"
 	Content string `json:"content"`
 }
 
@@ -17,8 +17,8 @@ type ChatOptions struct {
 type ChatChunk struct {
 	Delta        string // incremental text
 	Done         bool
-	InputTokens  int // populated on Done
-	OutputTokens int // populated on Done
+	InputTokens  int   // populated on Done
+	OutputTokens int   // populated on Done
 	Err          error // non-nil => terminal error for this stream
 }
 

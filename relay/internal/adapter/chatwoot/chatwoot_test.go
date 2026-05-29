@@ -1,7 +1,9 @@
 package chatwoot_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -354,6 +356,352 @@ func TestChatwootConfigure_MissingKeys(t *testing.T) {
 			t.Fatalf("expected error naming inbox_id, got %v", err)
 		}
 	})
+}
+
+// goldenPNGBytes is a 1×1 transparent PNG (smallest valid PNG byte sequence)
+// used by attachment tests so DecodeOne's magic-byte path agrees with the
+// declared mime_type.
+var goldenPNGBytes = []byte{
+	0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+	0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+	0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+	0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+	0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41,
+	0x54, 0x78, 0x9C, 0x62, 0x00, 0x01, 0x00, 0x00,
+	0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+	0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+	0x42, 0x60, 0x82,
+}
+
+// goldenPNGDataURL is the base64-encoded data: URL form of goldenPNGBytes.
+var goldenPNGDataURL = "data:image/png;base64," + base64.StdEncoding.EncodeToString(goldenPNGBytes)
+
+// TestChatwootCreate_AttachmentsMultipart asserts the three-call flow when
+// p.Attachments is non-empty:
+//   - POST /contacts (JSON) — Phase 3 fixture, unchanged
+//   - POST /conversations (JSON) — Phase 3 byte-identical (NO multipart at
+//     this endpoint; see L020 — Chatwoot's ConversationsController#create
+//     silently drops attachments[] file parts)
+//   - POST /conversations/{id}/messages (multipart) — carries content,
+//     message_type=outgoing, and one attachments[] part per attachment with
+//     the decoded raw bytes, correct Content-Type, and filename.
+//
+// Asserts call ORDER (contacts → conversations → messages) and that the
+// message-create body contains the raw decoded PNG bytes verbatim.
+func TestChatwootCreate_AttachmentsMultipart(t *testing.T) {
+	var requestPath []string
+	var convCT string
+	var convBody map[string]any
+	var msgCT string
+	var msgFields map[string]string
+	type uploadedPart struct {
+		filename string
+		ctype    string
+		bytes    []byte
+	}
+	var msgAttachments []uploadedPart
+
+	// Handler models Chatwoot MessagesController#create
+	// (https://www.chatwoot.com/developers/api/#tag/Messages/operation/create-a-new-message-in-a-conversation).
+	// L020: this is the endpoint that DOES process attachments[]; the
+	// ConversationsController#create endpoint silently drops them, which is
+	// why this fixture asserts the multipart parts land at /messages, not at
+	// /conversations.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/accounts/1/contacts":
+			requestPath = append(requestPath, r.URL.Path)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"payload":{"contact":{"id":50},"contact_inbox":{"id":42,"source_id":"src-uuid-mp"}}}`))
+
+		case "/api/v1/accounts/1/conversations":
+			requestPath = append(requestPath, r.URL.Path)
+			convCT = r.Header.Get("Content-Type")
+			raw, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read conv body: %v", err)
+			}
+			if err := json.Unmarshal(raw, &convBody); err != nil {
+				t.Fatalf("conv body not valid JSON: %v\nbody: %s", err, raw)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":999}`))
+
+		case "/api/v1/accounts/1/conversations/999/messages":
+			requestPath = append(requestPath, r.URL.Path)
+			msgCT = r.Header.Get("Content-Type")
+			msgFields = map[string]string{}
+			if err := r.ParseMultipartForm(10 << 20); err != nil {
+				t.Fatalf("ParseMultipartForm: %v", err)
+			}
+			for k, vs := range r.MultipartForm.Value {
+				if len(vs) > 0 {
+					msgFields[k] = vs[0]
+				}
+			}
+			for _, fh := range r.MultipartForm.File["attachments[]"] {
+				f, err := fh.Open()
+				if err != nil {
+					t.Fatalf("open part: %v", err)
+				}
+				b, err := io.ReadAll(f)
+				_ = f.Close()
+				if err != nil {
+					t.Fatalf("read part: %v", err)
+				}
+				msgAttachments = append(msgAttachments, uploadedPart{
+					filename: fh.Filename,
+					ctype:    fh.Header.Get("Content-Type"),
+					bytes:    b,
+				})
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":7}`))
+
+		default:
+			t.Errorf("unexpected request path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	p := minimalPayload()
+	label := "before-save.png"
+	p.Attachments = []payload.Attachment{{
+		Type:      payload.AttachmentTypeScreenshot,
+		MimeType:  "image/png",
+		Url:       goldenPNGDataURL,
+		SizeBytes: len(goldenPNGBytes),
+		Label:     &label,
+	}}
+
+	a := configure(t, srv.URL)
+	result, err := a.Create(context.Background(), p)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// --- Call-order assertion: contacts → conversations → messages ---
+	if len(requestPath) != 3 {
+		t.Fatalf("expected 3 requests, got %d: %v", len(requestPath), requestPath)
+	}
+	wantOrder := []string{
+		"/api/v1/accounts/1/contacts",
+		"/api/v1/accounts/1/conversations",
+		"/api/v1/accounts/1/conversations/999/messages",
+	}
+	for i, want := range wantOrder {
+		if requestPath[i] != want {
+			t.Errorf("request[%d] = %q; want %q", i, requestPath[i], want)
+		}
+	}
+
+	// --- Conversation-create call: MUST be JSON (L020) ---
+	if convCT != "application/json" {
+		t.Errorf("conversation-create Content-Type = %q; want application/json (L020 — no multipart here)", convCT)
+	}
+	if sid, _ := convBody["source_id"].(string); sid != "src-uuid-mp" {
+		t.Errorf("conv: expected source_id=src-uuid-mp, got %v", convBody["source_id"])
+	}
+	if iv, ok := convBody["inbox_id"].(float64); !ok || int(iv) != 3 {
+		t.Errorf("conv: expected inbox_id=3, got %v", convBody["inbox_id"])
+	}
+	if cid, ok := convBody["contact_id"].(float64); !ok || int(cid) != 50 {
+		t.Errorf("conv: expected contact_id=50, got %v", convBody["contact_id"])
+	}
+	msg, ok := convBody["message"].(map[string]any)
+	if !ok {
+		t.Fatalf("conv: expected message object, got %v", convBody["message"])
+	}
+	if content, _ := msg["content"].(string); !strings.Contains(content, "Save button does nothing") {
+		t.Errorf("conv: message.content missing title; got: %q", content)
+	}
+
+	// --- Message-create call: MUST be multipart with attachments[] ---
+	if !strings.HasPrefix(msgCT, "multipart/form-data") {
+		t.Errorf("message-create Content-Type = %q; want multipart/form-data", msgCT)
+	}
+	if _, present := msgFields["content"]; !present {
+		t.Errorf("multipart content field missing; want present (empty string is OK)")
+	}
+	if msgFields["message_type"] != "outgoing" {
+		t.Errorf("multipart message_type = %q; want outgoing", msgFields["message_type"])
+	}
+	// These conversation-create fields must NOT appear on the message-create body.
+	for _, k := range []string{"inbox_id", "source_id", "contact_id", "message[content]"} {
+		if _, present := msgFields[k]; present {
+			t.Errorf("multipart message body must not carry %q (that field belongs to conversation-create)", k)
+		}
+	}
+	if len(msgAttachments) != 1 {
+		t.Fatalf("attachments[] parts = %d; want 1", len(msgAttachments))
+	}
+	part := msgAttachments[0]
+	if part.filename != "before-save.png" {
+		t.Errorf("part.filename = %q; want before-save.png", part.filename)
+	}
+	if part.ctype != "image/png" {
+		t.Errorf("part Content-Type = %q; want image/png", part.ctype)
+	}
+	if !bytes.Equal(part.bytes, goldenPNGBytes) {
+		t.Errorf("part bytes mismatch (len=%d, want=%d) — message-create body must carry raw decoded PNG bytes verbatim", len(part.bytes), len(goldenPNGBytes))
+	}
+
+	// --- Result assertions ---
+	if result.ExternalID != "999" {
+		t.Errorf("ExternalID = %q; want 999", result.ExternalID)
+	}
+}
+
+// TestChatwootCreate_NoAttachmentsJSONPathUnchanged asserts that when
+// p.Attachments is empty the conversation-create body stays application/json
+// AND the /messages endpoint is NEVER called (L015 + L020 regression).
+func TestChatwootCreate_NoAttachmentsJSONPathUnchanged(t *testing.T) {
+	var convCT string
+	var messagesHits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/accounts/1/contacts":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"payload":{"contact":{"id":50},"contact_inbox":{"id":42,"source_id":"src-uuid"}}}`))
+		case r.URL.Path == "/api/v1/accounts/1/conversations":
+			convCT = r.Header.Get("Content-Type")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":1}`))
+		case strings.HasSuffix(r.URL.Path, "/messages"):
+			messagesHits++
+			t.Errorf("unexpected hit on /messages endpoint with no attachments: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	a := configure(t, srv.URL)
+	if _, err := a.Create(context.Background(), minimalPayload()); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if convCT != "application/json" {
+		t.Errorf("no-attachments path Content-Type = %q; want application/json", convCT)
+	}
+	if messagesHits != 0 {
+		t.Errorf("messages endpoint hits = %d; want 0 (L020 — only call /messages when attachments are present)", messagesHits)
+	}
+}
+
+// TestChatwootCreate_AttachmentsLabelFallback asserts a nil/empty Label
+// produces the "screenshot N" (1-indexed) filename per the design matrix,
+// on the message-create multipart body (L020).
+func TestChatwootCreate_AttachmentsLabelFallback(t *testing.T) {
+	var filenames []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/accounts/1/contacts":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"payload":{"contact":{"id":50},"contact_inbox":{"id":42,"source_id":"s"}}}`))
+		case "/api/v1/accounts/1/conversations":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":1}`))
+		case "/api/v1/accounts/1/conversations/1/messages":
+			if err := r.ParseMultipartForm(10 << 20); err != nil {
+				t.Fatalf("ParseMultipartForm: %v", err)
+			}
+			for _, fh := range r.MultipartForm.File["attachments[]"] {
+				filenames = append(filenames, fh.Filename)
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":1}`))
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	p := minimalPayload()
+	p.Attachments = []payload.Attachment{
+		{Type: payload.AttachmentTypeScreenshot, MimeType: "image/png", Url: goldenPNGDataURL, SizeBytes: len(goldenPNGBytes)},
+		{Type: payload.AttachmentTypeScreenshot, MimeType: "image/png", Url: goldenPNGDataURL, SizeBytes: len(goldenPNGBytes)},
+	}
+	a := configure(t, srv.URL)
+	if _, err := a.Create(context.Background(), p); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if len(filenames) != 2 {
+		t.Fatalf("filenames len = %d; want 2", len(filenames))
+	}
+	if filenames[0] != "screenshot 1" {
+		t.Errorf("filenames[0] = %q; want screenshot 1", filenames[0])
+	}
+	if filenames[1] != "screenshot 2" {
+		t.Errorf("filenames[1] = %q; want screenshot 2", filenames[1])
+	}
+}
+
+// TestChatwootCreate_AttachmentUploadFails_ReturnsError asserts that a non-2xx
+// from the /messages endpoint surfaces as a Create() error containing the
+// conversation id, the status code, and the truncated body. No orphan-prevention
+// attempt is made — the conversation already exists in chatwoot with the
+// transcript (L020 — accepted for v0; the error tells the operator what
+// happened so they can re-attach manually).
+func TestChatwootCreate_AttachmentUploadFails_ReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/accounts/1/contacts":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"payload":{"contact":{"id":50},"contact_inbox":{"id":42,"source_id":"src"}}}`))
+		case "/api/v1/accounts/1/conversations":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":42}`))
+		case "/api/v1/accounts/1/conversations/42/messages":
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"errors":["foo"]}`))
+		default:
+			t.Errorf("unexpected request path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	p := minimalPayload()
+	p.Attachments = []payload.Attachment{{
+		Type:      payload.AttachmentTypeScreenshot,
+		MimeType:  "image/png",
+		Url:       goldenPNGDataURL,
+		SizeBytes: len(goldenPNGBytes),
+	}}
+
+	a := configure(t, srv.URL)
+	_, err := a.Create(context.Background(), p)
+	if err == nil {
+		t.Fatal("expected error when /messages returns 422, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "conversation 42") {
+		t.Errorf("error should mention 'conversation 42', got: %v", err)
+	}
+	if !strings.Contains(msg, "422") {
+		t.Errorf("error should mention status 422, got: %v", err)
+	}
+	if !strings.Contains(msg, "conversation exists with transcript") {
+		t.Errorf("error should clarify orphan-state ('conversation exists with transcript') so operators know the conversation was not rolled back, got: %v", err)
+	}
+	if !strings.Contains(msg, "foo") {
+		t.Errorf("error should contain truncated body fragment 'foo', got: %v", err)
+	}
+	if strings.Contains(msg, testToken) {
+		t.Fatalf("SECURITY: token leaked into error: %v", err)
+	}
 }
 
 // TestChatwootConfigure_AcceptsFloatIDs asserts account_id/inbox_id accept the

@@ -17,17 +17,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
 
 	"intake/internal/adapter"
+	"intake/internal/attachvalidate"
 	"intake/internal/payload"
 )
 
 const defaultEndpoint = "https://api.linear.app/graphql"
+
+// defaultUploadEndpoint is Linear's legacy file-upload endpoint (separate host
+// from the GraphQL endpoint). Overridable via the `upload_endpoint` config key
+// for test injection (see Configure).
+const defaultUploadEndpoint = "https://uploads.linear.app/api/file/upload"
 
 // uuidRE matches the canonical 8-4-4-4-12 UUID form, case-insensitive.
 var uuidRE = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -41,17 +49,19 @@ const teamsQuery = `{ teams(first: 250) { nodes { id name key } } }`
 
 // Adapter creates Linear issues via GraphQL.
 type Adapter struct {
-	apiKey   string
-	teamID   string
-	endpoint string
-	client   *http.Client
+	apiKey         string
+	teamID         string
+	endpoint       string
+	uploadEndpoint string // 6-ii: Linear's legacy file-upload endpoint (separate host).
+	client         *http.Client
 }
 
 // New returns an unconfigured Adapter. Call Configure before use.
 func New() *Adapter {
 	return &Adapter{
-		endpoint: defaultEndpoint,
-		client:   &http.Client{Timeout: 15 * time.Second},
+		endpoint:       defaultEndpoint,
+		uploadEndpoint: defaultUploadEndpoint,
+		client:         &http.Client{Timeout: 15 * time.Second},
 	}
 }
 
@@ -59,6 +69,14 @@ func (a *Adapter) Name() string { return "linear" }
 
 // RequiresLicense reports that linear is a paid adapter.
 func (a *Adapter) RequiresLicense() bool { return true }
+
+// Capabilities advertises the accepted attachment MIME types for /init
+// capability discovery (Phase 6, 6-i).
+func (a *Adapter) Capabilities() adapter.Capabilities {
+	return adapter.Capabilities{
+		AcceptedMIMETypes: []string{"image/png", "image/jpeg", "image/webp"},
+	}
+}
 
 // Configure reads api_key (required), team_id (required), and an optional endpoint
 // override (the test-injection seam; defaults to the live GraphQL endpoint). The
@@ -79,6 +97,11 @@ func (a *Adapter) Configure(cfg map[string]any) error {
 
 	if ep, ok := cfg["endpoint"].(string); ok && ep != "" {
 		a.endpoint = ep
+	}
+	// 6-ii: optional upload_endpoint override mirrors the GraphQL endpoint
+	// seam for test injection. Production deployments use defaultUploadEndpoint.
+	if up, ok := cfg["upload_endpoint"].(string); ok && up != "" {
+		a.uploadEndpoint = up
 	}
 
 	if uuidRE.MatchString(team) {
@@ -205,19 +228,33 @@ type issueCreateResponse struct {
 	} `json:"errors"`
 }
 
-// Create POSTs the issueCreate mutation and parses the GraphQL response. It fails
-// on a non-2xx HTTP status, a non-empty errors array, success:false, or a nil
-// issue. The api key is never included in any error message.
+// Create runs the Phase 6 (6-ii) sequence: upload each attachment to Linear's
+// file-upload endpoint, then POST the issueCreate mutation referencing the
+// returned asset URLs in attachmentLinks. Any upload failure returns an error
+// BEFORE issueCreate is called (L011 orphan prevention). The api key is never
+// included in any error message — redaction runs BEFORE truncate so a
+// long-prefix echo cannot slip the key past the 200-rune cap.
 func (a *Adapter) Create(ctx context.Context, p *payload.IntakePayload) (*adapter.CreateResult, error) {
+	// Phase 6: upload every attachment first; returns a slice of {url, title}
+	// values ready for the issueCreate input. Empty p.Attachments returns nil
+	// and the issueCreate input omits attachmentLinks entirely.
+	links, err := a.uploadAttachments(ctx, p.Attachments)
+	if err != nil {
+		return nil, err
+	}
+
+	input := map[string]any{
+		"teamId":      a.teamID,
+		"title":       p.Conversation.TitleSuggestion,
+		"description": renderBody(p),
+	}
+	if len(links) > 0 {
+		input["attachmentLinks"] = links
+	}
+
 	reqBody := graphQLRequest{
-		Query: issueCreateMutation,
-		Variables: map[string]any{
-			"input": map[string]any{
-				"teamId":      a.teamID,
-				"title":       p.Conversation.TitleSuggestion,
-				"description": renderBody(p),
-			},
-		},
+		Query:     issueCreateMutation,
+		Variables: map[string]any{"input": input},
 	}
 	body, err := json.Marshal(reqBody)
 	if err != nil {
@@ -271,6 +308,94 @@ func (a *Adapter) Create(ctx context.Context, p *payload.IntakePayload) (*adapte
 		AdapterName: a.Name(),
 		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
 	}, nil
+}
+
+// uploadResponse is the legacy upload endpoint's response shape.
+type uploadResponse struct {
+	Success    bool `json:"success"`
+	UploadFile struct {
+		URL string `json:"url"`
+	} `json:"uploadFile"`
+}
+
+// uploadAttachments POSTs each attachment as multipart/form-data to Linear's
+// legacy file-upload endpoint and returns one {url,title} map per upload for
+// the issueCreate input.attachmentLinks. Failure short-circuits and returns
+// an error BEFORE issueCreate (L011 orphan prevention).
+//
+// Per-upload error wrapping redacts the api_key BEFORE Truncate per L011 so a
+// long-prefix server echo cannot survive truncation.
+func (a *Adapter) uploadAttachments(ctx context.Context, atts []payload.Attachment) ([]map[string]any, error) {
+	if len(atts) == 0 {
+		return nil, nil
+	}
+	links := make([]map[string]any, 0, len(atts))
+	for i, att := range atts {
+		raw, _, err := attachvalidate.DecodeOne(att)
+		if err != nil {
+			return nil, fmt.Errorf("linear: decode attachment %d/%d: %w", i+1, len(atts), err)
+		}
+		title := ""
+		if att.Label != nil {
+			title = *att.Label
+		}
+		if title == "" {
+			title = fmt.Sprintf("screenshot %d", i+1)
+		}
+
+		var buf bytes.Buffer
+		mw := multipart.NewWriter(&buf)
+		hdr := textproto.MIMEHeader{
+			"Content-Disposition": []string{fmt.Sprintf(`form-data; name="file"; filename=%q`, title)},
+			"Content-Type":        []string{att.MimeType},
+		}
+		part, err := mw.CreatePart(hdr)
+		if err != nil {
+			return nil, fmt.Errorf("linear: upload %d/%d build part: %w", i+1, len(atts), err)
+		}
+		if _, err := part.Write(raw); err != nil {
+			return nil, fmt.Errorf("linear: upload %d/%d write bytes: %w", i+1, len(atts), err)
+		}
+		if err := mw.Close(); err != nil {
+			return nil, fmt.Errorf("linear: upload %d/%d close multipart: %w", i+1, len(atts), err)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.uploadEndpoint, &buf)
+		if err != nil {
+			return nil, fmt.Errorf("linear: upload %d/%d build request: %w", i+1, len(atts), err)
+		}
+		req.Header.Set("Content-Type", mw.FormDataContentType())
+		req.Header.Set("Authorization", a.apiKey)
+
+		resp, err := a.client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("linear: upload %d/%d: %s", i+1, len(atts), a.redact(err.Error()))
+		}
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			// L011: redact BEFORE truncate.
+			snippet := adapter.Truncate(a.redact(string(body)), 200)
+			return nil, fmt.Errorf("linear: upload %d/%d returned %d: %s", i+1, len(atts), resp.StatusCode, snippet)
+		}
+
+		var parsed uploadResponse
+		if err := json.Unmarshal(body, &parsed); err != nil {
+			return nil, fmt.Errorf("linear: upload %d/%d decode response: %w", i+1, len(atts), err)
+		}
+		if !parsed.Success {
+			return nil, fmt.Errorf("linear: upload %d/%d response success=false", i+1, len(atts))
+		}
+		if parsed.UploadFile.URL == "" {
+			return nil, fmt.Errorf("linear: upload %d/%d response missing uploadFile.url", i+1, len(atts))
+		}
+		links = append(links, map[string]any{
+			"url":   parsed.UploadFile.URL,
+			"title": title,
+		})
+	}
+	return links, nil
 }
 
 // HealthCheck POSTs a minimal viewer query and treats a 2xx with no GraphQL

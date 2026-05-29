@@ -10,18 +10,18 @@ import (
 //
 // Resolution order (4-i):
 //  1. Authorization: Bearer <token>:
-//       a. If email mode is enabled (m.email != nil), try emailjwt.Verify; on
-//          success, attach SessionContext{AuthMode:"email", Verified:true, Email}.
-//       b. Else fall through to SSO; if sso mode is enabled (m.sso != nil), try
-//          ssoVerifier.Verify; on success, attach SessionContext{AuthMode:"sso",
-//          Verified:true, UserID, Email?, DisplayName?, Custom}.
-//       c. Bearer present but no verifier accepted → 401 unauthorized.
-//          (A present-but-invalid bearer is NEVER silently downgraded to anonymous.)
+//     a. If email mode is enabled (m.email != nil), try emailjwt.Verify; on
+//     success, attach SessionContext{AuthMode:"email", Verified:true, Email}.
+//     b. Else fall through to SSO; if sso mode is enabled (m.sso != nil), try
+//     ssoVerifier.Verify; on success, attach SessionContext{AuthMode:"sso",
+//     Verified:true, UserID, Email?, DisplayName?, Custom}.
+//     c. Bearer present but no verifier accepted → 401 unauthorized.
+//     (A present-but-invalid bearer is NEVER silently downgraded to anonymous.)
 //  2. No Authorization header (in runtime order):
-//       a. modesAnonymous=false → 401 (Phase 5 Q9 strict enforcement).
-//       b. modesAnonymous=true AND X-Intake-Session present + store.Validate →
-//          SessionContext{AuthMode:"anonymous"}.
-//       c. otherwise → 401.
+//     a. modesAnonymous=false → 401 (Phase 5 Q9 strict enforcement).
+//     b. modesAnonymous=true AND X-Intake-Session present + store.Validate →
+//     SessionContext{AuthMode:"anonymous"}.
+//     c. otherwise → 401.
 //
 // The /init endpoint is NOT behind this middleware (it issues anonymous sessions).
 // The /auth/email/start and /auth/email/verify endpoints are ALSO not behind this

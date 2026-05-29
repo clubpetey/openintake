@@ -16,10 +16,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"intake/internal/adapter"
+	"intake/internal/attachvalidate"
 	"intake/internal/payload"
 )
 
@@ -49,6 +51,14 @@ func New() *Adapter {
 func (a *Adapter) Name() string { return "zendesk" }
 
 func (a *Adapter) RequiresLicense() bool { return true }
+
+// Capabilities advertises the accepted attachment MIME types for /init
+// capability discovery (Phase 6, 6-i).
+func (a *Adapter) Capabilities() adapter.Capabilities {
+	return adapter.Capabilities{
+		AcceptedMIMETypes: []string{"image/png", "image/jpeg", "image/webp"},
+	}
+}
 
 // Configure reads subdomain, email, api_token (required), default_priority (optional,
 // defaults to "normal"), and an optional base_url override (a test seam; otherwise
@@ -118,7 +128,8 @@ type ticketBody struct {
 }
 
 type ticketComment struct {
-	Body string `json:"body"`
+	Body    string   `json:"body"`
+	Uploads []string `json:"uploads,omitempty"`
 }
 
 // ticketResponse parses the 2xx body: {"ticket":{"id":<num>,"url":"<api url>"}}.
@@ -129,15 +140,36 @@ type ticketResponse struct {
 	} `json:"ticket"`
 }
 
-// Create POSTs a ticket to {baseURL}/api/v2/tickets.json. On 2xx it parses the ticket
-// id and returns a CreateResult whose ExternalURL points at the agent UI (the API
-// `url` field is an api endpoint, not the user-facing ticket page). On non-2xx it
-// returns an error including the truncated body but NEVER the token or auth header.
+// Create POSTs a ticket to {baseURL}/api/v2/tickets.json. On 2xx it parses the
+// ticket id and returns a CreateResult whose ExternalURL points at the agent
+// UI. On non-2xx it returns an error including ONLY the status code (the
+// response body is NEVER included — the Authorization header may be echoed
+// back, which would leak the base64-encoded credentials, per L005).
+//
+// Phase 6 (6-ii): when p.Attachments is non-empty, each attachment is POSTed
+// to /api/v2/uploads.json BEFORE the ticket POST. The first upload returns a
+// token; subsequent uploads pass that token via ?token=<...> so all uploads
+// share a single token. The shared token is attached to the ticket via
+// ticket.comment.uploads. Any upload failure returns an error immediately;
+// the ticket POST is NEVER reached (L011 orphan prevention).
 func (a *Adapter) Create(ctx context.Context, p *payload.IntakePayload) (*adapter.CreateResult, error) {
+	// Phase 6: upload attachments before ticket create. token is "" when there
+	// are no attachments — in that case the comment.uploads field is omitted
+	// entirely (omitempty).
+	uploadToken, err := a.uploadAttachments(ctx, p.Attachments)
+	if err != nil {
+		return nil, err
+	}
+
+	comment := ticketComment{Body: renderBody(p)}
+	if uploadToken != "" {
+		comment.Uploads = []string{uploadToken}
+	}
+
 	reqBody := ticketRequest{
 		Ticket: ticketBody{
 			Subject:  p.Conversation.TitleSuggestion,
-			Comment:  ticketComment{Body: renderBody(p)},
+			Comment:  comment,
 			Priority: mapPriority(p.Conversation.SeverityGuess, a.defaultPriority),
 			Tags:     []string(p.Conversation.TagsSuggested),
 		},
@@ -163,9 +195,8 @@ func (a *Adapter) Create(ctx context.Context, p *payload.IntakePayload) (*adapte
 	respBody, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		// NEVER include the response body — a misbehaving server may echo back the
-		// Authorization header, which would leak the base64-encoded credentials.
-		// Only the status code is safe to surface.
+		// NEVER include the response body — a misbehaving server may echo back
+		// the Authorization header, which would leak the credentials (L005).
 		return nil, fmt.Errorf("zendesk: create ticket returned %d", resp.StatusCode)
 	}
 
@@ -184,6 +215,83 @@ func (a *Adapter) Create(ctx context.Context, p *payload.IntakePayload) (*adapte
 		AdapterName: a.Name(),
 		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
 	}, nil
+}
+
+// uploadResponse is the parsed shape of /api/v2/uploads.json. We only need
+// upload.token; the server may rotate the token across chained uploads (rare
+// in practice), so we always overwrite with the latest response.
+type uploadResponse struct {
+	Upload struct {
+		Token string `json:"token"`
+	} `json:"upload"`
+}
+
+// uploadAttachments POSTs each attachment to /api/v2/uploads.json, chaining
+// the token across calls. Returns the FINAL token (which the ticket POST then
+// references via comment.uploads). An empty atts slice returns ("", nil) and
+// causes Create to skip the comment.uploads field entirely.
+//
+// On any upload failure (non-2xx, network error, missing token in response),
+// returns an error immediately. The error includes the upload index (1-based)
+// and the total count for operator diagnostics. The response BODY is NEVER
+// included in the error per L005 (Authorization header echo risk).
+func (a *Adapter) uploadAttachments(ctx context.Context, atts []payload.Attachment) (string, error) {
+	if len(atts) == 0 {
+		return "", nil
+	}
+	token := ""
+	for i, att := range atts {
+		raw, _, err := attachvalidate.DecodeOne(att)
+		if err != nil {
+			return "", fmt.Errorf("zendesk: decode attachment %d/%d: %w", i+1, len(atts), err)
+		}
+		filename := ""
+		if att.Label != nil {
+			filename = *att.Label
+		}
+		if filename == "" {
+			filename = fmt.Sprintf("screenshot %d", i+1)
+		}
+
+		q := url.Values{}
+		q.Set("filename", filename)
+		if token != "" {
+			q.Set("token", token)
+		}
+		endpoint := a.baseURL + "/api/v2/uploads.json?" + q.Encode()
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
+		if err != nil {
+			return "", fmt.Errorf("zendesk: build upload %d/%d: %w", i+1, len(atts), err)
+		}
+		req.Header.Set("Content-Type", att.MimeType)
+		req.Header.Set("Authorization", a.authHeader)
+
+		resp, err := a.client.Do(req)
+		if err != nil {
+			// http.Client.Do transport errors do not contain the Authorization
+			// header (it lives on req, not err). Wrap with %w to match the
+			// ticket-POST path's wrapping behavior for consistency.
+			return "", fmt.Errorf("zendesk: upload %d/%d: %w", i+1, len(atts), err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			// STATUS ONLY — body OMITTED per L005 (auth-header echo risk).
+			return "", fmt.Errorf("zendesk: upload %d/%d returned %d", i+1, len(atts), resp.StatusCode)
+		}
+
+		var parsed uploadResponse
+		if err := json.Unmarshal(body, &parsed); err != nil {
+			return "", fmt.Errorf("zendesk: upload %d/%d: decode response: %w", i+1, len(atts), err)
+		}
+		if parsed.Upload.Token == "" {
+			return "", fmt.Errorf("zendesk: upload %d/%d response missing upload.token", i+1, len(atts))
+		}
+		token = parsed.Upload.Token
+	}
+	return token, nil
 }
 
 // renderBody concatenates the summary, a blank line, then each message as
@@ -240,4 +348,3 @@ func (a *Adapter) HealthCheck(ctx context.Context) error {
 	}
 	return nil
 }
-

@@ -11,14 +11,15 @@ import (
 // additively by later sub-plans (add fields inside the nested structs; do not
 // restructure the top-level shape).
 type Config struct {
-	Server    ServerConfig    `yaml:"server"`
-	LLM       LLMConfig       `yaml:"llm"`
-	Auth      AuthConfig      `yaml:"auth"`
-	Adapters  AdaptersConfig  `yaml:"adapters"`
-	Routing   RoutingConfig   `yaml:"routing"`
-	License   LicenseConfig   `yaml:"license"`
-	Captcha   CaptchaConfig   `yaml:"captcha"`   // Phase 5
-	RateLimit RateLimitConfig `yaml:"ratelimit"` // Phase 5
+	Server      ServerConfig      `yaml:"server"`
+	LLM         LLMConfig         `yaml:"llm"`
+	Auth        AuthConfig        `yaml:"auth"`
+	Adapters    AdaptersConfig    `yaml:"adapters"`
+	Routing     RoutingConfig     `yaml:"routing"`
+	License     LicenseConfig     `yaml:"license"`
+	Captcha     CaptchaConfig     `yaml:"captcha"`     // Phase 5
+	RateLimit   RateLimitConfig   `yaml:"ratelimit"`   // Phase 5
+	Attachments AttachmentsConfig `yaml:"attachments"` // Phase 6
 }
 
 // ServerConfig holds HTTP server and CORS settings.
@@ -120,10 +121,10 @@ type EmailConfig struct {
 // SSOConfig configures host-app SSO. Exactly one of JWKSURL (RS256) or
 // HS256SecretEnv (HS256) must be set; both-set or neither-set is a startup error.
 type SSOConfig struct {
-	Issuer         string    `yaml:"issuer"`           // expected `iss` claim
-	Audience       string    `yaml:"audience"`         // expected `aud` claim
-	JWKSURL        string    `yaml:"jwks_url"`         // RS256 path
-	HS256SecretEnv string    `yaml:"hs256_secret_env"` // HS256 path; env var name
+	Issuer         string        `yaml:"issuer"`           // expected `iss` claim
+	Audience       string        `yaml:"audience"`         // expected `aud` claim
+	JWKSURL        string        `yaml:"jwks_url"`         // RS256 path
+	HS256SecretEnv string        `yaml:"hs256_secret_env"` // HS256 path; env var name
 	Claims         SSOClaimNames `yaml:"claims"`
 }
 
@@ -313,6 +314,64 @@ type DailyLLMBudgetConfig struct {
 	ActionOnExceeded string `yaml:"action_on_exceeded"` // "reject" only in v0; "queue" is v1+
 }
 
+// AttachmentsConfig configures inline screenshot attachments on /v1/intake/submit (Phase 6).
+type AttachmentsConfig struct {
+	Enabled          bool               `yaml:"enabled"`            // default true
+	MaxSizeBytes     int                `yaml:"max_size_bytes"`     // default 5_242_880   (5 MB per attachment)
+	MaxTotalBytes    int                `yaml:"max_total_bytes"`    // default 10_485_760  (10 MB aggregate)
+	AllowedMIMETypes []string           `yaml:"allowed_mime_types"` // default ["image/png","image/jpeg","image/webp"]
+	Storage          AttachmentsStorage `yaml:"storage"`
+	// unmarshalled tracks whether UnmarshalYAML ran so applyDefaults can
+	// distinguish "attachments key omitted entirely → default Enabled=true"
+	// from "explicit enabled: false → honor as false". Unexported and
+	// excluded from YAML.
+	unmarshalled bool `yaml:"-"`
+}
+
+// AttachmentsStorage selects the attachment storage mode. v0 ships only "forward"
+// semantics (inline base64 forwarded to the adapter); persistent S3 storage is v1+.
+// Empty string is treated as "forward" at the gate; any other non-empty value is
+// fatal at startup via validateAttachments in main.go.
+type AttachmentsStorage struct {
+	Mode string `yaml:"mode"` // "" | "forward"
+}
+
+// attachmentsConfigRaw lets us distinguish "key omitted entirely" from
+// "explicit enabled: false" so the default-true behavior is honorable.
+type attachmentsConfigRaw struct {
+	Enabled          *bool              `yaml:"enabled"`
+	MaxSizeBytes     int                `yaml:"max_size_bytes"`
+	MaxTotalBytes    int                `yaml:"max_total_bytes"`
+	AllowedMIMETypes *[]string          `yaml:"allowed_mime_types"`
+	Storage          AttachmentsStorage `yaml:"storage"`
+}
+
+// UnmarshalYAML implements yaml.Unmarshaler so the default for Enabled can be
+// true (Phase 6 ships attachments on by default; an operator with the key
+// omitted gets the feature, but `enabled: false` is honored).
+func (c *AttachmentsConfig) UnmarshalYAML(value *yaml.Node) error {
+	var raw attachmentsConfigRaw
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	if raw.Enabled != nil {
+		c.Enabled = *raw.Enabled
+	} else {
+		c.Enabled = true
+	}
+	c.MaxSizeBytes = raw.MaxSizeBytes
+	c.MaxTotalBytes = raw.MaxTotalBytes
+	if raw.AllowedMIMETypes != nil {
+		c.AllowedMIMETypes = *raw.AllowedMIMETypes
+		if c.AllowedMIMETypes == nil {
+			c.AllowedMIMETypes = []string{} // normalise: explicit empty is non-nil
+		}
+	}
+	c.Storage = raw.Storage
+	c.unmarshalled = true
+	return nil
+}
+
 // applyDefaults applies sane default values for any field not set by the YAML file.
 // Called after unmarshalling so that explicit zeros in the file override defaults
 // only for non-zero types; for structs we apply defaults after unmarshal and check
@@ -427,6 +486,23 @@ func applyDefaults(c *Config) {
 	// for "key omitted" and [] for "explicit empty"). Default: ["anonymous"].
 	if c.Captcha.RequiredFor == nil {
 		c.Captcha.RequiredFor = []string{"anonymous"}
+	}
+	// Phase 6 attachment defaults — apply uniformly so reads from a disabled
+	// attachments block still see consistent values. Enabled defaults to true
+	// when the attachments YAML key is omitted entirely (UnmarshalYAML never
+	// ran, so unmarshalled is false); when UnmarshalYAML ran, it already
+	// resolved Enabled (default true unless `enabled: false` was explicit).
+	if !c.Attachments.unmarshalled {
+		c.Attachments.Enabled = true
+	}
+	if c.Attachments.MaxSizeBytes == 0 {
+		c.Attachments.MaxSizeBytes = 5_242_880
+	}
+	if c.Attachments.MaxTotalBytes == 0 {
+		c.Attachments.MaxTotalBytes = 10_485_760
+	}
+	if c.Attachments.AllowedMIMETypes == nil {
+		c.Attachments.AllowedMIMETypes = []string{"image/png", "image/jpeg", "image/webp"}
 	}
 }
 

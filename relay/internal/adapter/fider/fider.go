@@ -25,6 +25,24 @@ import (
 // Summary fallback path.
 const maxTitleLen = 80
 
+// mdEscapeAlt escapes markdown alt-text metacharacters so that a user-supplied
+// label cannot break out of the `![<alt>](<url>)` syntax. Replaces backslash,
+// brackets, parens, and embedded newlines/CRs with their escaped forms.
+// Defense-in-depth — Fider's markdown sanitizer should also reject data: URLs
+// with embedded angle brackets, but we don't rely on downstream behavior.
+func mdEscapeAlt(s string) string {
+	r := strings.NewReplacer(
+		`\`, `\\`,
+		`[`, `\[`,
+		`]`, `\]`,
+		`(`, `\(`,
+		`)`, `\)`,
+		"\n", " ",
+		"\r", " ",
+	)
+	return r.Replace(s)
+}
+
 // Adapter creates Fider posts. The api_key is the RESOLVED key value supplied by
 // main.go (via config.RequireSecret), never an env-var name and never logged.
 type Adapter struct {
@@ -46,6 +64,14 @@ func New() *Adapter {
 func (a *Adapter) Name() string { return "fider" }
 
 func (a *Adapter) RequiresLicense() bool { return false }
+
+// Capabilities advertises the accepted attachment MIME types for /init
+// capability discovery (Phase 6, 6-i).
+func (a *Adapter) Capabilities() adapter.Capabilities {
+	return adapter.Capabilities{
+		AcceptedMIMETypes: []string{"image/png", "image/jpeg", "image/webp"},
+	}
+}
 
 // Configure reads base_url and api_key from the map. Both are required. The
 // api_key value is passed in by main.go (already resolved); this adapter never
@@ -167,6 +193,13 @@ func (a *Adapter) HealthCheck(ctx context.Context) error {
 // renderBody builds the post description: the summary, a blank line, then each
 // message as "<Role>: <Content>". Unlike chatwoot, the title is a separate Fider
 // API field (the `title` POST field) and is deliberately NOT repeated here.
+//
+// Phase 6 (6-ii): when p.Attachments is non-empty, each attachment is appended
+// as a markdown image reference using the original data: URL verbatim — Label
+// as alt text, falling back to "screenshot N" (1-indexed) when Label is nil
+// or empty. The Fider markdown renderer inlines data: URLs as <img src=…>;
+// if a deployment's sanitizer strips them, the post still has the full
+// conversation text (graceful degradation per design spec §3 Q-B).
 func renderBody(p *payload.IntakePayload) string {
 	var b strings.Builder
 	b.WriteString(p.Conversation.Summary)
@@ -177,6 +210,19 @@ func renderBody(p *payload.IntakePayload) string {
 		b.WriteString(m.Content)
 		b.WriteString("\n")
 	}
+	for i, att := range p.Attachments {
+		label := ""
+		if att.Label != nil {
+			label = *att.Label
+		}
+		if label == "" {
+			label = fmt.Sprintf("screenshot %d", i+1)
+		}
+		b.WriteString("\n![")
+		b.WriteString(mdEscapeAlt(label))
+		b.WriteString("](")
+		b.WriteString(att.Url)
+		b.WriteString(")\n")
+	}
 	return b.String()
 }
-

@@ -7,5 +7,19 @@ export * from './generated/payload.js';
 export type { IntakeConfig, ChatMessage, SubmitResult } from './client-types.js';
 export { IntakeClient } from './client.js';
 
+// HTTP DTO types — needed by widget code that consumes init/submit shapes.
+export type { InitResponse, SubmitRequest, SubmitResponse } from './types.js';
+
 // Context capture utilities (exported for widget use)
 export { captureClient, capturePageMetadata } from './context.js';
+
+// Phase 6 — attachments + capture
+export {
+  AttachmentList,
+  AttachmentTooLargeError,
+  AggregateTooLargeError,
+  MimeNotAllowedError,
+} from './attachments.js';
+export type { PendingAttachment, AttachmentLimits } from './attachments.js';
+export { setHtml2Canvas, capturePage, canvasToDataURL } from './capture.js';
+export type { Html2CanvasFn } from './capture.js';
