@@ -269,9 +269,10 @@ func (a *Adapter) uploadAttachments(ctx context.Context, atts []payload.Attachme
 
 		resp, err := a.client.Do(req)
 		if err != nil {
-			// Network errors typically don't echo the auth header, but match
-			// the redaction discipline anyway: don't surface the raw err.
-			return "", fmt.Errorf("zendesk: upload %d/%d: transport error", i+1, len(atts))
+			// http.Client.Do transport errors do not contain the Authorization
+			// header (it lives on req, not err). Wrap with %w to match the
+			// ticket-POST path's wrapping behavior for consistency.
+			return "", fmt.Errorf("zendesk: upload %d/%d: %w", i+1, len(atts), err)
 		}
 		body, _ := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
