@@ -10,11 +10,13 @@
     "codegen:ts": "json2ts -i schema/payload.v1.json -o core/src/generated/payload.ts --no-additionalProperties --bannerComment \"// GENERATED from schema/payload.v1.json — DO NOT EDIT. Run: npm run codegen\"",
     "codegen:go": "bash scripts/codegen-go.sh",
     "validate-schema": "ajv validate --spec=draft2020 --all-errors -c ajv-formats -s schema/payload.v1.json -d schema/testdata/payload.valid.json",
-    "validate-schema:reject": "ajv validate --spec=draft2020 --all-errors -c ajv-formats -s schema/payload.v1.json -d schema/testdata/payload.invalid.json && exit 1 || exit 0"
+    "validate-schema:reject": "ajv validate --spec=draft2020 --all-errors -c ajv-formats -s schema/payload.v1.json -d schema/testdata/payload.invalid.json && exit 1 || exit 0",
+    "lint:prettier": "prettier --check ."
   },
   "devDependencies": {
     "ajv-cli": "5.0.0",
     "ajv-formats": "3.0.1",
-    "json-schema-to-typescript": "15.0.4"
+    "json-schema-to-typescript": "15.0.4",
+    "prettier": "3.4.2"
   }
 }

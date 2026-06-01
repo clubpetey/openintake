@@ -1,0 +1,10 @@
+node_modules/
+dist/
+**/dist/
+**/generated/
+local-dev/
+*.generated.*
+relay/
+schema/payload.v1.json
+ai/
+.github/

@@ -1,0 +1,37 @@
+# .golangci.yml — Phase 7 (7-i) lint config for the Go relay.
+# Curated ruleset (NOT --enable-all). Signal over noise.
+# See ai/tasks/phase-7/README.md §6 build-fail item 3.
+run:
+  go: "1.23"
+  timeout: 5m
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck      # unchecked error returns
+    - govet         # standard go vet
+    - staticcheck   # SA-prefixed bugs
+    - gosec         # security issues (G-prefixed)
+    - ineffassign   # ineffectual assignments
+    - unused        # unused vars, consts, funcs
+
+linters-settings:
+  errcheck:
+    check-type-assertions: false
+    check-blank: false
+  gosec:
+    # G101 (hardcoded credentials) flags test fixtures and the example
+    # license templates. Each false positive gets a targeted //nolint:gosec.
+    # G304 (file inclusion via variable) hits config loading via a CLI flag —
+    # operator-supplied paths are intentional; nolint at the call site.
+    excludes: []
+
+issues:
+  exclude-rules:
+    # Test files are allowed to ignore errors from cleanup deferrals.
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
+  max-issues-per-linter: 0
+  max-same-issues: 0
