@@ -52,6 +52,22 @@ if grep -E 'prometheus/client_golang' relay/go.mod | grep -E '(\^|@latest)'; the
   echo "ERROR: github.com/prometheus/client_golang is caret/latest-pinned in relay/go.mod; PHASE_PLANNING §5 requires exact pins" >&2
   fail=1
 fi
+# Gate: golangci-lint version in ci.yml must be exact-pinned (no @latest, no caret). Phase 7.
+if [ -f .github/workflows/ci.yml ]; then
+  if grep -E 'golangci-lint(-action)?.*version:.*(\^|latest)' .github/workflows/ci.yml; then
+    echo "ERROR: golangci-lint is caret/latest-pinned in .github/workflows/ci.yml; PHASE_PLANNING §5 requires exact pins" >&2
+    fail=1
+  fi
+fi
+# Gate: eslint + prettier + @typescript-eslint/* in core/package.json + vue/package.json + root must be exact-pinned. Phase 7.
+for pkg in package.json core/package.json vue/package.json; do
+  if [ -f "$pkg" ]; then
+    if grep -E '"(eslint|prettier|eslint-plugin-vue|@typescript-eslint/parser|@typescript-eslint/eslint-plugin)":[[:space:]]*"[\^~]' "$pkg"; then
+      echo "ERROR: lint tool in $pkg is caret/tilde-pinned; PHASE_PLANNING §5 requires exact pins" >&2
+      fail=1
+    fi
+  fi
+done
 # Gate: html2canvas must be exact-pinned (no caret, no ~) in core/package.json. Phase 6.
 if grep -E '"html2canvas":\s*"[\^~]' core/package.json; then
   echo "ERROR: html2canvas in core/package.json is caret/tilde-pinned; PHASE_PLANNING §5 requires exact pins" >&2
