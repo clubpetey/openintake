@@ -11,15 +11,33 @@ import (
 // additively by later sub-plans (add fields inside the nested structs; do not
 // restructure the top-level shape).
 type Config struct {
-	Server      ServerConfig      `yaml:"server"`
-	LLM         LLMConfig         `yaml:"llm"`
-	Auth        AuthConfig        `yaml:"auth"`
-	Adapters    AdaptersConfig    `yaml:"adapters"`
-	Routing     RoutingConfig     `yaml:"routing"`
-	License     LicenseConfig     `yaml:"license"`
-	Captcha     CaptchaConfig     `yaml:"captcha"`     // Phase 5
-	RateLimit   RateLimitConfig   `yaml:"ratelimit"`   // Phase 5
-	Attachments AttachmentsConfig `yaml:"attachments"` // Phase 6
+	Server        ServerConfig        `yaml:"server"`
+	LLM           LLMConfig           `yaml:"llm"`
+	Auth          AuthConfig          `yaml:"auth"`
+	Adapters      AdaptersConfig      `yaml:"adapters"`
+	Routing       RoutingConfig       `yaml:"routing"`
+	License       LicenseConfig       `yaml:"license"`
+	Captcha       CaptchaConfig       `yaml:"captcha"`       // Phase 5
+	RateLimit     RateLimitConfig     `yaml:"ratelimit"`     // Phase 5
+	Attachments   AttachmentsConfig   `yaml:"attachments"`   // Phase 6
+	Observability ObservabilityConfig `yaml:"observability"` // Phase 7
+}
+
+// ObservabilityConfig configures the relay's structured logging + Prometheus
+// metrics surface. Phase 7 (7-i). LogLevel + LogFormat are reserved for v1+
+// fine-tuning — Phase 7 wires them as no-ops other than reading the values
+// (slog is already constructed with JSON+info before config load).
+type ObservabilityConfig struct {
+	LogLevel  string        `yaml:"log_level"`  // default "info"
+	LogFormat string        `yaml:"log_format"` // default "json"
+	Metrics   MetricsConfig `yaml:"metrics"`
+}
+
+// MetricsConfig controls the optional Prometheus metrics endpoint. OFF by
+// default per the off-by-default observability invariant — operators opt in.
+type MetricsConfig struct {
+	Enabled bool   `yaml:"enabled"` // default false (off-by-default invariant)
+	Addr    string `yaml:"addr"`    // default ":9090"
 }
 
 // ServerConfig holds HTTP server and CORS settings.
@@ -504,6 +522,18 @@ func applyDefaults(c *Config) {
 	if c.Attachments.AllowedMIMETypes == nil {
 		c.Attachments.AllowedMIMETypes = []string{"image/png", "image/jpeg", "image/webp"}
 	}
+	// Phase 7 observability defaults
+	if c.Observability.LogLevel == "" {
+		c.Observability.LogLevel = "info"
+	}
+	if c.Observability.LogFormat == "" {
+		c.Observability.LogFormat = "json"
+	}
+	if c.Observability.Metrics.Addr == "" {
+		c.Observability.Metrics.Addr = ":9090"
+	}
+	// Metrics.Enabled defaults to the Go zero (false), which is exactly the
+	// off-by-default invariant. No explicit set needed.
 }
 
 // Load reads the YAML config file at path, applies defaults for missing fields,

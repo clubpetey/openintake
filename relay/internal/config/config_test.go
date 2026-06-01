@@ -483,3 +483,62 @@ func TestLoad_ParsesSampleYAMLPhase5Blocks(t *testing.T) {
 		t.Error("sample.yaml sets AllowWithoutCaptcha=false; got true")
 	}
 }
+
+func TestLoad_AppliesPhase7DefaultsForObservability(t *testing.T) {
+	cfg, err := config.Load("testdata/minimal.yaml")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Observability.LogLevel != "info" {
+		t.Errorf("default LogLevel = %q; want \"info\"", cfg.Observability.LogLevel)
+	}
+	if cfg.Observability.LogFormat != "json" {
+		t.Errorf("default LogFormat = %q; want \"json\"", cfg.Observability.LogFormat)
+	}
+	if cfg.Observability.Metrics.Enabled {
+		t.Error("default Metrics.Enabled = true; want false (off-by-default invariant)")
+	}
+	if cfg.Observability.Metrics.Addr != ":9090" {
+		t.Errorf("default Metrics.Addr = %q; want \":9090\"", cfg.Observability.Metrics.Addr)
+	}
+}
+
+func TestLoad_ExplicitObservabilityHonored(t *testing.T) {
+	tmp := t.TempDir() + "/observ.yaml"
+	body := []byte("observability:\n  log_level: \"debug\"\n  log_format: \"text\"\n  metrics:\n    enabled: true\n    addr: \":12345\"\n")
+	if err := os.WriteFile(tmp, body, 0o600); err != nil {
+		t.Fatalf("write tmp: %v", err)
+	}
+	cfg, err := config.Load(tmp)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Observability.LogLevel != "debug" {
+		t.Errorf("LogLevel = %q; want \"debug\"", cfg.Observability.LogLevel)
+	}
+	if cfg.Observability.LogFormat != "text" {
+		t.Errorf("LogFormat = %q; want \"text\"", cfg.Observability.LogFormat)
+	}
+	if !cfg.Observability.Metrics.Enabled {
+		t.Error("Metrics.Enabled = false; want true")
+	}
+	if cfg.Observability.Metrics.Addr != ":12345" {
+		t.Errorf("Metrics.Addr = %q; want \":12345\"", cfg.Observability.Metrics.Addr)
+	}
+}
+
+func TestLoad_ParsesSampleYAMLPhase7ObservabilityBlock(t *testing.T) {
+	cfg, err := config.Load("testdata/sample.yaml")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Observability.LogLevel != "info" {
+		t.Errorf("sample.yaml log_level = %q; want info", cfg.Observability.LogLevel)
+	}
+	if cfg.Observability.Metrics.Enabled {
+		t.Error("sample.yaml metrics.enabled true; want false")
+	}
+	if cfg.Observability.Metrics.Addr != ":9090" {
+		t.Errorf("sample.yaml metrics.addr = %q; want :9090", cfg.Observability.Metrics.Addr)
+	}
+}

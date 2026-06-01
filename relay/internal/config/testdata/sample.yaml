@@ -118,3 +118,9 @@ attachments:
   allowed_mime_types: ["image/png", "image/jpeg", "image/webp"]
   storage:
     mode: "forward"
+observability:
+  log_level: "info"
+  log_format: "json"
+  metrics:
+    enabled: false
+    addr: ":9090"
