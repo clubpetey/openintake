@@ -18,7 +18,7 @@ cd intake/examples/docker-compose
 docker-compose up -d
 ```
 
-That starts the relay, a fake LLM, and a webhook receiver. Submit a test ticket via `curl` (see `docs/quickstart.md`) or open `http://localhost:5173` in a browser for the Vue widget UI.
+That starts the relay (on `http://localhost:18080`), a fake LLM, and a webhook receiver. Submit a test ticket via `curl` (see `docs/quickstart.md`) and watch it land in the webhook-receiver logs. For the Vue widget UI, run the bare-metal `examples/vue-anonymous` path documented in the quickstart.
 
 ## What's in v0
 

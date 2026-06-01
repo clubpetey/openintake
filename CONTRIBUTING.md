@@ -128,7 +128,7 @@ The fastest way to see the full stack in action:
 ```bash
 cd examples/docker-compose
 docker-compose up -d
-# In a browser: open http://localhost:5173 (the vue widget)
+# Send a test ticket: see docs/quickstart.md § "The 60-second path"
 # In a terminal: docker-compose logs -f webhook-receiver to watch tickets arrive
 docker-compose down -v          # tear down + remove volumes when done
 ```
