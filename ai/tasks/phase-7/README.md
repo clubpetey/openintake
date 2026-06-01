@@ -298,20 +298,24 @@ type Deps struct {
 
 ```go
 // accumulateStartupProblems runs all startup gates (Phase 5, Phase 6, Phase 7
-// adapter Configure) and returns the consolidated Deps + problems slice.
+// adapter Configure) and returns the consolidated Deps + registry + problems.
 //
-// PURE FUNCTION: takes cfg + licState + logger; returns Deps + problems; no os.Exit.
+// PURE FUNCTION: takes cfg + licState + logger; returns Deps + registry + problems; no os.Exit.
 // Phase 6's L022 contract is honored: ONE consolidated log line at the call site,
 // ONE os.Exit(1). Unit-testable in isolation (closes FOLLOWUPS I2).
+//
+// Returns a 3-tuple (Deps, []adapter.Adapter, []string) — the registry slice is
+// returned separately so main() can pass it to router.New via adapterRegistryFromSlice.
+// (Updated per 7-i implementation: cfg is *config.Config; licState is *licensemgr.State.)
 func accumulateStartupProblems(
-    cfg config.Config,
-    licState *license.State,
+    cfg *config.Config,
+    licState *licensemgr.State,
     logger *slog.Logger,
-) (Deps, []string) {
+) (server.Deps, []adapter.Adapter, []string) {
     var problems []string
 
-    // 1. Phase 5 gate (anonymous/SSO/CIDR/budget) — returns parsed trustedProxies
-    p5Problems, trustedProxies := startupProblems(cfg, logger)
+    // 1. Phase 5 gate (anonymous/SSO/CIDR/budget) — returns parsed trustedProxies.
+    p5Problems, trustedProxies := startupProblems(cfg)
     problems = append(problems, p5Problems...)
 
     // 2. buildRegistry — FOLLOWUPS I1: returns ([]adapter.Adapter, []string),
@@ -321,38 +325,35 @@ func accumulateStartupProblems(
     registry, regProblems := buildRegistry(cfg, licState, logger)
     problems = append(problems, regProblems...)
 
-    // 3. Phase 6 attachments gate — M2: returns zero-value when Enabled=false
-    attCfg, attProblems := validateAttachments(cfg.Attachments, registry)
+    // 3. Phase 6 attachments gate — M2: returns zero-value when Enabled=false.
+    attachmentsCfg, attProblems := validateAttachments(cfg, registry)
     problems = append(problems, attProblems...)
 
-    // 4. Compute Deps from the validated outputs
-    attCaps := server.ComputeAttachmentsCaps(attCfg, registry)
-    bodyCapBytes := int64(1 << 20)
-    if attCfg.Enabled {
-        bodyCapBytes = int64((1 << 20) * 14)
-    }
-    metricsReg := metrics.New(cfg.Observability.Metrics.Enabled, cfg.Observability.Metrics.Addr)
-
+    // 4. Compute Deps from the validated outputs.
+    attCaps := server.ComputeAttachmentsCaps(attachmentsCfg, registry)
     var attachmentMIMEs []string
     if attCaps != nil {
         attachmentMIMEs = attCaps.AllowedMIMETypes
     }
+    bodyCapBytes := int64(1 << 20)
+    if attachmentsCfg.Enabled {
+        bodyCapBytes = 14 * (1 << 20)
+    }
+    metricsReg := metrics.New(cfg.Observability.Metrics.Enabled, cfg.Observability.Metrics.Addr)
 
-    return Deps{
-        // ... all existing Phase 1-6 fields ...
+    return server.Deps{
         TrustedProxies:  trustedProxies,
-        Registry:        registry,
-        AttachmentsCfg:  attCfg,
+        AttachmentsCfg:  attachmentsCfg,
         AttachmentMIMEs: attachmentMIMEs,
         BodyCapBytes:    bodyCapBytes,
         Metrics:         metricsReg,
-    }, problems
+    }, registry, problems
 }
 
 func main() {
     // ... cfg + license load (unchanged) ...
 
-    deps, problems := accumulateStartupProblems(cfg, licState, logger)
+    startupDeps, registry, problems := accumulateStartupProblems(cfg, licState, logger)
     if len(problems) > 0 {
         logger.Error("relay: startup config errors",
             "count", len(problems), "problems", problems)
@@ -362,15 +363,16 @@ func main() {
     // Start metrics server in a goroutine (no-op when disabled)
     ctx := context.Background()
     go func() {
-        if err := deps.Metrics.ListenAndServe(ctx); err != nil {
+        if err := startupDeps.Metrics.ListenAndServe(ctx); err != nil {
             logger.Error("metrics: ListenAndServe failed", "err", err)
             // Main relay continues — observability shouldn't be able to brick it.
         }
     }()
 
-    // Start main HTTP server (unchanged from Phase 1-6 +
-    //                        metrics.Middleware() prepended to the chain)
-    server.New(deps).ListenAndServe(...)
+    // main() converts registry to a map via adapterRegistryFromSlice for router.New,
+    // then starts the main HTTP server (unchanged from Phase 1-6 +
+    // metrics.Middleware() prepended to the chain).
+    // server.New(startupDeps, adapterRegistryFromSlice(registry), ...).ListenAndServe(...)
 }
 ```
 
