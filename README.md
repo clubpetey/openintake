@@ -1,29 +1,110 @@
 # intake
 
-> Working name — final name TBD (see docs/specs decomposition design §6).
+> **Working name** — final name TBD (see `docs/specs/2026-05-26-v0-decomposition-and-phasing-design.md` §6).
 
-AI-native, self-hostable feedback & support intake: an embeddable widget + a single-binary Go relay.
+<!-- Status badges — fill in post-public-release:
+[![CI](https://github.com/<org>/<repo>/actions/workflows/ci.yml/badge.svg)](https://github.com/<org>/<repo>/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/<org>/<repo>)](https://github.com/<org>/<repo>/releases)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+-->
+
+**intake** is an AI-native, self-hostable feedback & support intake stack: an embeddable Vue 3 widget + a single-binary Go relay. No SaaS dependency, no vendor lock-in, no third-party data plane — install the relay on your own infrastructure, drop the widget into your app, and route submissions into the support system you already use (Chatwoot, Zendesk, Linear, Fider, or any HTTP webhook).
+
+## The 60-second demo
+
+```bash
+git clone <repo-url>
+cd intake/examples/docker-compose
+docker-compose up -d
+```
+
+That starts the relay, a fake LLM, and a webhook receiver. Submit a test ticket via `curl` (see `docs/quickstart.md`) or open `http://localhost:5173` in a browser for the Vue widget UI.
+
+## What's in v0
+
+- **5 adapters** — pick which downstream system receives your tickets
+  - `webhook` — *(Free)* — POST canonical JSON to any HTTP endpoint
+  - `chatwoot` — *(Free)* — open a Chatwoot conversation with the agent API
+  - `fider` — *(Free)* — post a Fider idea with markdown-embedded screenshots
+  - `zendesk` — *(Paid)* — create a Zendesk ticket via the v2 API
+  - `linear` — *(Paid)* — create a Linear issue via the GraphQL API
+- **4 LLM providers** — pick whichever you're already using
+  - `anthropic` — Claude family models (default in production deployments)
+  - `openai` — GPT-4o family and successors
+  - `gemini` — Google Gemini family
+  - `ollama` — self-hosted local models (no API cost)
+- **3 authentication modes** — pick the right shape for your user model
+  - `anonymous` — no auth, CAPTCHA-gated; for public marketing-site widgets
+  - `email` — magic-link auth via SMTP; for known users with light identity needs
+  - `sso` — JWKS or HS256 JWT verification; for SSO-backed customer portals
+
+Plus: AI-driven classification + summarization, screenshot capture with client-side redaction, attachment upload (PNG/JPEG/WebP, 5 MB each / 10 MB aggregate), Phase 5 abuse gates (per-IP / per-session / daily LLM budget), Cloudflare Turnstile CAPTCHA, Prometheus metrics on an opt-in side-channel, consolidated startup-gate that flags every misconfig in one log line.
+
+## Documentation
+
+| Doc | Purpose |
+|---|---|
+| [`docs/quickstart.md`](docs/quickstart.md) | Fresh-clone to "ticket in webhook log" in 30 minutes. Docker or bare-metal. |
+| [`docs/self-hosting.md`](docs/self-hosting.md) | Production deployment: binary + Docker, env vars, metrics, abuse gates, auth modes, TLS. |
+| [`docs/license.md`](docs/license.md) | License-file resolution, 14-day trial, paid-adapter gate, expiry behavior. |
+| [`docs/adapters.md`](docs/adapters.md) | The 5 adapters: tier, config, env vars, attachment behavior, downstream API links. |
+| [`docs/attachments.md`](docs/attachments.md) | Attachment validation, per-adapter forwarding, the widget redactor UI. |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Branch model, commit conventions, the phase model, local pre-commit commands. |
+| [`SECURITY.md`](SECURITY.md) | Vulnerability reporting policy + existing security stance. |
+| [`docs/PROJECT.md`](docs/PROJECT.md) | Source-of-truth design document for the whole project. |
+
+## License
+
+intake uses a dual licensing model:
+
+- **Apache 2.0** covers the framework — the relay, the widget, the schema, the free adapters (`webhook`, `chatwoot`, `fider`), and all LLM providers. See [`LICENSE`](LICENSE).
+- **Commercial license** is required to operate the paid adapters (`zendesk`, `linear`) in production after the 14-day trial. See [`COMMERCIAL.md`](COMMERCIAL.md) for (draft) terms.
+
+The source code is Apache 2.0 either way — the commercial gate is at runtime, not at distribution. You can read, fork, and modify everything; you need a license to **use** the paid adapters in production.
 
 ## Repo layout
 
-- `core/` — `@intake/core` shared TypeScript engine
-- `vue/` — `@intake/vue` widget
-- `relay/` — `intake-relay` Go binary
-- `license-tool/` — maintainer-only license signer (not published)
-- `schema/` — `payload.v1.json` wire contract (source of truth)
+```
+intake/
+├── core/                # @intake/core — shared TypeScript engine (capture, client, types)
+├── vue/                 # @intake/vue — Vue 3 widget components
+├── relay/               # intake-relay Go binary + internal packages
+├── license-tool/        # maintainer-only license signer (not published)
+├── schema/              # payload.v1.json — wire contract (source of truth)
+├── examples/            # vue-anonymous, webhook-receiver, docker-compose
+├── scripts/             # codegen-go.sh, verify-contract.sh, check-pins.sh
+├── docs/                # operator-facing docs + design specs
+└── ai/                  # task plans, lessons, phase READMEs (developer notes)
+```
 
 ## Prerequisites
 
-- Node 24.12.0 (`nvm use`)
-- Go 1.23.2
-- POSIX shell / bash (Git Bash or WSL on Windows) — required to run `scripts/codegen-go.sh`, `scripts/verify-contract.sh`, and `scripts/check-pins.sh`
+- **Node 24.12.0** (run `nvm use` if you use nvm)
+- **Go 1.23.2**
+- **POSIX shell** (Git Bash or WSL on Windows) for `scripts/codegen-go.sh` and friends
+
+For the demo: **Docker Desktop** (macOS / Windows) or **Docker engine** (Linux).
 
 ## Build
 
 ```bash
-npm ci
-npm run codegen     # regenerate types from schema
-cd relay && go build ./...
+npm ci                              # install workspace dependencies
+npm run codegen                     # regenerate types from schema/payload.v1.json
+cd relay && go build ./...          # compile the relay and all internal packages
 ```
 
-See `docs/` for full documentation.
+To run the full local pre-commit suite (matches CI):
+
+```bash
+cd relay && go vet ./... && go test -race ./...
+cd ../core && npm test
+cd ../vue && npm test
+bash scripts/verify-contract.sh
+bash scripts/check-pins.sh
+```
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full developer workflow.
+
+## Status
+
+intake is **pre-1.0**. The v0 wire contract is locked (`schema/payload.v1.json`), but the public release infrastructure is still local-only — see `docs/PROJECT.md` §15 for the release-pipeline status. Pin to specific commits if you depend on intake in production today; semver guarantees begin at v1.0.0.
