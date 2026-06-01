@@ -23,6 +23,7 @@ const sharedGlobals = {
   vi: 'readonly',
   // TS-only types that look like globals in JSDoc/type annotations
   RequestInit: 'readonly',
+  BlobCallback: 'readonly',
 };
 
 export default [
