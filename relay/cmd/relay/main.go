@@ -31,6 +31,7 @@ import (
 	"intake/internal/config"
 	licensemgr "intake/internal/license"
 	"intake/internal/llm/providers"
+	"intake/internal/metrics"
 	"intake/internal/payloadbuild"
 	"intake/internal/ratelimit/perip"
 	"intake/internal/router"
@@ -42,7 +43,17 @@ import (
 func main() {
 	configPath := flag.String("config", "config.yaml", "path to the relay config file")
 	licenseFile := flag.String("license-file", "", "path to license.json (overrides config license.file)")
+	showVersion := flag.Bool("version", false, "print version information and exit")
 	flag.Parse()
+
+	// --version: print one line and exit BEFORE any logger/cfg setup so the
+	// flag works even with no config file present. The string is the
+	// binary-vs-tag identity assertion target for the 7-ii snapshot-build smoke.
+	if *showVersion {
+		info := version.Info()
+		fmt.Printf("intake-relay %s (%s) built %s\n", info.Version, info.Commit, info.BuildTime)
+		os.Exit(0)
+	}
 
 	// --- Logger (structured JSON to stdout) ---
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -71,70 +82,18 @@ func main() {
 	}
 	logger.Info("relay: license", "mode", licState.Mode, "detail", licState.Message)
 
-	// --- Q9 consolidated startup gate (Phase 5) ---
-	// All Phase 4 + Phase 5 misconfigs collected into a shared problems slice.
-	// Phase 6's validateAttachments() appends to the same slice below, and a
-	// single os.Exit(1) fires AFTER both gates have run — operators see every
-	// startup misconfig (Phase 5 AND Phase 6) in ONE log line and fix them in
-	// one restart cycle, not two.
-	//
-	// Safety: none of the Phase 5 gates touch cfg.Adapters or anything else
-	// buildRegistry() consumes, so it is safe to let buildRegistry() run even
-	// when Phase 5 problems are present.
-	problems, trustedProxies := startupProblems(cfg)
-	// trustedProxies is the parsed []netip.Prefix from cfg.Server.TrustedProxies
-	// — parsed once inside startupProblems; used by clientIPMiddleware via Deps.
-
-	// --- Adapter registry (3-i; 3-ii…3-v add adapters; 3-vi adds the license gate) ---
-	// Moved up so that Phase 6 validateAttachments() can run BEFORE the single
-	// consolidated exit below. buildRegistry only consumes cfg.Adapters + license
-	// state; it does NOT depend on any field that Phase 5 startupProblems() gates,
-	// so it is safe to run even when Phase 5 reported problems.
-	registry, err := buildRegistry(cfg, licState, logger)
-	if err != nil {
-		logger.Error("relay: adapter registry build failed", "error", err)
-		os.Exit(1)
-	}
-	if len(registry) == 0 {
-		logger.Error("relay: no adapters enabled — enable at least one in config.adapters")
-		os.Exit(1)
-	}
-
-	// --- Phase 6 attachments startup gate ---
-	// Runs after buildRegistry because the warn-on-unknown-MIME side-channel
-	// needs the enabled-adapter list. Returns the PARSED AttachmentsConfig per
-	// L016 — consumers below must use `attachmentsCfg`, not `cfg.Attachments`.
-	// Problems are appended to the SHARED `problems` slice so the consolidated
-	// log line below lists every Phase-5 AND Phase-6 misconfig in one go.
-	enabledList := make([]adapter.Adapter, 0, len(registry))
-	for _, ad := range registry {
-		enabledList = append(enabledList, ad)
-	}
-	attachmentsCfg, attProblems := validateAttachments(cfg, enabledList)
-	problems = append(problems, attProblems...)
-
-	// --- Single consolidated exit (Q9 contract) ---
-	// One log line, one os.Exit, every startup misconfig listed — operators
-	// fix every problem in one restart cycle, not two. See README §6 (build-fail
-	// items) and §7 (final smoke "operators fix in one restart cycle").
+	// --- Consolidated Q9 startup gate (Phase 5+6+7, FOLLOWUPS I1+I2) ---
+	// One call collects all startup misconfigs across every subsystem; one
+	// consolidated log line lists every problem; one os.Exit(1).
+	startupDeps, registry, problems := accumulateStartupProblems(cfg, licState, logger)
 	if len(problems) > 0 {
 		logger.Error("relay: startup config errors", "count", len(problems), "problems", problems)
 		os.Exit(1)
 	}
-
-	// Compute the published allowlist (cfg ∩ adapter union) — empty list means
-	// /init will omit capabilities.attachments and submitHandler will refuse
-	// non-empty attachments[] with 400 attachments_disabled.
-	attCaps := server.ComputeAttachmentsCaps(attachmentsCfg, enabledList)
-	var attachmentMIMEs []string
-	if attCaps != nil {
-		attachmentMIMEs = attCaps.AllowedMIMETypes
-	}
-	// Body cap: 14 MB when enabled, 1 MB otherwise. Computed once at startup.
-	bodyCapBytes := int64(1 << 20)
-	if attachmentsCfg.Enabled {
-		bodyCapBytes = 14 * (1 << 20)
-	}
+	trustedProxies := startupDeps.TrustedProxies
+	attachmentsCfg := startupDeps.AttachmentsCfg
+	attachmentMIMEs := startupDeps.AttachmentMIMEs
+	bodyCapBytes := startupDeps.BodyCapBytes
 
 	// --- LLM Provider (via factory) ---
 	// providers.New resolves the required secret internally via config.RequireSecret /
@@ -284,12 +243,12 @@ func main() {
 			To:             rc.To,
 		})
 	}
-	rtr, err := router.New(registry, rules, cfg.Routing.DefaultAdapter, logger)
+	rtr, err := router.New(adapterRegistryFromSlice(registry), rules, cfg.Routing.DefaultAdapter, logger)
 	if err != nil {
 		logger.Error("relay: router init failed", "default_adapter", cfg.Routing.DefaultAdapter, "error", err)
 		os.Exit(1)
 	}
-	logger.Info("relay: router ready", "default_adapter", cfg.Routing.DefaultAdapter, "adapters", adapterNames(registry))
+	logger.Info("relay: router ready", "default_adapter", cfg.Routing.DefaultAdapter, "adapters", adapterNames(adapterRegistryFromSlice(registry)))
 
 	// --- Classifier (1-iv) — reuses the same provider as /turn ---
 	classifier := classify.New(provider, model, maxTokens)
@@ -379,7 +338,23 @@ func main() {
 		AttachmentsCfg:  attachmentsCfg,
 		AttachmentMIMEs: attachmentMIMEs,
 		BodyCapBytes:    bodyCapBytes,
+
+		// Phase 7 (7-i):
+		Metrics: startupDeps.Metrics,
 	}
+
+	// Phase 7 (7-i): metrics server runs in a goroutine, independent of the
+	// main HTTP server. A port-bind failure is logged at Error but does NOT
+	// crash the main relay (independence invariant — observability shouldn't
+	// be able to brick the service it observes).
+	metricsCtx, cancelMetrics := context.WithCancel(context.Background())
+	defer cancelMetrics()
+	go func() {
+		if err := deps.Metrics.ListenAndServe(metricsCtx); err != nil {
+			logger.Error("metrics: ListenAndServe failed", "err", err)
+			// Main relay continues.
+		}
+	}()
 
 	// --- HTTP Server ---
 	handler := server.New(cfg, deps)
@@ -458,14 +433,27 @@ func licensed(ad adapter.Adapter, st *licensemgr.State, logger *slog.Logger) boo
 	return false
 }
 
-// buildRegistry constructs the set of enabled adapters. Each Phase-3 adapter
-// sub-plan (3-ii…3-v) adds its block here. The license gate is applied uniformly
-// via licensed() (3-vi hardening): construct, gate, then resolve token + configure.
-// This ordering ensures a paid adapter in free mode is silently skipped — never a
-// fatal missing-token error. Tokens resolve via config.RequireSecret and are passed
-// into Configure — never read from the environment by the adapter, never logged.
-func buildRegistry(cfg *config.Config, licState *licensemgr.State, logger *slog.Logger) (map[string]adapter.Adapter, error) {
-	reg := make(map[string]adapter.Adapter)
+// buildRegistry constructs the set of enabled adapters. Each adapter that
+// passes the license gate has its Configure() called; failures contribute to
+// the returned problems slice rather than calling os.Exit(1) (FOLLOWUPS I1 —
+// closes the L022 contract gap by routing per-adapter Configure failures
+// through the same consolidated startup-problems slice as Phase 5 and Phase 6
+// gates).
+//
+// Returns:
+//   - []adapter.Adapter — slice (NOT map) of successfully-configured adapters;
+//     order is webhook, chatwoot, fider, zendesk, linear, matching the order
+//     adapters are tried below. Caller may convert to a map via router.New.
+//   - []string — problems slice. Empty on success. Each entry is self-describing.
+//
+// "No adapters enabled" is added to the problems slice (NOT os.Exit'd) so it
+// composes with Phase 5+6 problems in the consolidated log line.
+//
+// License-gate "paid adapter without license" stays as slog.Warn (NOT a problem
+// entry) — free-mode is a valid operating state per the design spec.
+func buildRegistry(cfg *config.Config, licState *licensemgr.State, logger *slog.Logger) ([]adapter.Adapter, []string) {
+	var reg []adapter.Adapter
+	var problems []string
 
 	// webhook (1-iv) — free.
 	if cfg.Adapters.Webhook.Enabled {
@@ -479,10 +467,11 @@ func buildRegistry(cfg *config.Config, licState *licensemgr.State, logger *slog.
 					"backoff":      cfg.Adapters.Webhook.Retry.Backoff,
 				},
 			}); err != nil {
-				return nil, fmt.Errorf("webhook adapter: %w", err)
+				problems = append(problems, fmt.Sprintf("adapter %q: %v", wh.Name(), err))
+			} else {
+				reg = append(reg, wh)
+				logger.Info("relay: adapter enabled", "adapter", wh.Name())
 			}
-			reg[wh.Name()] = wh
-			logger.Info("relay: adapter enabled", "adapter", wh.Name())
 		}
 	}
 
@@ -492,18 +481,18 @@ func buildRegistry(cfg *config.Config, licState *licensemgr.State, logger *slog.
 		if licensed(cw, licState, logger) {
 			token, err := config.RequireSecret(cfg.Adapters.Chatwoot.APITokenEnv)
 			if err != nil {
-				return nil, fmt.Errorf("chatwoot adapter: %w", err)
-			}
-			if err := cw.Configure(map[string]any{
+				problems = append(problems, fmt.Sprintf("adapter %q: api_token_env=%q: %v", cw.Name(), cfg.Adapters.Chatwoot.APITokenEnv, err))
+			} else if err := cw.Configure(map[string]any{
 				"base_url":   cfg.Adapters.Chatwoot.BaseURL,
 				"account_id": cfg.Adapters.Chatwoot.AccountID,
 				"inbox_id":   cfg.Adapters.Chatwoot.InboxID,
 				"api_token":  token,
 			}); err != nil {
-				return nil, fmt.Errorf("chatwoot adapter: %w", err)
+				problems = append(problems, fmt.Sprintf("adapter %q: %v", cw.Name(), err))
+			} else {
+				reg = append(reg, cw)
+				logger.Info("relay: adapter enabled", "adapter", cw.Name())
 			}
-			reg[cw.Name()] = cw
-			logger.Info("relay: adapter enabled", "adapter", cw.Name())
 		}
 	}
 
@@ -513,60 +502,66 @@ func buildRegistry(cfg *config.Config, licState *licensemgr.State, logger *slog.
 		if licensed(fd, licState, logger) {
 			key, err := config.RequireSecret(cfg.Adapters.Fider.APIKeyEnv)
 			if err != nil {
-				return nil, fmt.Errorf("fider adapter: %w", err)
-			}
-			if err := fd.Configure(map[string]any{
+				problems = append(problems, fmt.Sprintf("adapter %q: api_key_env=%q: %v", fd.Name(), cfg.Adapters.Fider.APIKeyEnv, err))
+			} else if err := fd.Configure(map[string]any{
 				"base_url": cfg.Adapters.Fider.BaseURL,
 				"api_key":  key,
 			}); err != nil {
-				return nil, fmt.Errorf("fider adapter: %w", err)
+				problems = append(problems, fmt.Sprintf("adapter %q: %v", fd.Name(), err))
+			} else {
+				reg = append(reg, fd)
+				logger.Info("relay: adapter enabled", "adapter", fd.Name())
 			}
-			reg[fd.Name()] = fd
-			logger.Info("relay: adapter enabled", "adapter", fd.Name())
 		}
 	}
 
-	// zendesk (3-iv) — PAID; gated generically via RequiresLicense() (3-vi hardening).
+	// zendesk (3-iv) — PAID; gated generically via RequiresLicense().
 	if cfg.Adapters.Zendesk.Enabled {
 		zd := zendesk.New()
 		if licensed(zd, licState, logger) {
 			token, err := config.RequireSecret(cfg.Adapters.Zendesk.APITokenEnv)
 			if err != nil {
-				return nil, fmt.Errorf("zendesk adapter: %w", err)
-			}
-			if err := zd.Configure(map[string]any{
+				problems = append(problems, fmt.Sprintf("adapter %q: api_token_env=%q: %v", zd.Name(), cfg.Adapters.Zendesk.APITokenEnv, err))
+			} else if err := zd.Configure(map[string]any{
 				"subdomain":        cfg.Adapters.Zendesk.Subdomain,
 				"email":            cfg.Adapters.Zendesk.Email,
 				"api_token":        token,
 				"default_priority": cfg.Adapters.Zendesk.DefaultPriority,
 			}); err != nil {
-				return nil, fmt.Errorf("zendesk adapter: %w", err)
+				problems = append(problems, fmt.Sprintf("adapter %q: %v", zd.Name(), err))
+			} else {
+				reg = append(reg, zd)
+				logger.Info("relay: adapter enabled", "adapter", zd.Name())
 			}
-			reg[zd.Name()] = zd
-			logger.Info("relay: adapter enabled", "adapter", zd.Name())
 		}
 	}
 
-	// linear (3-v) — PAID; gated generically via RequiresLicense() (3-vi hardening).
+	// linear (3-v) — PAID; gated generically via RequiresLicense().
 	if cfg.Adapters.Linear.Enabled {
 		ln := linear.New()
 		if licensed(ln, licState, logger) {
 			key, err := config.RequireSecret(cfg.Adapters.Linear.APIKeyEnv)
 			if err != nil {
-				return nil, fmt.Errorf("linear adapter: %w", err)
-			}
-			if err := ln.Configure(map[string]any{
+				problems = append(problems, fmt.Sprintf("adapter %q: api_key_env=%q: %v", ln.Name(), cfg.Adapters.Linear.APIKeyEnv, err))
+			} else if err := ln.Configure(map[string]any{
 				"api_key": key,
 				"team_id": cfg.Adapters.Linear.TeamID,
 			}); err != nil {
-				return nil, fmt.Errorf("linear adapter: %w", err)
+				problems = append(problems, fmt.Sprintf("adapter %q: %v", ln.Name(), err))
+			} else {
+				reg = append(reg, ln)
+				logger.Info("relay: adapter enabled", "adapter", ln.Name())
 			}
-			reg[ln.Name()] = ln
-			logger.Info("relay: adapter enabled", "adapter", ln.Name())
 		}
 	}
 
-	return reg, nil
+	// "No adapters enabled" is a problem (not os.Exit) so it composes with
+	// Phase 5+6 problems in the consolidated log line.
+	if len(reg) == 0 {
+		problems = append(problems, "no adapters enabled — enable at least one in config.adapters")
+	}
+
+	return reg, problems
 }
 
 // adapterNames returns the registry keys sorted alphabetically, for stable logging.
@@ -652,6 +647,64 @@ func containsString(haystack []string, needle string) bool {
 	return false
 }
 
+// accumulateStartupProblems runs all startup gates (Phase 5 startupProblems,
+// Phase 7-i refactored buildRegistry, Phase 6 validateAttachments) and returns
+// the consolidated Deps + registry slice + problems slice. PURE FUNCTION: no
+// os.Exit, no slog beyond the gates' own internal Info/Warn calls. The L022
+// contract is honored at the single call site in main(): ONE consolidated log
+// line, ONE os.Exit(1).
+//
+// Returns:
+//   - server.Deps with the fields the gates produce: TrustedProxies,
+//     AttachmentsCfg, AttachmentMIMEs, BodyCapBytes, Metrics. Fields the
+//     caller (main) populates separately are left as Go zero values.
+//   - []adapter.Adapter — the configured registry; main() converts to a map
+//     via adapterRegistryFromSlice for router.New.
+//   - []string — the consolidated problems slice. Empty on success.
+//
+// Closes FOLLOWUPS I2: the cross-phase startup-gate wiring is now unit-testable
+// via the TestAccumulateStartupProblems_* suite, NOT only via the shell smoke.
+func accumulateStartupProblems(
+	cfg *config.Config,
+	licState *licensemgr.State,
+	logger *slog.Logger,
+) (server.Deps, []adapter.Adapter, []string) {
+	var problems []string
+
+	// 1. Phase 5 gate (anonymous/SSO/CIDR/budget/durations).
+	p5Problems, trustedProxies := startupProblems(cfg)
+	problems = append(problems, p5Problems...)
+
+	// 2. FOLLOWUPS I1: buildRegistry returns problems (NOT os.Exit) for
+	//    per-adapter Configure failures + "no adapters enabled".
+	registry, regProblems := buildRegistry(cfg, licState, logger)
+	problems = append(problems, regProblems...)
+
+	// 3. Phase 6 attachments gate (with M2 zero-value-on-disabled).
+	attachmentsCfg, attProblems := validateAttachments(cfg, registry)
+	problems = append(problems, attProblems...)
+
+	// 4. Derived Deps values.
+	attCaps := server.ComputeAttachmentsCaps(attachmentsCfg, registry)
+	var attachmentMIMEs []string
+	if attCaps != nil {
+		attachmentMIMEs = attCaps.AllowedMIMETypes
+	}
+	bodyCapBytes := int64(1 << 20)
+	if attachmentsCfg.Enabled {
+		bodyCapBytes = 14 * (1 << 20)
+	}
+	metricsReg := metrics.New(cfg.Observability.Metrics.Enabled, cfg.Observability.Metrics.Addr)
+
+	return server.Deps{
+		TrustedProxies:  trustedProxies,
+		AttachmentsCfg:  attachmentsCfg,
+		AttachmentMIMEs: attachmentMIMEs,
+		BodyCapBytes:    bodyCapBytes,
+		Metrics:         metricsReg,
+	}, registry, problems
+}
+
 // validateAttachments validates the Phase 6 attachments block. Returns the
 // parsed/defaulted AttachmentsConfig per L016 — consumers (ComputeAttachmentsCaps,
 // attachvalidate.Config) MUST use the returned value rather than re-reading cfg.
@@ -671,7 +724,11 @@ func containsString(haystack []string, needle string) bool {
 func validateAttachments(cfg *config.Config, enabled []adapter.Adapter) (config.AttachmentsConfig, []string) {
 	parsed := cfg.Attachments
 	if !parsed.Enabled {
-		return parsed, nil
+		// FOLLOWUPS M2 (Phase 7-i): return a zero-value AttachmentsConfig so a
+		// bad Storage.Mode or inverted caps in the disabled block can't leak
+		// to a future consumer. Downstream code already gates on Enabled
+		// first; this is defensive future-proofing.
+		return config.AttachmentsConfig{}, nil
 	}
 
 	var problems []string

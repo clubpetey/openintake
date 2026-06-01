@@ -14,7 +14,6 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -261,7 +260,3 @@ func CanonicalSchemaBytes() []byte {
 	return schemaBytes
 }
 
-// schemaFromOS reads a schema from the given path (for test comparison).
-func schemaFromOS(path string) ([]byte, error) {
-	return os.ReadFile(path)
-}

@@ -19,7 +19,9 @@ function humanBytes(n: number): string {
   return `${n} B`;
 }
 
-const badgeText = computed(() => `${humanBytes(aggregate.value)} / ${humanBytes(props.maxTotalBytes)}`);
+const badgeText = computed(
+  () => `${humanBytes(aggregate.value)} / ${humanBytes(props.maxTotalBytes)}`,
+);
 
 function onRemove(i: number) {
   emit('remove', i);
@@ -29,17 +31,8 @@ function onRemove(i: number) {
 <template>
   <div v-if="items.length > 0" class="strip" data-testid="attachment-strip">
     <ul class="strip__list">
-      <li
-        v-for="(att, i) in items"
-        :key="i"
-        class="strip__item"
-        data-testid="attachment-thumb"
-      >
-        <img
-          :src="att.dataUrl"
-          :alt="att.label ?? `screenshot ${i + 1}`"
-          class="strip__thumb"
-        />
+      <li v-for="(att, i) in items" :key="i" class="strip__item" data-testid="attachment-thumb">
+        <img :src="att.dataUrl" :alt="att.label ?? `screenshot ${i + 1}`" class="strip__thumb" />
         <button
           type="button"
           class="strip__remove"

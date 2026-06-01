@@ -18,13 +18,14 @@ function installCanvasStub() {
     setLineDash: vi.fn(),
   };
   const realGet = HTMLCanvasElement.prototype.getContext;
-  HTMLCanvasElement.prototype.getContext = (function () {
+  HTMLCanvasElement.prototype.getContext = function () {
     return ctx as unknown as CanvasRenderingContext2D;
-  }) as unknown as typeof HTMLCanvasElement.prototype.getContext;
+  } as unknown as typeof HTMLCanvasElement.prototype.getContext;
 
   const realToDataURL = HTMLCanvasElement.prototype.toDataURL;
   const toDataURLSpy = vi.fn().mockReturnValue('data:image/png;base64,REDACTED');
-  HTMLCanvasElement.prototype.toDataURL = toDataURLSpy as unknown as typeof HTMLCanvasElement.prototype.toDataURL;
+  HTMLCanvasElement.prototype.toDataURL =
+    toDataURLSpy as unknown as typeof HTMLCanvasElement.prototype.toDataURL;
 
   return {
     ctx,
@@ -114,7 +115,10 @@ describe('ScreenshotRedactor', () => {
   });
 
   it('ESC key cancels (emits cancel)', async () => {
-    const wrapper = mount(ScreenshotRedactor, { props: { source: makeSourceCanvas() }, attachTo: document.body });
+    const wrapper = mount(ScreenshotRedactor, {
+      props: { source: makeSourceCanvas() },
+      attachTo: document.body,
+    });
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     await nextTick();
     expect(wrapper.emitted('cancel')).toBeTruthy();
@@ -138,7 +142,10 @@ describe('ScreenshotRedactor', () => {
   });
 
   it('focuses the Save button on open (basic focus trap entry)', async () => {
-    const wrapper = mount(ScreenshotRedactor, { props: { source: makeSourceCanvas() }, attachTo: document.body });
+    const wrapper = mount(ScreenshotRedactor, {
+      props: { source: makeSourceCanvas() },
+      attachTo: document.body,
+    });
     await nextTick();
     const saveBtn = wrapper.find<HTMLButtonElement>('[data-testid="redactor-save"]').element;
     expect(document.activeElement).toBe(saveBtn);

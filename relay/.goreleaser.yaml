@@ -1,0 +1,177 @@
+# .goreleaser.yaml — Phase 7-ii
+#
+# Verified against goreleaser v2.7.0 (`goreleaser check` exit 0).
+# Snapshot path (`goreleaser release --snapshot --clean`) is the load-bearing
+# CI smoke; the tag-triggered publish path is wired in
+# .github/workflows/release.yml but never executes in Phase 7.
+#
+# Invocation: from the repo root, with `--config relay/.goreleaser.yaml`.
+# builds[].dir = relay so `go build` runs inside the relay module.
+# archives.files paths resolve relative to the goreleaser cwd (= repo root).
+
+version: 2
+
+# `project_name` controls the archive name template and the default Docker
+# image name. Stable across pre-release / final-release.
+project_name: intake-relay
+
+before:
+  hooks:
+    - bash -c "cd relay && go mod tidy"
+    - bash -c "cd relay && go vet ./..."
+
+# ============================================================================
+# Builds — 5 platforms, one binary, ldflags inject the version string.
+# Identical ldflags to relay/Dockerfile so the binary's --version matches.
+# Resolution 2: -X targets the lowercase package vars (version, commit, buildTime).
+# ============================================================================
+builds:
+  - id: relay
+    main: ./cmd/relay
+    binary: intake-relay
+    dir: relay
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X intake/internal/version.version={{.Version}} -X intake/internal/version.commit={{.FullCommit}} -X intake/internal/version.buildTime={{.Date}}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      # Windows ARM64 builds not produced; skip the matrix cell.
+      - goos: windows
+        goarch: arm64
+
+# ============================================================================
+# Archives — explicit allowlist (never an exclude list).
+# Prevents accidental inclusion of .env, local-dev/, secrets, etc.
+# tar.gz on linux/darwin; zip on windows.
+# Note: the repo-root LICENSE + CHANGELOG.md are added by the maintainer at
+# first-tag-push time; for the Phase 7 snapshot smoke we ship only what
+# already exists at repo root.
+# ============================================================================
+archives:
+  - id: relay-archive
+    builds:
+      - relay
+    name_template: "intake-relay_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: ['tar.gz']
+    format_overrides:
+      - goos: windows
+        formats: ['zip']
+    files:
+      # Explicit allowlist — every file resolves relative to the repo root
+      # (goreleaser cwd) because the workflow invokes from there with
+      # --config relay/.goreleaser.yaml.
+      - README.md
+      - src: docs/**/*
+        dst: docs
+
+# ============================================================================
+# Checksum — single SHA256SUMS.txt covering all archives.
+# ============================================================================
+checksum:
+  name_template: "SHA256SUMS.txt"
+  algorithm: sha256
+
+# ============================================================================
+# Snapshot — version template used when --snapshot is set. Distinct from
+# release version so the snapshot can't be mistaken for a real release.
+# ============================================================================
+snapshot:
+  # Use `-snap-` separator (not `+` SemVer build metadata) so the version
+  # string remains a valid Docker image tag (Docker tags reject `+`).
+  version_template: "{{ incpatch .Version }}-snapshot-{{ .ShortCommit }}"
+
+# ============================================================================
+# Changelog — github-style commit grouping + filtered to feat/fix only.
+# ============================================================================
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - '^chore(\(.*\))?:'
+      - '^docs(\(.*\))?:'
+      - '^test(\(.*\))?:'
+      - '^ci(\(.*\))?:'
+
+# ============================================================================
+# Dockers — multi-arch image built locally. Snapshot mode never pushes;
+# the tagged-release path (release.yml) sets the push.
+# Two images: amd64 + arm64, then a manifest stitches them together.
+# Build context is the repo root with -f relay/Dockerfile; the build
+# context must contain the relay/ source tree (the Dockerfile COPIES go.mod
+# from its own cwd, so we set the context to relay/).
+# ============================================================================
+dockers:
+  - id: amd64-image
+    ids:
+      - relay
+    image_templates:
+      - "ghcr.io/intake/intake-relay:{{ .Version }}-amd64"
+    dockerfile: relay/Dockerfile.goreleaser
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--build-arg=VERSION={{ .Version }}"
+      - "--build-arg=COMMIT={{ .FullCommit }}"
+      - "--build-arg=BUILD_TIME={{ .Date }}"
+      - "--label=org.opencontainers.image.created={{ .Date }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+  - id: arm64-image
+    ids:
+      - relay
+    goarch: arm64
+    image_templates:
+      - "ghcr.io/intake/intake-relay:{{ .Version }}-arm64"
+    dockerfile: relay/Dockerfile.goreleaser
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--build-arg=VERSION={{ .Version }}"
+      - "--build-arg=COMMIT={{ .FullCommit }}"
+      - "--build-arg=BUILD_TIME={{ .Date }}"
+      - "--label=org.opencontainers.image.created={{ .Date }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+
+# Multi-arch manifest — stitches amd64 + arm64 into a single tag.
+docker_manifests:
+  - name_template: "ghcr.io/intake/intake-relay:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/intake/intake-relay:{{ .Version }}-amd64"
+      - "ghcr.io/intake/intake-relay:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/intake/intake-relay:latest"
+    image_templates:
+      - "ghcr.io/intake/intake-relay:{{ .Version }}-amd64"
+      - "ghcr.io/intake/intake-relay:{{ .Version }}-arm64"
+    # `latest` updates only on full releases (not pre-releases).
+    skip_push: auto
+
+# ============================================================================
+# Release — GitHub Release config for the tagged-release path.
+# `draft: false` + `prerelease: auto`. Phase 7 NEVER pushes a tag, so this
+# block is dormant.
+# ============================================================================
+release:
+  draft: false
+  prerelease: auto
+  github:
+    owner: intake
+    name: intake
+  header: |
+    ## intake-relay {{ .Tag }}
+
+    See the changelog below for what changed.
+  footer: |
+    ---
+    **Container image:** `docker pull ghcr.io/intake/intake-relay:{{ .Tag }}`
+    **Source:** [intake/intake@{{ .ShortCommit }}](https://github.com/intake/intake/tree/{{ .FullCommit }})

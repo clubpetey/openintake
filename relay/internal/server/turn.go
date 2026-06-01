@@ -298,6 +298,10 @@ func turnHandler(deps Deps) http.HandlerFunc {
 					if deps.Auth != nil {
 						deps.Auth.Store().RecordTurn(sess.SessionID, chunk.InputTokens)
 					}
+					// Phase 7 (7-i): record LLM token counts. Nil-safe on disabled
+					// or unset Metrics — the package's Record* methods short-circuit.
+					deps.Metrics.RecordLLMTokens(deps.Provider.Name(), "input", chunk.InputTokens)
+					deps.Metrics.RecordLLMTokens(deps.Provider.Name(), "output", chunk.OutputTokens)
 					writeSSEFrame(w, SSEDone{
 						Done:         true,
 						InputTokens:  chunk.InputTokens,

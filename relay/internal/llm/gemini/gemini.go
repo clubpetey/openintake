@@ -7,6 +7,7 @@ package gemini
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 
 	"google.golang.org/genai"
@@ -104,7 +105,15 @@ func (p *Provider) Chat(ctx context.Context, messages []llm.Message, opts llm.Ch
 		}
 	}
 
-	maxTokensI32 := int32(maxTokens)
+	// Config-supplied; bounded by max int32 to guard against an upstream config
+	// surprise (per-provider MaxTokens defaults to 1024).
+	if maxTokens > math.MaxInt32 {
+		maxTokens = math.MaxInt32
+	}
+	if maxTokens < 0 {
+		maxTokens = 0
+	}
+	maxTokensI32 := int32(maxTokens) //nolint:gosec // G115: bounds checked above
 	cfg := &genai.GenerateContentConfig{
 		MaxOutputTokens: &maxTokensI32,
 	}

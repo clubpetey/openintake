@@ -1,5 +1,14 @@
 # Phase 6 — Deferred follow-ups (Phase 7 candidates)
 
+> **RESOLVED in Phase 7-i.** All four follow-ups (I1, I2, M2, M4) were folded into Phase 7-i (`ai/tasks/phase-7/7-i-relay-code-followups-metrics-lint-plan.md`) and shipped with the Phase 7 merge. This file is preserved for audit trail. See `ai/tasks/phase-7/README.md` §7.1 evidence for the Q9 combined-misconfig smoke that proves the closures end-to-end.
+>
+> - **I1** (buildRegistry as third startup gate) — closed: `buildRegistry` now returns `([]adapter.Adapter, []string)` and contributes per-adapter Configure failures + "no adapters enabled" to the shared problems slice. The combined Q9 fixture includes a chatwoot `api_token_env: NONEXISTENT_VAR` misconfig that proves the contribution path.
+> - **I2** (cross-phase wiring not unit-testable) — closed: extracted `accumulateStartupProblems(cfg, licState, logger) (Deps, []adapter.Adapter, []string)` from `main()`; unit-tested directly. Shell smoke (`run-q9-smoke.sh`) is now belt-and-braces, not load-bearing.
+> - **M2** (validateAttachments short-circuit) — closed: returns zero-value `config.AttachmentsConfig{}` when `!parsed.Enabled`.
+> - **M4** (run-q9-smoke.sh working-directory dance) — closed: replaced with subshell `(cd relay && go run ./cmd/relay ...)` invocations; no more `cd relay && cd ..` shell sequences.
+>
+> ---
+
 The 6-iv code quality review (APPROVED) flagged four items that do NOT block the
 phase-6 → main merge but should be addressed in a follow-up phase.
 

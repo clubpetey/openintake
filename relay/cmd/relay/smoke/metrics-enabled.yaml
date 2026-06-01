@@ -1,0 +1,36 @@
+# Phase 7 metrics-enabled smoke fixture (item 2b).
+# Expectation: /metrics on :9090 reachable with all 4 HELP lines;
+# after 5 /init requests the
+#   intake_http_requests_total{path="/v1/intake/init",status="200"}
+# counter increments by exactly 5.
+server:
+  addr: ":18080"
+  external_url: "http://127.0.0.1:18080"
+  cors_origins: ["http://localhost:5173"]
+llm:
+  provider: "ollama"
+  ollama:
+    base_url: "http://127.0.0.1:11434"
+    model: "fake"
+    max_tokens: 50
+auth:
+  modes:
+    anonymous: true
+  anonymous:
+    allow_without_captcha: true
+ratelimit:
+  per_ip:
+    requests_per_second: 100.0
+    burst: 200
+  daily_llm_budget:
+    action_on_exceeded: "reject"
+adapters:
+  webhook:
+    enabled: true
+    url: "http://127.0.0.1:19099/intake"
+routing:
+  default_adapter: "webhook"
+observability:
+  metrics:
+    enabled: true
+    addr: ":9090"

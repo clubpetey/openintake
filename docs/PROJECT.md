@@ -760,8 +760,11 @@ Single monorepo. v0 layout:
 │   │   ├── index.ts
 │   │   ├── client.ts           # conversation HTTP/SSE client
 │   │   ├── context.ts          # URL, viewport, etc capture
-│   │   ├── screenshot.ts
-│   │   ├── auth.ts
+│   │   ├── capture.ts          # html2canvas DI wrapper (Phase 6 — see L021)
+│   │   ├── attachments.ts      # pending-attachment state + size accounting
+│   │   ├── sse.ts              # SSE parser/decoder
+│   │   ├── client-types.ts     # client-internal types
+│   │   ├── types.ts            # shared TS types (includes SubmitAttachment from Phase 6)
 │   │   └── generated/
 │   │       └── payload.ts      # generated from schema
 │   └── tsconfig.json
@@ -769,11 +772,11 @@ Single monorepo. v0 layout:
 │   ├── package.json
 │   ├── src/
 │   │   ├── index.ts
-│   │   ├── IntakeWidget.vue
 │   │   ├── components/
+│   │   │   ├── IntakeWidget.vue
 │   │   │   ├── ConversationView.vue
-│   │   │   ├── ScreenshotCapture.vue
-│   │   │   └── AuthDialog.vue
+│   │   │   ├── ScreenshotRedactor.vue    # Phase 6 — rectangle redaction modal
+│   │   │   └── AttachmentStrip.vue       # Phase 6 — pending thumbnail strip
 │   │   └── composables/
 │   │       └── useIntake.ts
 │   └── tsconfig.json
@@ -856,6 +859,8 @@ Triggered by tagging `vX.Y.Z`:
 - Docker image published to GitHub Container Registry: `ghcr.io/[org]/intake-relay:vX.Y.Z`.
 - npm packages published: `@intake/core@X.Y.Z`, `@intake/vue@X.Y.Z`.
 - GitHub Release with changelog and checksums.
+
+The `intake-license` maintainer CLI in `license-tool/` is excluded from goreleaser per the v0 decomposition decision Q10 (it is not distributed publicly in v0; the maintainer runs it locally to sign new licenses). It is built ad-hoc via `go build -o intake-license ./license-tool/cmd/intake-license`.
 
 ### Versioning
 

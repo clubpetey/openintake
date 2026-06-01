@@ -21,16 +21,14 @@ export function captureClient(widgetVersion: string): ClientInfo {
     h: window.innerHeight,
   };
 
-  const referrerRaw =
-    typeof document !== 'undefined' ? document.referrer : '';
+  const referrerRaw = typeof document !== 'undefined' ? document.referrer : '';
   const referrer = referrerRaw.length > 0 ? referrerRaw : null;
 
   return {
     widget_version: widgetVersion,
     url: window.location.href,
     referrer,
-    user_agent:
-      typeof navigator !== 'undefined' ? navigator.userAgent : '',
+    user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
     viewport,
     locale: typeof navigator !== 'undefined' ? navigator.language : '',
   };

@@ -185,8 +185,7 @@ describe('capturePageMetadata', () => {
     stubGlobal('document', {
       title: '',
       querySelectorAll: () => ({
-        forEach: (cb: (el: (typeof mockMeta)[0]) => void) =>
-          mockMeta.forEach(cb),
+        forEach: (cb: (el: (typeof mockMeta)[0]) => void) => mockMeta.forEach(cb),
       }),
     });
     const meta = capturePageMetadata();

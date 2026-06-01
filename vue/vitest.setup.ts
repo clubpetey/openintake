@@ -57,17 +57,17 @@ beforeAll(() => {
   originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
   originalToBlob = HTMLCanvasElement.prototype.toBlob;
 
-  HTMLCanvasElement.prototype.getContext = (function () {
+  HTMLCanvasElement.prototype.getContext = function () {
     return makeFakeCtx() as unknown as CanvasRenderingContext2D;
-  }) as unknown as typeof HTMLCanvasElement.prototype.getContext;
+  } as unknown as typeof HTMLCanvasElement.prototype.getContext;
 
-  HTMLCanvasElement.prototype.toDataURL = (function () {
+  HTMLCanvasElement.prototype.toDataURL = function () {
     return 'data:image/png;base64,AAAA';
-  }) as unknown as typeof HTMLCanvasElement.prototype.toDataURL;
+  } as unknown as typeof HTMLCanvasElement.prototype.toDataURL;
 
-  HTMLCanvasElement.prototype.toBlob = (function (cb: BlobCallback) {
+  HTMLCanvasElement.prototype.toBlob = function (cb: BlobCallback) {
     cb(new Blob([new Uint8Array([0])], { type: 'image/png' }));
-  }) as unknown as typeof HTMLCanvasElement.prototype.toBlob;
+  } as unknown as typeof HTMLCanvasElement.prototype.toBlob;
 });
 
 afterAll(() => {

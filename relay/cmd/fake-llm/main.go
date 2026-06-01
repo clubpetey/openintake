@@ -52,7 +52,7 @@ func main() {
 	})
 
 	log.Printf("fake-llm: listening on %s (input_tokens=%d, output_tokens=%d)", *addr, *inputTokens, *outputTokens)
-	if err := http.ListenAndServe(*addr, mux); err != nil {
+	if err := http.ListenAndServe(*addr, mux); err != nil { //nolint:gosec // G114: fake-llm is a local dev helper; no production deployment, no timeout needed
 		log.Fatalf("fake-llm: listen: %v", err)
 	}
 }

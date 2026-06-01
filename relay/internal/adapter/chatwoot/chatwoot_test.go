@@ -72,6 +72,8 @@ func configure(t *testing.T, baseURL string) *chatwoot.Adapter {
 // happyPathHandler returns an http.HandlerFunc that serves the standard two-call
 // flow: /contacts returns a canned contact+contact_inbox payload, /conversations
 // returns a canned conversation id. Unexpected paths are reported as test errors.
+//
+//nolint:unused // kept as a reusable test helper for future chatwoot test cases
 func happyPathHandler(t *testing.T, accountID int) http.HandlerFunc {
 	t.Helper()
 	return func(w http.ResponseWriter, r *http.Request) {

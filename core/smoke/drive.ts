@@ -75,7 +75,7 @@ async function main(): Promise<void> {
 
   process.stdout.write('\n');
   console.log(
-    `\n[smoke] turn complete. input_tokens=${tokenCounts.input_tokens} output_tokens=${tokenCounts.output_tokens}`
+    `\n[smoke] turn complete. input_tokens=${tokenCounts.input_tokens} output_tokens=${tokenCounts.output_tokens}`,
   );
 
   // Build the full conversation for submit (user + assistant reply)

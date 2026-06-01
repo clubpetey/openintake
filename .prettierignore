@@ -1,0 +1,17 @@
+node_modules/
+dist/
+**/dist/
+**/generated/
+local-dev/
+*.generated.*
+relay/
+schema/payload.v1.json
+schema/
+ai/
+.github/
+docs/
+*.md
+CLAUDE.md
+config.yaml
+examples/
+package-lock.json

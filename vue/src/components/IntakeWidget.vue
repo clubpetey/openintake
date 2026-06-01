@@ -101,12 +101,36 @@ function handleKeydown(event: KeyboardEvent) {
       data-testid="launcher-button"
       @click="togglePanel"
     >
-      <svg v-if="!isOpen" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+      <svg
+        v-if="!isOpen"
+        xmlns="http://www.w3.org/2000/svg"
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
       </svg>
-      <svg v-else xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <line x1="18" y1="6" x2="6" y2="18"/>
-        <line x1="6" y1="6" x2="18" y2="18"/>
+      <svg
+        v-else
+        xmlns="http://www.w3.org/2000/svg"
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <line x1="18" y1="6" x2="6" y2="18" />
+        <line x1="6" y1="6" x2="18" y2="18" />
       </svg>
     </button>
 
@@ -143,10 +167,7 @@ function handleKeydown(event: KeyboardEvent) {
 
       <!-- Conversation view + input (shown before submit) -->
       <template v-else>
-        <ConversationView
-          :messages="messages"
-          :streaming="streaming"
-        />
+        <ConversationView :messages="messages" :streaming="streaming" />
 
         <!-- Error banner -->
         <div v-if="error" class="intake-widget__error" data-testid="error-banner" role="alert">
@@ -235,7 +256,9 @@ function handleKeydown(event: KeyboardEvent) {
   align-items: center;
   justify-content: center;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-  transition: background-color 0.2s ease, transform 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    transform 0.2s ease;
 }
 
 .intake-widget__launcher:hover {
@@ -317,7 +340,9 @@ function handleKeydown(event: KeyboardEvent) {
   font-weight: 500;
   cursor: pointer;
   border: none;
-  transition: background-color 0.15s, opacity 0.15s;
+  transition:
+    background-color 0.15s,
+    opacity 0.15s;
 }
 
 .intake-widget__btn:disabled {

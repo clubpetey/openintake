@@ -7,15 +7,21 @@
     "type-check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "smoke": "tsx smoke/drive.ts"
+    "smoke": "tsx smoke/drive.ts",
+    "lint": "eslint src/ smoke/ --max-warnings=0",
+    "lint:prettier": "prettier --check src/ smoke/"
   },
   "dependencies": {
     "html2canvas": "1.4.1"
   },
   "devDependencies": {
     "@types/node": "22.15.21",
+    "@typescript-eslint/eslint-plugin": "8.18.0",
+    "@typescript-eslint/parser": "8.18.0",
+    "eslint": "9.16.0",
+    "prettier": "3.4.2",
+    "tsx": "4.22.3",
     "typescript": "5.6.3",
-    "vitest": "4.1.7",
-    "tsx": "4.22.3"
+    "vitest": "4.1.7"
   }
 }

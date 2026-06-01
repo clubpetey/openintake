@@ -80,20 +80,18 @@ async function main(): Promise<void> {
 
     // Validate that we received meaningful usage data.
     if (tokenCounts.input_tokens <= 0) {
-      throw new Error(
-        `Turn ${i + 1}: expected input_tokens > 0, got ${tokenCounts.input_tokens}`
-      );
+      throw new Error(`Turn ${i + 1}: expected input_tokens > 0, got ${tokenCounts.input_tokens}`);
     }
     if (tokenCounts.output_tokens <= 0) {
       throw new Error(
-        `Turn ${i + 1}: expected output_tokens > 0, got ${tokenCounts.output_tokens}`
+        `Turn ${i + 1}: expected output_tokens > 0, got ${tokenCounts.output_tokens}`,
       );
     }
 
     console.log(
       `[drive-multi] turn ${i + 1} complete: ` +
         `input_tokens=${tokenCounts.input_tokens} ` +
-        `output_tokens=${tokenCounts.output_tokens}`
+        `output_tokens=${tokenCounts.output_tokens}`,
     );
 
     // Synthesize the assistant message from accumulated deltas and append to history.

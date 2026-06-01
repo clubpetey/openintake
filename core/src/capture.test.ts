@@ -1,10 +1,5 @@
 import { describe, it, expect, beforeEach, beforeAll, vi } from 'vitest';
-import {
-  setHtml2Canvas,
-  capturePage,
-  canvasToDataURL,
-  __resetCaptureForTests,
-} from './capture.js';
+import { setHtml2Canvas, capturePage, canvasToDataURL, __resetCaptureForTests } from './capture.js';
 
 // L004: capture.ts references document.body; the core test env is Node.
 // Stub a minimal `document` global with a sentinel body, using
@@ -93,9 +88,7 @@ describe('canvasToDataURL', () => {
         cb(null);
       },
     } as unknown as HTMLCanvasElement;
-    await expect(canvasToDataURL(fakeCanvas, 'image/png')).rejects.toThrow(
-      /toBlob returned null/,
-    );
+    await expect(canvasToDataURL(fakeCanvas, 'image/png')).rejects.toThrow(/toBlob returned null/);
   });
 
   it('rejects when FileReader errors', async () => {
@@ -119,9 +112,7 @@ describe('canvasToDataURL', () => {
     (globalThis as unknown as { FileReader: typeof FileReader }).FileReader =
       FailingReader as unknown as typeof FileReader;
     try {
-      await expect(canvasToDataURL(fakeCanvas, 'image/png')).rejects.toThrow(
-        /FileReader/,
-      );
+      await expect(canvasToDataURL(fakeCanvas, 'image/png')).rejects.toThrow(/FileReader/);
     } finally {
       (globalThis as unknown as { FileReader: typeof FileReader }).FileReader = realFR;
     }

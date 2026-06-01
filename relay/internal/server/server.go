@@ -34,6 +34,10 @@ func New(cfg *config.Config, deps Deps) http.Handler {
 	// Intake session endpoints — seam for 1-iii and 1-iv.
 	// Phase 5: wrap the group with clientIP + per-IP limit middlewares.
 	r.Route("/v1/intake", func(r chi.Router) {
+		// Phase 7 (7-i): metrics middleware runs FIRST so even rate-limited
+		// 429s are counted. Disabled-mode is a literal passthrough — zero
+		// observable cost when cfg.Observability.Metrics.Enabled=false.
+		r.Use(deps.Metrics.Middleware())
 		r.Use(clientIPMiddleware(deps.TrustedProxies))
 		r.Use(perIPLimitMiddleware(deps.PerIP))
 		registerIntakeRoutes(r, deps)

@@ -2,19 +2,35 @@
   "name": "intake-monorepo",
   "private": true,
   "version": "0.0.0",
-  "workspaces": ["core", "vue", "examples/vue-anonymous", "examples/webhook-receiver"],
-  "engines": { "node": ">=24" },
+  "workspaces": [
+    "core",
+    "vue",
+    "examples/vue-anonymous",
+    "examples/webhook-receiver"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "type-check": "npm run -w @intake/core type-check && npm run -w @intake/vue type-check",
     "codegen": "npm run codegen:ts && npm run codegen:go",
     "codegen:ts": "json2ts -i schema/payload.v1.json -o core/src/generated/payload.ts --no-additionalProperties --bannerComment \"// GENERATED from schema/payload.v1.json — DO NOT EDIT. Run: npm run codegen\"",
     "codegen:go": "bash scripts/codegen-go.sh",
     "validate-schema": "ajv validate --spec=draft2020 --all-errors -c ajv-formats -s schema/payload.v1.json -d schema/testdata/payload.valid.json",
-    "validate-schema:reject": "ajv validate --spec=draft2020 --all-errors -c ajv-formats -s schema/payload.v1.json -d schema/testdata/payload.invalid.json && exit 1 || exit 0"
+    "validate-schema:reject": "ajv validate --spec=draft2020 --all-errors -c ajv-formats -s schema/payload.v1.json -d schema/testdata/payload.invalid.json && exit 1 || exit 0",
+    "lint:prettier": "prettier --check ."
   },
   "devDependencies": {
+    "@eslint/js": "9.16.0",
+    "@typescript-eslint/eslint-plugin": "8.18.0",
+    "@typescript-eslint/parser": "8.18.0",
     "ajv-cli": "5.0.0",
     "ajv-formats": "3.0.1",
-    "json-schema-to-typescript": "15.0.4"
+    "eslint": "9.16.0",
+    "eslint-plugin-vue": "9.32.0",
+    "globals": "15.13.0",
+    "json-schema-to-typescript": "15.0.4",
+    "prettier": "3.4.2",
+    "vue-eslint-parser": "9.4.3"
   }
 }

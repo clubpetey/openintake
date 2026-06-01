@@ -6,7 +6,7 @@ import type { IntakeConfig, ChatMessage } from './client-types.js';
 function makeFetch(
   status: number,
   body: unknown,
-  headers: Record<string, string> = { 'content-type': 'application/json' }
+  headers: Record<string, string> = { 'content-type': 'application/json' },
 ): typeof fetch {
   return vi.fn().mockResolvedValue({
     ok: status >= 200 && status < 300,
@@ -35,7 +35,10 @@ describe('IntakeClient.init()', () => {
     const result = await client.init();
 
     expect(mockFetch).toHaveBeenCalledOnce();
-    const [url, opts] = (mockFetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    const [url, opts] = (mockFetch as ReturnType<typeof vi.fn>).mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
     expect(url).toBe('http://localhost:8080/v1/intake/init');
     expect(opts.method).toBe('POST');
 
@@ -98,9 +101,7 @@ describe('IntakeClient.turn()', () => {
         ok: true,
         status: 200,
         headers: { get: () => 'text/event-stream' },
-        body: sseStream(
-          'data: {"done":true,"input_tokens":1,"output_tokens":2}\n\n'
-        ),
+        body: sseStream('data: {"done":true,"input_tokens":1,"output_tokens":2}\n\n'),
         json: () => Promise.reject(new Error('streaming')),
       } as unknown as Response);
     });
@@ -148,10 +149,7 @@ describe('IntakeClient.turn()', () => {
     await client.init();
 
     const deltas: string[] = [];
-    const result = await client.turn(
-      [{ role: 'user', content: 'test' }],
-      (d) => deltas.push(d)
-    );
+    const result = await client.turn([{ role: 'user', content: 'test' }], (d) => deltas.push(d));
 
     expect(deltas).toEqual(['foo', 'bar']);
     expect(result).toEqual({ input_tokens: 3, output_tokens: 7 });
@@ -185,16 +183,16 @@ describe('IntakeClient.turn()', () => {
     const client = new IntakeClient(BASE_CONFIG, spyFetch);
     await client.init();
 
-    await expect(
-      client.turn([{ role: 'user', content: 'test' }], () => {})
-    ).rejects.toThrow('upstream provider failed');
+    await expect(client.turn([{ role: 'user', content: 'test' }], () => {})).rejects.toThrow(
+      'upstream provider failed',
+    );
   });
 
   it('throws if turn() is called before init()', async () => {
     const client = new IntakeClient(BASE_CONFIG, vi.fn());
-    await expect(
-      client.turn([{ role: 'user', content: 'hi' }], () => {})
-    ).rejects.toThrow('init()');
+    await expect(client.turn([{ role: 'user', content: 'hi' }], () => {})).rejects.toThrow(
+      'init()',
+    );
   });
 
   it('rejects when the relay responds non-2xx (503) before streaming', async () => {
@@ -224,17 +222,15 @@ describe('IntakeClient.turn()', () => {
 
     const client = new IntakeClient(BASE_CONFIG, spyFetch);
     await client.init();
-    await expect(
-      client.turn([{ role: 'user', content: 'hello' }], () => {})
-    ).rejects.toThrow(/503/);
+    await expect(client.turn([{ role: 'user', content: 'hello' }], () => {})).rejects.toThrow(
+      /503/,
+    );
   });
 
   it('rejects (does not hang) when stream closes without a done frame', async () => {
     // Stream contains only delta frames — no done or error frame — then closes cleanly.
     // turn() must reject with a protocol error rather than hanging forever.
-    const sseBody =
-      'data: {"delta":"foo"}\n\n' +
-      'data: {"delta":"bar"}\n\n';
+    const sseBody = 'data: {"delta":"foo"}\n\n' + 'data: {"delta":"bar"}\n\n';
 
     const spyFetch = vi.fn((...args: Parameters<typeof fetch>) => {
       const [url] = args as [string, RequestInit];
@@ -264,9 +260,9 @@ describe('IntakeClient.turn()', () => {
     await client.init();
 
     // The test completing proves it does not hang; the error message is the proof of correct rejection.
-    await expect(
-      client.turn([{ role: 'user', content: 'hello' }], () => {})
-    ).rejects.toThrow(/stream ended without a done frame/);
+    await expect(client.turn([{ role: 'user', content: 'hello' }], () => {})).rejects.toThrow(
+      /stream ended without a done frame/,
+    );
   });
 });
 
@@ -305,10 +301,7 @@ describe('IntakeClient.submit()', () => {
       } as unknown as Response);
     });
 
-    const client = new IntakeClient(
-      { ...BASE_CONFIG, appContext: { tenant: 'acme' } },
-      spyFetch
-    );
+    const client = new IntakeClient({ ...BASE_CONFIG, appContext: { tenant: 'acme' } }, spyFetch);
     await client.init();
 
     const messages: ChatMessage[] = [
@@ -321,9 +314,7 @@ describe('IntakeClient.submit()', () => {
     const [submitUrl, submitOpts] = calls[1];
     expect(submitUrl).toBe('http://localhost:8080/v1/intake/submit');
     expect(submitOpts.method).toBe('POST');
-    expect(
-      (submitOpts.headers as Record<string, string>)['X-Intake-Session']
-    ).toBe('sub-sess');
+    expect((submitOpts.headers as Record<string, string>)['X-Intake-Session']).toBe('sub-sess');
 
     const body = JSON.parse(submitOpts.body as string) as Record<string, unknown>;
     expect((body['messages'] as unknown[]).length).toBe(2);
@@ -408,16 +399,12 @@ describe('IntakeClient.submit()', () => {
 
     const client = new IntakeClient(BASE_CONFIG, spyFetch);
     await client.init();
-    await expect(
-      client.submit([{ role: 'user', content: 'test' }])
-    ).rejects.toThrow(/502/);
+    await expect(client.submit([{ role: 'user', content: 'test' }])).rejects.toThrow(/502/);
   });
 
   it('throws if submit() is called before init()', async () => {
     const client = new IntakeClient(BASE_CONFIG, vi.fn());
-    await expect(
-      client.submit([{ role: 'user', content: 'hi' }])
-    ).rejects.toThrow('init()');
+    await expect(client.submit([{ role: 'user', content: 'hi' }])).rejects.toThrow('init()');
   });
 });
 
@@ -490,18 +477,14 @@ describe('IntakeClient.submit() — attachments threading (Phase 6)', () => {
     } as unknown as Response);
     await client.init();
 
-    await client.submit(
-      [{ role: 'user', content: 'hi' }],
-      undefined,
-      [
-        {
-          type: 'screenshot',
-          mime_type: 'image/png',
-          url: 'data:image/png;base64,AAAA',
-          label: 'screenshot 1',
-        },
-      ],
-    );
+    await client.submit([{ role: 'user', content: 'hi' }], undefined, [
+      {
+        type: 'screenshot',
+        mime_type: 'image/png',
+        url: 'data:image/png;base64,AAAA',
+        label: 'screenshot 1',
+      },
+    ]);
 
     const submitCall = calls[calls.length - 1];
     const body = JSON.parse(submitCall[1].body as string) as { attachments: unknown[] };

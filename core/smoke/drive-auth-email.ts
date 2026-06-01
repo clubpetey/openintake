@@ -32,20 +32,26 @@
 import { IntakeClient } from '../src/index.js';
 import type { ChatMessage } from '../src/index.js';
 
-const RELAY_URL   = process.env['RELAY_URL']   ?? 'http://localhost:8080';
+const RELAY_URL = process.env['RELAY_URL'] ?? 'http://localhost:8080';
 const MAILHOG_URL = process.env['MAILHOG_URL'] ?? 'http://localhost:8025';
 const SMOKE_EMAIL = process.env['SMOKE_EMAIL'] ?? 'pete@mantichor.com';
 
 // --- Browser-global stubs for submit() (LESSONS L004) ---
 function stubBrowserGlobals(): void {
   const defs: Array<[string, unknown]> = [
-    ['window', { location: { href: 'http://localhost:5173/smoke' }, innerWidth: 1280, innerHeight: 720 }],
+    [
+      'window',
+      { location: { href: 'http://localhost:5173/smoke' }, innerWidth: 1280, innerHeight: 720 },
+    ],
     ['navigator', { userAgent: 'intake-smoke/drive-auth-email', language: 'en-US' }],
-    ['document', {
-      referrer: '',
-      title: 'intake email smoke',
-      querySelectorAll: () => [] as never[],
-    }],
+    [
+      'document',
+      {
+        referrer: '',
+        title: 'intake email smoke',
+        querySelectorAll: () => [] as never[],
+      },
+    ],
   ];
   for (const [name, value] of defs) {
     Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
@@ -146,7 +152,9 @@ async function main(): Promise<void> {
       `init.capabilities.auth_modes = ${JSON.stringify(init.capabilities.auth_modes)}; want includes "email"`,
     );
   }
-  console.log(`[email-smoke] capabilities.auth_modes=${JSON.stringify(init.capabilities.auth_modes)}`);
+  console.log(
+    `[email-smoke] capabilities.auth_modes=${JSON.stringify(init.capabilities.auth_modes)}`,
+  );
 
   // 2. Request a verification code.
   await startEmail(SMOKE_EMAIL);
@@ -189,7 +197,9 @@ async function main(): Promise<void> {
   //    Stub browser globals first (LESSONS L004 — /submit calls captureClient()).
   stubBrowserGlobals();
   const result = await client.submit(history);
-  console.log(`[email-smoke] submit external_id=${result.external_id} adapter=${result.adapter_name}`);
+  console.log(
+    `[email-smoke] submit external_id=${result.external_id} adapter=${result.adapter_name}`,
+  );
 
   console.log('[email-smoke] PASS');
 }

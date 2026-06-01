@@ -19,7 +19,7 @@ run_misconfig() {
 
   echo "=== Q9 smoke: $name ==="
   local output
-  output=$(cd relay && go run ./cmd/relay --config "../$fixture" 2>&1 || true)
+  output=$( ( cd relay && go run ./cmd/relay --config "../$fixture" ) 2>&1 || true )
 
   if echo "$output" | grep -q "relay: startup config errors"; then
     echo "OK: consolidated error log line present"
@@ -48,7 +48,7 @@ run_misconfig "bad-cidr"              "relay/cmd/relay/smoke/bad-cidr.yaml"     
 run_misconfig "bad-action"            "relay/cmd/relay/smoke/bad-action.yaml"            "action_on_exceeded"
 
 echo "=== Q9 smoke: combined ==="
-combined_output=$(cd relay && go run ./cmd/relay --config "../relay/cmd/relay/smoke/combined.yaml" 2>&1 || true)
+combined_output=$( ( cd relay && go run ./cmd/relay --config "../relay/cmd/relay/smoke/combined.yaml" ) 2>&1 || true )
 for substr in "anonymous" "both" "not-a-cidr" "action_on_exceeded"; do
   if echo "$combined_output" | grep -q "$substr"; then
     echo "OK: combined fixture matched '$substr'"
@@ -73,7 +73,7 @@ echo "=== Q9 smoke: attachments-combined (Phase 5 + Phase 6 in ONE log line) ===
 # AND Phase-6 misconfigs, the SINGLE consolidated "startup config errors"
 # log line must list problems from BOTH gates. Prior to the fix, the Phase 5
 # gate called os.Exit(1) before validateAttachments() ran.
-ac_output=$(cd relay && go run ./cmd/relay --config "../relay/cmd/relay/smoke/attachments-combined.yaml" 2>&1 || true)
+ac_output=$( ( cd relay && go run ./cmd/relay --config "../relay/cmd/relay/smoke/attachments-combined.yaml" ) 2>&1 || true )
 for substr in "anonymous" "not-a-cidr" "action_on_exceeded" "storage.mode" "max_size_bytes"; do
   if echo "$ac_output" | grep -q "$substr"; then
     echo "OK: attachments-combined matched '$substr'"

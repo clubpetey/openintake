@@ -10,7 +10,13 @@ export { IntakeWidget, ConversationView, ScreenshotRedactor, AttachmentStrip, us
 export type { UseIntakeOptions };
 
 // Re-export the core types consumers will need
-export type { ChatMessage, SubmitResult, IntakeConfig, PendingAttachment, AttachmentLimits } from '@intake/core';
+export type {
+  ChatMessage,
+  SubmitResult,
+  IntakeConfig,
+  PendingAttachment,
+  AttachmentLimits,
+} from '@intake/core';
 
 /**
  * Vue plugin — optional. Registers IntakeWidget globally.

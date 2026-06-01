@@ -1,0 +1,51 @@
+# Phase 7 Q9 combined-misconfig fixture.
+#
+# Extends Phase 6's attachments-combined.yaml with a Phase 7 chatwoot adapter
+# Configure failure (api_token_env points at NONEXISTENT_VAR) to prove
+# FOLLOWUPS I1: buildRegistry now CONTRIBUTES per-adapter Configure failures
+# to the shared startup-problems slice instead of calling os.Exit on the
+# first one. Operators fix all six problems in ONE restart cycle.
+#
+# Expected: exactly ONE consolidated "relay: startup config errors" log line
+# with count >= 6 listing every distinct problem (Phase 5 + Phase 6 + Phase 7).
+server:
+  addr: ":18090"
+  external_url: "http://127.0.0.1:18090"
+  cors_origins: ["http://localhost:5173"]
+  trusted_proxies:
+    - "10.0.0.0/8"
+    - "not-a-cidr"
+llm:
+  provider: "ollama"
+  ollama:
+    base_url: "http://127.0.0.1:11434"
+    model: "fake"
+    max_tokens: 50
+auth:
+  modes:
+    anonymous: true
+  anonymous:
+    allow_without_captcha: false
+captcha:
+  enabled: false
+ratelimit:
+  daily_llm_budget:
+    action_on_exceeded: "queue"
+attachments:
+  enabled: true
+  max_size_bytes: 20000000
+  max_total_bytes: 10000000
+  storage:
+    mode: "s3"
+adapters:
+  webhook:
+    enabled: true
+    url: "http://127.0.0.1:1/discard"
+  chatwoot:
+    enabled: true
+    base_url: "https://chatwoot.example.com"
+    account_id: 1
+    inbox_id: 1
+    api_token_env: "NONEXISTENT_VAR"
+routing:
+  default_adapter: "webhook"
