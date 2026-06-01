@@ -1,0 +1,30 @@
+# syntax=docker/dockerfile:1.7
+#
+# Thin Dockerfile for the goreleaser dockers: block.
+# Goreleaser pre-builds the static Go binary outside the container and provides
+# it in the build context; this Dockerfile just COPIES the binary into a
+# distroless/static stage with the nonroot user. Mirrors the same final-stage
+# invariants as relay/Dockerfile (USER=nonroot:nonroot, EXPOSE 8080 9090,
+# ENTRYPOINT=/intake-relay, image < 50 MB).
+#
+# The main relay/Dockerfile (multi-stage builder) is what users use for
+# `docker build relay/`. This thin variant is the canonical goreleaser pattern
+# (build once, package many).
+
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:d093aa3e30dbadd3efe1310db061a14da60299baff8450a17fe0ccc514a16639
+
+ARG VERSION=dev
+LABEL org.opencontainers.image.source="https://github.com/intake/intake" \
+      org.opencontainers.image.description="Intake relay — Go HTTP server for the intake widget" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.version="${VERSION}"
+
+# Goreleaser places the prebuilt binary at the root of the build context.
+COPY --chown=nonroot:nonroot intake-relay /intake-relay
+
+USER nonroot:nonroot
+
+EXPOSE 8080 9090
+
+ENTRYPOINT ["/intake-relay"]
+CMD ["--config", "/etc/intake/config.yaml"]

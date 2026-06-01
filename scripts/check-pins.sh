@@ -111,20 +111,24 @@ for wf in .github/workflows/release.yml .github/workflows/ci.yml; do
   fi
 done
 # Gate: distroless base image must be exact-pinned by SHA digest in any Dockerfile. Phase 7-ii.
-if [ -f relay/Dockerfile ] && grep -E '^FROM gcr\.io/distroless/' relay/Dockerfile | grep -vE '@sha256:[0-9a-f]{64}'; then
-  echo "ERROR: distroless base image in relay/Dockerfile is not SHA-pinned (@sha256:<64-hex>); PHASE_PLANNING §5 requires exact pins" >&2
-  fail=1
-fi
+for dockerfile in relay/Dockerfile relay/Dockerfile.goreleaser; do
+  if [ -f "$dockerfile" ] && grep -E '^FROM gcr\.io/distroless/' "$dockerfile" | grep -vE '@sha256:[0-9a-f]{64}'; then
+    echo "ERROR: distroless base image in $dockerfile is not SHA-pinned (@sha256:<64-hex>); PHASE_PLANNING §5 requires exact pins" >&2
+    fail=1
+  fi
+done
 # Gate: golang:alpine builder image must be exact-pinned by SHA digest in relay/Dockerfile. Phase 7-ii.
 if [ -f relay/Dockerfile ] && grep -E '^FROM .*golang:' relay/Dockerfile | grep -vE '@sha256:[0-9a-f]{64}'; then
   echo "ERROR: golang builder image in relay/Dockerfile is not SHA-pinned (@sha256:<64-hex>); PHASE_PLANNING §5 requires exact pins" >&2
   fail=1
 fi
-# Gate: no unresolved placeholder digest tokens in Dockerfile. Phase 7-ii implementation guard.
-if [ -f relay/Dockerfile ] && grep -E '(DISTROLESS_SHA256_DIGEST_HERE|GOLANG_ALPINE_SHA256_DIGEST_HERE)' relay/Dockerfile; then
-  echo "ERROR: relay/Dockerfile still contains a placeholder digest token; replace with the real SHA captured via 'docker inspect'" >&2
-  fail=1
-fi
+# Gate: no unresolved placeholder digest tokens in any Dockerfile. Phase 7-ii implementation guard.
+for dockerfile in relay/Dockerfile relay/Dockerfile.goreleaser; do
+  if [ -f "$dockerfile" ] && grep -E '(DISTROLESS_SHA256_DIGEST_HERE|GOLANG_ALPINE_SHA256_DIGEST_HERE)' "$dockerfile"; then
+    echo "ERROR: $dockerfile still contains a placeholder digest token; replace with the real SHA captured via 'docker inspect'" >&2
+    fail=1
+  fi
+done
 # Note: github.com/santhosh-tekuri/jsonschema/v6 is a Go library (introduced in 1-iv).
 # Go modules pin exact versions in go.sum — no caret-check needed here; go.sum enforces it.
 # github.com/google/uuid is similarly exact-pinned by go.mod + go.sum.
