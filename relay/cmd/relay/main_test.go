@@ -3,6 +3,9 @@ package main
 import (
 	"io"
 	"log/slog"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,6 +13,37 @@ import (
 	"intake/internal/config"
 	licensemgr "intake/internal/license"
 )
+
+// TestMain_VersionFlag_PrintsAndExits asserts the --version flag prints a
+// non-empty one-line version string and exits 0, even without a config file.
+// This is the binary-vs-tag identity contract that the 7-ii snapshot-build
+// smoke depends on.
+func TestMain_VersionFlag_PrintsAndExits(t *testing.T) {
+	tmp := t.TempDir()
+	binPath := filepath.Join(tmp, "intake-relay-test.exe")
+	if os.PathSeparator == '/' {
+		binPath = filepath.Join(tmp, "intake-relay-test")
+	}
+	// Build the relay binary into a temp path. Build cwd is the cmd/relay dir.
+	build := exec.Command("go", "build", "-o", binPath, ".")
+	build.Stderr = os.Stderr
+	if err := build.Run(); err != nil {
+		t.Fatalf("go build failed: %v", err)
+	}
+
+	cmd := exec.Command(binPath, "--version")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("--version subprocess failed: %v (output=%q)", err, string(out))
+	}
+	s := strings.TrimSpace(string(out))
+	if s == "" {
+		t.Fatalf("--version printed empty output; want a non-empty version string")
+	}
+	if !strings.Contains(s, "intake-relay") {
+		t.Errorf("--version output %q does not contain 'intake-relay'", s)
+	}
+}
 
 func TestStartupProblems_ReturnsParsedPrefixes(t *testing.T) {
 	cfg := &config.Config{}

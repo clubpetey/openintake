@@ -43,7 +43,17 @@ import (
 func main() {
 	configPath := flag.String("config", "config.yaml", "path to the relay config file")
 	licenseFile := flag.String("license-file", "", "path to license.json (overrides config license.file)")
+	showVersion := flag.Bool("version", false, "print version information and exit")
 	flag.Parse()
+
+	// --version: print one line and exit BEFORE any logger/cfg setup so the
+	// flag works even with no config file present. The string is the
+	// binary-vs-tag identity assertion target for the 7-ii snapshot-build smoke.
+	if *showVersion {
+		info := version.Info()
+		fmt.Printf("intake-relay %s (%s) built %s\n", info.Version, info.Commit, info.BuildTime)
+		os.Exit(0)
+	}
 
 	// --- Logger (structured JSON to stdout) ---
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
