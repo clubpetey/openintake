@@ -509,3 +509,227 @@ func adapterListNames(reg []adapter.Adapter) []string {
 	}
 	return out
 }
+
+// ---- Task 6 / FOLLOWUPS I2 tests ----
+
+// minimalValidCfg returns the smallest *config.Config that's parseable but
+// has no adapters enabled and no Phase 5/6 misconfigs. Tests selectively
+// flip fields to assert per-gate behavior.
+func minimalValidCfg(t *testing.T) *config.Config {
+	t.Helper()
+	c := &config.Config{}
+	// Apply the same defaults the YAML loader would apply (durations + Validate-required).
+	c.RateLimit.PerSession.SessionTTL = "1h"
+	c.RateLimit.PerIP.IdleTTL = "15m"
+	c.RateLimit.DailyLLMBudget.ActionOnExceeded = "reject"
+	return c
+}
+
+// TestAccumulateStartupProblems_Empty: clean cfg + free license + no enabled
+// adapters → 1 problem ("no adapters enabled"). Asserts the function is pure
+// (no os.Exit) and the Deps return value is populated for the fields that
+// don't depend on a registry.
+func TestAccumulateStartupProblems_Empty(t *testing.T) {
+	cfg := minimalValidCfg(t)
+	licState := freeLicenseState(t)
+	logger := discardLogger()
+
+	deps, _, problems := accumulateStartupProblems(cfg, licState, logger)
+	if len(problems) != 1 {
+		t.Errorf("len(problems) = %d; want 1; got %v", len(problems), problems)
+	}
+	if !strings.Contains(problems[0], "no adapters enabled") {
+		t.Errorf("expected 'no adapters enabled'; got %v", problems)
+	}
+	if deps.Metrics == nil {
+		t.Error("Deps.Metrics is nil; want non-nil even in disabled mode")
+	}
+}
+
+// TestAccumulateStartupProblems_Phase5Only: anonymous-no-captcha + bad CIDR +
+// at least one valid adapter → exactly 2 Phase-5 problems, NO Phase-7
+// (registry) problems.
+func TestAccumulateStartupProblems_Phase5Only(t *testing.T) {
+	cfg := minimalValidCfg(t)
+	cfg.Auth.Modes.Anonymous = true
+	cfg.Captcha.Enabled = false
+	cfg.Auth.Anonymous.AllowWithoutCaptcha = false
+	cfg.Server.TrustedProxies = []string{"not-a-cidr"}
+	cfg.Adapters.Webhook.Enabled = true
+	cfg.Adapters.Webhook.URL = "https://hooks.example.com"
+	licState := freeLicenseState(t)
+	logger := discardLogger()
+
+	_, _, problems := accumulateStartupProblems(cfg, licState, logger)
+	hasAnon := false
+	hasCIDR := false
+	for _, p := range problems {
+		if strings.Contains(p, "anonymous") {
+			hasAnon = true
+		}
+		if strings.Contains(p, "not-a-cidr") {
+			hasCIDR = true
+		}
+	}
+	if !hasAnon {
+		t.Errorf("expected an 'anonymous' problem; got %v", problems)
+	}
+	if !hasCIDR {
+		t.Errorf("expected a 'not-a-cidr' problem; got %v", problems)
+	}
+}
+
+// TestAccumulateStartupProblems_Phase6Only: storage.mode=s3 + cap inverted +
+// webhook enabled (so Phase 7 contributes nothing) → exactly 2 Phase-6 problems.
+func TestAccumulateStartupProblems_Phase6Only(t *testing.T) {
+	cfg := minimalValidCfg(t)
+	cfg.Adapters.Webhook.Enabled = true
+	cfg.Adapters.Webhook.URL = "https://hooks.example.com"
+	cfg.Attachments.Enabled = true
+	cfg.Attachments.Storage.Mode = "s3"
+	cfg.Attachments.MaxSizeBytes = 20_000_000
+	cfg.Attachments.MaxTotalBytes = 10_000_000
+	licState := freeLicenseState(t)
+	logger := discardLogger()
+
+	_, _, problems := accumulateStartupProblems(cfg, licState, logger)
+	hasStorage := false
+	hasCapInverted := false
+	for _, p := range problems {
+		if strings.Contains(p, "storage.mode") {
+			hasStorage = true
+		}
+		if strings.Contains(p, "max_size_bytes") {
+			hasCapInverted = true
+		}
+	}
+	if !hasStorage {
+		t.Errorf("expected a 'storage.mode' problem; got %v", problems)
+	}
+	if !hasCapInverted {
+		t.Errorf("expected a 'max_size_bytes' problem; got %v", problems)
+	}
+}
+
+// TestAccumulateStartupProblems_AdapterConfigureFails: chatwoot api_token_env
+// unset → 1 problem mentioning chatwoot, NO "no adapters enabled" (because
+// webhook is also enabled and configures cleanly).
+func TestAccumulateStartupProblems_AdapterConfigureFails(t *testing.T) {
+	cfg := minimalValidCfg(t)
+	cfg.Adapters.Webhook.Enabled = true
+	cfg.Adapters.Webhook.URL = "https://hooks.example.com"
+	cfg.Adapters.Chatwoot.Enabled = true
+	cfg.Adapters.Chatwoot.BaseURL = "https://chat.example.com"
+	cfg.Adapters.Chatwoot.AccountID = 1
+	cfg.Adapters.Chatwoot.InboxID = 1
+	cfg.Adapters.Chatwoot.APITokenEnv = "INTAKE_TEST_NEVER_SET_XYZ"
+	licState := freeLicenseState(t)
+	logger := discardLogger()
+
+	_, _, problems := accumulateStartupProblems(cfg, licState, logger)
+	hasChatwoot := false
+	hasNoAdapters := false
+	for _, p := range problems {
+		if strings.Contains(p, "chatwoot") {
+			hasChatwoot = true
+		}
+		if strings.Contains(p, "no adapters enabled") {
+			hasNoAdapters = true
+		}
+	}
+	if !hasChatwoot {
+		t.Errorf("expected a chatwoot problem; got %v", problems)
+	}
+	if hasNoAdapters {
+		t.Errorf("did NOT expect 'no adapters enabled' (webhook is configured); got %v", problems)
+	}
+}
+
+// TestAccumulateStartupProblems_NoAdaptersEnabled: cfg with all adapters
+// disabled → "no adapters enabled" problem.
+func TestAccumulateStartupProblems_NoAdaptersEnabled(t *testing.T) {
+	cfg := minimalValidCfg(t)
+	licState := freeLicenseState(t)
+	logger := discardLogger()
+
+	_, _, problems := accumulateStartupProblems(cfg, licState, logger)
+	hasNoAdapters := false
+	for _, p := range problems {
+		if strings.Contains(p, "no adapters enabled") {
+			hasNoAdapters = true
+		}
+	}
+	if !hasNoAdapters {
+		t.Errorf("expected 'no adapters enabled' problem; got %v", problems)
+	}
+}
+
+// TestAccumulateStartupProblems_LicenseGateWarnsNotFails: a PAID adapter
+// (zendesk) enabled in FREE mode → registry skips it via licensed() with a
+// Warn log; NO problem entry contributed. With webhook also enabled, the
+// final registry has webhook only, and problems is empty.
+func TestAccumulateStartupProblems_LicenseGateWarnsNotFails(t *testing.T) {
+	cfg := minimalValidCfg(t)
+	cfg.Adapters.Webhook.Enabled = true
+	cfg.Adapters.Webhook.URL = "https://hooks.example.com"
+	cfg.Adapters.Zendesk.Enabled = true
+	cfg.Adapters.Zendesk.Subdomain = "example"
+	cfg.Adapters.Zendesk.Email = "agent@example.com"
+	cfg.Adapters.Zendesk.APITokenEnv = "INTAKE_TEST_NEVER_SET_XYZ"
+	licState := freeLicenseState(t) // free mode → zendesk skipped (paid)
+	logger := discardLogger()
+
+	_, _, problems := accumulateStartupProblems(cfg, licState, logger)
+	for _, p := range problems {
+		if strings.Contains(p, "zendesk") {
+			t.Errorf("did NOT expect a zendesk problem (license gate is a Warn, not a problem); got %v", problems)
+		}
+	}
+	if len(problems) != 0 {
+		t.Errorf("expected zero problems (webhook configures, zendesk skipped by license); got %v", problems)
+	}
+}
+
+// TestAccumulateStartupProblems_AllCombined: Phase 5 (anon-no-captcha + bad
+// CIDR) + Phase 6 (cap inverted) + Phase 7 (chatwoot Configure failure) all
+// in ONE cfg → consolidated problems slice contains every distinct issue,
+// with count >= 4. Asserts the L022 contract end-to-end.
+func TestAccumulateStartupProblems_AllCombined(t *testing.T) {
+	cfg := minimalValidCfg(t)
+	// Phase 5: anon-no-captcha
+	cfg.Auth.Modes.Anonymous = true
+	cfg.Captcha.Enabled = false
+	cfg.Auth.Anonymous.AllowWithoutCaptcha = false
+	// Phase 5: bad CIDR
+	cfg.Server.TrustedProxies = []string{"not-a-cidr"}
+	// Phase 6: cap inverted
+	cfg.Attachments.Enabled = true
+	cfg.Attachments.MaxSizeBytes = 20_000_000
+	cfg.Attachments.MaxTotalBytes = 10_000_000
+	// Phase 7: chatwoot Configure fails
+	cfg.Adapters.Chatwoot.Enabled = true
+	cfg.Adapters.Chatwoot.BaseURL = "https://chat.example.com"
+	cfg.Adapters.Chatwoot.AccountID = 1
+	cfg.Adapters.Chatwoot.InboxID = 1
+	cfg.Adapters.Chatwoot.APITokenEnv = "INTAKE_TEST_NEVER_SET_XYZ"
+	licState := freeLicenseState(t)
+	logger := discardLogger()
+
+	_, _, problems := accumulateStartupProblems(cfg, licState, logger)
+	if len(problems) < 4 {
+		t.Errorf("AllCombined: len(problems) = %d; want >= 4; got %v", len(problems), problems)
+	}
+	want := []string{"anonymous", "not-a-cidr", "max_size_bytes", "chatwoot"}
+	for _, w := range want {
+		found := false
+		for _, p := range problems {
+			if strings.Contains(p, w) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected a problem containing %q; got %v", w, problems)
+		}
+	}
+}

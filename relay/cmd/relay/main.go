@@ -31,6 +31,7 @@ import (
 	"intake/internal/config"
 	licensemgr "intake/internal/license"
 	"intake/internal/llm/providers"
+	"intake/internal/metrics"
 	"intake/internal/payloadbuild"
 	"intake/internal/ratelimit/perip"
 	"intake/internal/router"
@@ -71,58 +72,18 @@ func main() {
 	}
 	logger.Info("relay: license", "mode", licState.Mode, "detail", licState.Message)
 
-	// --- Q9 consolidated startup gate (Phase 5) ---
-	// All Phase 4 + Phase 5 misconfigs collected into a shared problems slice.
-	// Phase 6's validateAttachments() appends to the same slice below, and a
-	// single os.Exit(1) fires AFTER both gates have run — operators see every
-	// startup misconfig (Phase 5 AND Phase 6) in ONE log line and fix them in
-	// one restart cycle, not two.
-	//
-	// Safety: none of the Phase 5 gates touch cfg.Adapters or anything else
-	// buildRegistry() consumes, so it is safe to let buildRegistry() run even
-	// when Phase 5 problems are present.
-	problems, trustedProxies := startupProblems(cfg)
-	// trustedProxies is the parsed []netip.Prefix from cfg.Server.TrustedProxies
-	// — parsed once inside startupProblems; used by clientIPMiddleware via Deps.
-
-	// --- Adapter registry (3-i; 3-ii…3-v add adapters; 3-vi adds the license gate) ---
-	// FOLLOWUPS I1 (Phase 7-i): buildRegistry returns problems slice instead of
-	// os.Exit. Per-adapter Configure failures + "no adapters enabled" flow into
-	// the shared problems slice; consolidated exit fires after all gates have run.
-	registry, regProblems := buildRegistry(cfg, licState, logger)
-	problems = append(problems, regProblems...)
-
-	// --- Phase 6 attachments startup gate ---
-	// Runs after buildRegistry because the warn-on-unknown-MIME side-channel
-	// needs the enabled-adapter list. Returns the PARSED AttachmentsConfig per
-	// L016 — consumers below must use `attachmentsCfg`, not `cfg.Attachments`.
-	// Problems are appended to the SHARED `problems` slice so the consolidated
-	// log line below lists every Phase-5 AND Phase-6 misconfig in one go.
-	attachmentsCfg, attProblems := validateAttachments(cfg, registry)
-	problems = append(problems, attProblems...)
-
-	// --- Single consolidated exit (Q9 contract) ---
-	// One log line, one os.Exit, every startup misconfig listed — operators
-	// fix every problem in one restart cycle, not two. See README §6 (build-fail
-	// items) and §7 (final smoke "operators fix in one restart cycle").
+	// --- Consolidated Q9 startup gate (Phase 5+6+7, FOLLOWUPS I1+I2) ---
+	// One call collects all startup misconfigs across every subsystem; one
+	// consolidated log line lists every problem; one os.Exit(1).
+	startupDeps, registry, problems := accumulateStartupProblems(cfg, licState, logger)
 	if len(problems) > 0 {
 		logger.Error("relay: startup config errors", "count", len(problems), "problems", problems)
 		os.Exit(1)
 	}
-
-	// Compute the published allowlist (cfg ∩ adapter union) — empty list means
-	// /init will omit capabilities.attachments and submitHandler will refuse
-	// non-empty attachments[] with 400 attachments_disabled.
-	attCaps := server.ComputeAttachmentsCaps(attachmentsCfg, registry)
-	var attachmentMIMEs []string
-	if attCaps != nil {
-		attachmentMIMEs = attCaps.AllowedMIMETypes
-	}
-	// Body cap: 14 MB when enabled, 1 MB otherwise. Computed once at startup.
-	bodyCapBytes := int64(1 << 20)
-	if attachmentsCfg.Enabled {
-		bodyCapBytes = 14 * (1 << 20)
-	}
+	trustedProxies := startupDeps.TrustedProxies
+	attachmentsCfg := startupDeps.AttachmentsCfg
+	attachmentMIMEs := startupDeps.AttachmentMIMEs
+	bodyCapBytes := startupDeps.BodyCapBytes
 
 	// --- LLM Provider (via factory) ---
 	// providers.New resolves the required secret internally via config.RequireSecret /
@@ -367,7 +328,23 @@ func main() {
 		AttachmentsCfg:  attachmentsCfg,
 		AttachmentMIMEs: attachmentMIMEs,
 		BodyCapBytes:    bodyCapBytes,
+
+		// Phase 7 (7-i):
+		Metrics: startupDeps.Metrics,
 	}
+
+	// Phase 7 (7-i): metrics server runs in a goroutine, independent of the
+	// main HTTP server. A port-bind failure is logged at Error but does NOT
+	// crash the main relay (independence invariant — observability shouldn't
+	// be able to brick the service it observes).
+	metricsCtx, cancelMetrics := context.WithCancel(context.Background())
+	defer cancelMetrics()
+	go func() {
+		if err := deps.Metrics.ListenAndServe(metricsCtx); err != nil {
+			logger.Error("metrics: ListenAndServe failed", "err", err)
+			// Main relay continues.
+		}
+	}()
 
 	// --- HTTP Server ---
 	handler := server.New(cfg, deps)
@@ -658,6 +635,64 @@ func containsString(haystack []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// accumulateStartupProblems runs all startup gates (Phase 5 startupProblems,
+// Phase 7-i refactored buildRegistry, Phase 6 validateAttachments) and returns
+// the consolidated Deps + registry slice + problems slice. PURE FUNCTION: no
+// os.Exit, no slog beyond the gates' own internal Info/Warn calls. The L022
+// contract is honored at the single call site in main(): ONE consolidated log
+// line, ONE os.Exit(1).
+//
+// Returns:
+//   - server.Deps with the fields the gates produce: TrustedProxies,
+//     AttachmentsCfg, AttachmentMIMEs, BodyCapBytes, Metrics. Fields the
+//     caller (main) populates separately are left as Go zero values.
+//   - []adapter.Adapter — the configured registry; main() converts to a map
+//     via adapterRegistryFromSlice for router.New.
+//   - []string — the consolidated problems slice. Empty on success.
+//
+// Closes FOLLOWUPS I2: the cross-phase startup-gate wiring is now unit-testable
+// via the TestAccumulateStartupProblems_* suite, NOT only via the shell smoke.
+func accumulateStartupProblems(
+	cfg *config.Config,
+	licState *licensemgr.State,
+	logger *slog.Logger,
+) (server.Deps, []adapter.Adapter, []string) {
+	var problems []string
+
+	// 1. Phase 5 gate (anonymous/SSO/CIDR/budget/durations).
+	p5Problems, trustedProxies := startupProblems(cfg)
+	problems = append(problems, p5Problems...)
+
+	// 2. FOLLOWUPS I1: buildRegistry returns problems (NOT os.Exit) for
+	//    per-adapter Configure failures + "no adapters enabled".
+	registry, regProblems := buildRegistry(cfg, licState, logger)
+	problems = append(problems, regProblems...)
+
+	// 3. Phase 6 attachments gate (with M2 zero-value-on-disabled).
+	attachmentsCfg, attProblems := validateAttachments(cfg, registry)
+	problems = append(problems, attProblems...)
+
+	// 4. Derived Deps values.
+	attCaps := server.ComputeAttachmentsCaps(attachmentsCfg, registry)
+	var attachmentMIMEs []string
+	if attCaps != nil {
+		attachmentMIMEs = attCaps.AllowedMIMETypes
+	}
+	bodyCapBytes := int64(1 << 20)
+	if attachmentsCfg.Enabled {
+		bodyCapBytes = 14 * (1 << 20)
+	}
+	metricsReg := metrics.New(cfg.Observability.Metrics.Enabled, cfg.Observability.Metrics.Addr)
+
+	return server.Deps{
+		TrustedProxies:  trustedProxies,
+		AttachmentsCfg:  attachmentsCfg,
+		AttachmentMIMEs: attachmentMIMEs,
+		BodyCapBytes:    bodyCapBytes,
+		Metrics:         metricsReg,
+	}, registry, problems
 }
 
 // validateAttachments validates the Phase 6 attachments block. Returns the
