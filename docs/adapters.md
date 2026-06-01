@@ -69,7 +69,7 @@ adapters:
 
 ### Required environment variables
 
-None. The webhook adapter does not resolve any secrets via env vars by default. If you put a secret in `headers`, you SHOULD use a `${ENV_VAR}` interpolation pattern documented in `docs/self-hosting.md` § secret management.
+None. The webhook adapter does not resolve any secrets via env vars by default. The `headers` map values are static strings — NOT env-var-interpolated by the relay. Pre-render the config file externally (e.g., with `envsubst`) if you need env-driven values. See `docs/self-hosting.md` § "Secret management patterns" for the recommended deployment patterns.
 
 ### Attachment behavior
 

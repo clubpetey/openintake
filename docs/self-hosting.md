@@ -150,7 +150,7 @@ The table below lists every `*_env` field in the canonical config. Set the named
 | `auth.email.smtp_pass_env` | `INTAKE_SMTP_PASS` | `auth.modes.email: true` | SMTP password |
 | `auth.email.jwt_secret_env` | `INTAKE_EMAIL_JWT_SECRET` | `auth.modes.email: true` | Email-mode session JWT signing secret (32+ bytes) |
 | `auth.sso.hs256_secret_env` | (empty) | `auth.modes.sso: true` with HS256 | SSO HS256 secret (when not using JWKS) |
-| `adapters.webhook.headers.*` | (any) | optional | Webhook auth headers (use `${ENV_VAR}` interpolation) |
+| `adapters.webhook.headers.*` | (any) | optional | Webhook static auth headers. **The values are NOT env-var-interpolated by the relay** — pre-render with `envsubst` or a templating tool before mounting the config, OR put the secret in the header value directly (acceptable for self-hosted deployments where the config file is itself secret-protected). |
 | `adapters.chatwoot.api_token_env` | `CHATWOOT_TOKEN` | `adapters.chatwoot.enabled: true` | Chatwoot agent API token |
 | `adapters.fider.api_key_env` | `FIDER_API_KEY` | `adapters.fider.enabled: true` | Fider API key |
 | `adapters.zendesk.api_token_env` | `ZENDESK_API_TOKEN` | `adapters.zendesk.enabled: true` | Zendesk API token (paired with `email`) |
