@@ -1,0 +1,112 @@
+# .github/workflows/release.yml
+#
+# Phase 7-ii: authored but NEVER executed in Phase 7.
+# Triggered only on tag push matching v[0-9]+.[0-9]+.[0-9]+ — Phase 7 produces
+# no such tag. A future maintainer-driven Phase 7.5 publish action pushes the
+# first tag.
+#
+# Correctness verified via:
+#   - goreleaser check (Phase 7-ii Task 3; also wired as a CI job in ci.yml)
+#   - snapshot-build CI job (Phase 7-ii Task 7) exercises the same pipeline
+#   - manual inspection of secret-reference syntax
+
+name: release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'  # pre-releases (rc, beta, alpha)
+
+permissions:
+  contents: read
+
+concurrency:
+  # One release at a time per tag.
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ==========================================================================
+  # release-relay — goreleaser produces 5-platform binaries + multi-arch
+  # docker image + GitHub Release. Requires write access to contents + packages.
+  # ==========================================================================
+  release-relay:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # gh release create
+      packages: write   # ghcr.io push
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # goreleaser needs the full history for the changelog.
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.2'
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Setup QEMU (for multi-arch builds)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      - name: Login to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run goreleaser
+        uses: goreleaser/goreleaser-action@v7.2.2
+        with:
+          distribution: goreleaser
+          version: '2.7.0'
+          args: release --clean --config relay/.goreleaser.yaml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ==========================================================================
+  # release-npm — publishes @intake/core and @intake/vue to the public npm
+  # registry. Requires NPM_TOKEN with publish scope; configured per-repo by
+  # the maintainer before the first Phase 7.5+ release.
+  # ==========================================================================
+  release-npm:
+    runs-on: ubuntu-latest
+    needs: release-relay   # only publish to npm if the binary release succeeded
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Build @intake/core
+        run: npm run -w @intake/core build || true   # source-only TS today; build is no-op
+
+      - name: Build @intake/vue
+        run: npm run -w @intake/vue build
+
+      - name: Publish @intake/core
+        run: npm publish -w @intake/core --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @intake/vue
+        run: npm publish -w @intake/vue --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
