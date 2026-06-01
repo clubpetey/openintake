@@ -5,11 +5,14 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	metricstestutil "github.com/prometheus/client_golang/prometheus/testutil"
 
 	webhookadapter "intake/internal/adapter/webhook"
 	"intake/internal/attachvalidate"
@@ -17,6 +20,7 @@ import (
 	"intake/internal/classify"
 	"intake/internal/config"
 	"intake/internal/llm"
+	metricsregistry "intake/internal/metrics"
 	"intake/internal/payload"
 	"intake/internal/payloadbuild"
 	"intake/internal/router"
@@ -510,5 +514,99 @@ func TestSubmit_PhaseOneRegression_NoAttachments_200(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d; want 200 (no attachments path); body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// ---- Phase 7-i: submit metric record sites ----
+
+// failingAdapter returns an error from Create. Used by the adapter-error test.
+type failingAdapter struct{}
+
+func (a *failingAdapter) Name() string                      { return "fake-webhook" }
+func (a *failingAdapter) RequiresLicense() bool             { return false }
+func (a *failingAdapter) Configure(map[string]any) error    { return nil }
+func (a *failingAdapter) HealthCheck(context.Context) error { return nil }
+func (a *failingAdapter) Create(_ context.Context, _ *payload.IntakePayload) (*adapter.CreateResult, error) {
+	return nil, errors.New("downstream boom")
+}
+
+// TestSubmitHandler_RecordsAdapterCallSuccess asserts that when adapter.Create
+// succeeds, RecordAdapterCall(adapterName, "success") fires exactly once.
+func TestSubmitHandler_RecordsAdapterCallSuccess(t *testing.T) {
+	reg := metricsregistry.New(true, ":0")
+	fa := &fakeAdapter{}
+	deps := buildSubmitDeps(fa)
+	deps.Metrics = reg
+	sessionID := issueSession(deps)
+
+	reqBody := server.SubmitRequest{
+		Messages: []server.TurnMessage{{Role: "user", Content: "I cannot log in."}},
+		Client: server.ClientInfo{
+			WidgetVersion: "0.1.0",
+			URL:           "http://localhost:5173/",
+			UserAgent:     "Mozilla/5.0",
+			Viewport:      server.Viewport{W: 1280, H: 720},
+			Locale:        "en-US",
+		},
+		UserClaims: map[string]any{},
+		Context:    server.ContextInfo{},
+	}
+	bodyBytes, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest(http.MethodPost, "/v1/intake/submit", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Intake-Session", sessionID)
+	rr := httptest.NewRecorder()
+	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{"http://localhost:5173"}}}
+	server.New(cfg, deps).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d; body=%s", rr.Code, rr.Body.String())
+	}
+	if got := metricstestutil.ToFloat64(reg.AdapterCallsTotalForTest("fake-webhook", "success")); got != 1 {
+		t.Errorf("success count = %v; want 1", got)
+	}
+	if got := metricstestutil.ToFloat64(reg.AdapterCallsTotalForTest("fake-webhook", "error")); got != 0 {
+		t.Errorf("error count = %v; want 0", got)
+	}
+}
+
+// TestSubmitHandler_RecordsAdapterCallError asserts that when adapter.Create
+// returns a non-nil error, RecordAdapterCall(adapterName, "error") fires
+// exactly once.
+func TestSubmitHandler_RecordsAdapterCallError(t *testing.T) {
+	reg := metricsregistry.New(true, ":0")
+	fa := &failingAdapter{}
+	deps := buildSubmitDeps(fa)
+	deps.Metrics = reg
+	sessionID := issueSession(deps)
+
+	reqBody := server.SubmitRequest{
+		Messages: []server.TurnMessage{{Role: "user", Content: "I cannot log in."}},
+		Client: server.ClientInfo{
+			WidgetVersion: "0.1.0",
+			URL:           "http://localhost:5173/",
+			UserAgent:     "Mozilla/5.0",
+			Viewport:      server.Viewport{W: 1280, H: 720},
+			Locale:        "en-US",
+		},
+		UserClaims: map[string]any{},
+		Context:    server.ContextInfo{},
+	}
+	bodyBytes, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest(http.MethodPost, "/v1/intake/submit", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Intake-Session", sessionID)
+	rr := httptest.NewRecorder()
+	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{"http://localhost:5173"}}}
+	server.New(cfg, deps).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d; want 502; body=%s", rr.Code, rr.Body.String())
+	}
+	if got := metricstestutil.ToFloat64(reg.AdapterCallsTotalForTest("fake-webhook", "error")); got != 1 {
+		t.Errorf("error count = %v; want 1", got)
+	}
+	if got := metricstestutil.ToFloat64(reg.AdapterCallsTotalForTest("fake-webhook", "success")); got != 0 {
+		t.Errorf("success count = %v; want 0", got)
 	}
 }

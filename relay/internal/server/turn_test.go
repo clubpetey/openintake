@@ -11,9 +11,12 @@ import (
 	"strings"
 	"testing"
 
+	metricstestutil "github.com/prometheus/client_golang/prometheus/testutil"
+
 	"intake/internal/auth"
 	"intake/internal/config"
 	"intake/internal/llm"
+	metricsregistry "intake/internal/metrics"
 	"intake/internal/server"
 )
 
@@ -725,5 +728,77 @@ func TestInitHandler_OmitsAttachmentsWhenIntersectionEmpty(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), `"attachments"`) {
 		t.Errorf("body contains attachments key on empty intersection; want omitted: %s", rec.Body.String())
+	}
+}
+
+// ---- Phase 7-i: metric record sites ----
+
+func newTestDepsWithMetrics(reg *metricsregistry.Registry) (server.Deps, *auth.Store) {
+	deps, store := newTestDeps()
+	deps.Metrics = reg
+	return deps, store
+}
+
+// TestTurnHandler_RecordsLLMTokensOnSSEDone asserts that when the LLM
+// streams to completion (SSEDone with chunk.Done=true and chunk.Err=nil),
+// deps.Metrics.RecordLLMTokens is called with the provider name + "input"
+// and "output" directions + the token counts from chunk.
+func TestTurnHandler_RecordsLLMTokensOnSSEDone(t *testing.T) {
+	reg := metricsregistry.New(true, ":0")
+	deps, store := newTestDepsWithMetrics(reg)
+	sessionID := store.Issue()
+	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{"http://localhost:5173"}}}
+	mux := server.New(cfg, deps)
+
+	body := `{"messages":[{"role":"user","content":"hi"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/intake/turn", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Intake-Session", sessionID)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d; body=%s", rr.Code, rr.Body.String())
+	}
+	if got := metricstestutil.ToFloat64(reg.LLMTokensTotalForTest("test", "input")); got != 10 {
+		t.Errorf("input tokens = %v; want 10", got)
+	}
+	if got := metricstestutil.ToFloat64(reg.LLMTokensTotalForTest("test", "output")); got != 2 {
+		t.Errorf("output tokens = %v; want 2", got)
+	}
+}
+
+// TestTurnHandler_DoesNotRecordLLMTokensOnError asserts the negative path:
+// chunk.Err set → no RecordLLMTokens call.
+func TestTurnHandler_DoesNotRecordLLMTokensOnError(t *testing.T) {
+	reg := metricsregistry.New(true, ":0")
+	store := auth.NewStore()
+	mw := auth.NewMiddleware(store, nil, nil)
+	provider := &testProvider{
+		chunks: []llm.ChatChunk{
+			{Err: errors.New("upstream timeout")},
+		},
+	}
+	deps := server.Deps{
+		Auth:         mw,
+		Provider:     provider,
+		SystemPrompt: "You are a test assistant.",
+		Model:        "test-model",
+		MaxTokens:    512,
+		Metrics:      reg,
+	}
+	sessionID := store.Issue()
+	cfg := &config.Config{Server: config.ServerConfig{CORSOrigins: []string{"http://localhost:5173"}}}
+	mux := server.New(cfg, deps)
+
+	body := `{"messages":[{"role":"user","content":"hi"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/intake/turn", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Intake-Session", sessionID)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if got := metricstestutil.ToFloat64(reg.LLMTokensTotalForTest("test", "input")); got != 0 {
+		t.Errorf("input tokens on error path = %v; want 0", got)
 	}
 }

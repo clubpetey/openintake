@@ -107,9 +107,13 @@ func submitHandler(deps Deps) http.HandlerFunc {
 		result, err := ad.Create(ctx, p)
 		if err != nil {
 			slog.ErrorContext(ctx, "adapter create failed", "adapter", ad.Name(), "error", err)
+			// Phase 7 (7-i): record the adapter failure. Nil-safe.
+			deps.Metrics.RecordAdapterCall(ad.Name(), "error")
 			writeError(w, http.StatusBadGateway, "adapter_error", "downstream adapter unavailable")
 			return
 		}
+		// Phase 7 (7-i): record the adapter success. Nil-safe.
+		deps.Metrics.RecordAdapterCall(ad.Name(), "success")
 
 		// 9. Success.
 		writeJSON(w, http.StatusOK, SubmitResponse{
