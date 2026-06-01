@@ -733,3 +733,38 @@ func TestAccumulateStartupProblems_AllCombined(t *testing.T) {
 		}
 	}
 }
+
+// ---- Task 7 / FOLLOWUPS M2 test ----
+
+// TestValidateAttachments_DisabledReturnsZeroValue asserts FOLLOWUPS M2:
+// when cfg.Attachments.Enabled=false, validateAttachments returns a
+// zero-value AttachmentsConfig (NOT cfg.Attachments) so a bad Storage.Mode
+// or inverted caps in the disabled block can't leak to a future consumer.
+func TestValidateAttachments_DisabledReturnsZeroValue(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Attachments.Enabled = false
+	cfg.Attachments.MaxSizeBytes = 99
+	cfg.Attachments.MaxTotalBytes = 1
+	cfg.Attachments.AllowedMIMETypes = []string{"junk/type"}
+	cfg.Attachments.Storage.Mode = "s3"
+
+	parsed, problems := validateAttachments(cfg, nil)
+	if len(problems) != 0 {
+		t.Errorf("disabled path produced problems %v; want none", problems)
+	}
+	if parsed.Enabled {
+		t.Error("parsed.Enabled = true; want false")
+	}
+	if parsed.MaxSizeBytes != 0 {
+		t.Errorf("M2: parsed.MaxSizeBytes = %d; want 0 (zero-value, garbage 99 must be discarded)", parsed.MaxSizeBytes)
+	}
+	if parsed.MaxTotalBytes != 0 {
+		t.Errorf("M2: parsed.MaxTotalBytes = %d; want 0", parsed.MaxTotalBytes)
+	}
+	if len(parsed.AllowedMIMETypes) != 0 {
+		t.Errorf("M2: parsed.AllowedMIMETypes = %v; want empty", parsed.AllowedMIMETypes)
+	}
+	if parsed.Storage.Mode != "" {
+		t.Errorf("M2: parsed.Storage.Mode = %q; want empty (s3 in disabled block must not leak)", parsed.Storage.Mode)
+	}
+}

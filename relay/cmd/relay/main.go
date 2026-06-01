@@ -714,7 +714,11 @@ func accumulateStartupProblems(
 func validateAttachments(cfg *config.Config, enabled []adapter.Adapter) (config.AttachmentsConfig, []string) {
 	parsed := cfg.Attachments
 	if !parsed.Enabled {
-		return parsed, nil
+		// FOLLOWUPS M2 (Phase 7-i): return a zero-value AttachmentsConfig so a
+		// bad Storage.Mode or inverted caps in the disabled block can't leak
+		// to a future consumer. Downstream code already gates on Enabled
+		// first; this is defensive future-proofing.
+		return config.AttachmentsConfig{}, nil
 	}
 
 	var problems []string
