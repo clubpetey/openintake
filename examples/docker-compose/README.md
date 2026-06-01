@@ -74,7 +74,13 @@ curl -s -X POST "http://localhost:18080/v1/intake/submit" \
       {"role": "user", "content": "Hello, intake!"},
       {"role": "assistant", "content": "ok"}
     ],
-    "client": {"widget_version": "demo"},
+    "client": {
+      "widget_version": "demo",
+      "url": "http://localhost:5173/",
+      "user_agent": "curl/8.0",
+      "viewport": {"w": 1280, "h": 800},
+      "locale": "en-US"
+    },
     "user_claims": {},
     "context": {"app_context": {}, "page_metadata": {}},
     "routing_hint": null
