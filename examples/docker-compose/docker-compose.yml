@@ -64,16 +64,12 @@ services:
     ports:
       - "19099:9099"
     healthcheck:
-      # The receiver exposes no /health endpoint; a 404 on / signals "process
-      # is up and serving". Use wget --spider with an accepted-status hack:
-      # node:24-alpine ships busybox wget which exits 0 on any 2xx/3xx and
-      # exits 1 on 4xx/5xx. We POST a minimal probe to /intake which returns
-      # 200, so this works cleanly.
-      test: ["CMD-SHELL", "wget -q --post-data='{}' -O - http://127.0.0.1:9099/intake || exit 1"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-      start_period: 5s
+      # service_started is sufficient for the demo; the receiver binds within
+      # ~10ms of process start, and the relay's depends_on uses service_started
+      # (below). A periodic POST healthcheck would pollute the demo log every
+      # 5s, drowning out the actual ticket payloads users come here to see.
+      # Symmetric with fake-llm's already-disabled healthcheck above.
+      disable: true
 
   relay:
     image: intake-relay:local
@@ -84,7 +80,7 @@ services:
       fake-llm:
         condition: service_started
       webhook-receiver:
-        condition: service_healthy
+        condition: service_started
     environment:
       # Relay startup gate requires ANTHROPIC_API_KEY to be SET (not necessarily
       # valid) when the anthropic adapter is in the registry. Default to "dummy"
