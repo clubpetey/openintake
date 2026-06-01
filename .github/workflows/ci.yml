@@ -121,3 +121,21 @@ jobs:
         run: npm test -w @intake/core
       - name: Test (vue)
         run: npm test -w @intake/vue
+
+  goreleaser-check:
+    runs-on: ubuntu-latest
+    needs: contract   # only validate goreleaser after schema/codegen sanity passes
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.2"
+
+      - name: Run goreleaser check
+        uses: goreleaser/goreleaser-action@v7.2.2
+        with:
+          distribution: goreleaser
+          version: '2.7.0'
+          args: check --config relay/.goreleaser.yaml
