@@ -47,6 +47,11 @@ if grep -E 'golang.org/x/time' relay/go.mod | grep -E '(\^|@latest)'; then
   echo "ERROR: golang.org/x/time is caret/latest-pinned in relay/go.mod; PHASE_PLANNING §5 requires exact pins" >&2
   fail=1
 fi
+# Gate: github.com/prometheus/client_golang must be exact-pinned (no caret, no @latest) in go.mod. Phase 7.
+if grep -E 'prometheus/client_golang' relay/go.mod | grep -E '(\^|@latest)'; then
+  echo "ERROR: github.com/prometheus/client_golang is caret/latest-pinned in relay/go.mod; PHASE_PLANNING §5 requires exact pins" >&2
+  fail=1
+fi
 # Gate: html2canvas must be exact-pinned (no caret, no ~) in core/package.json. Phase 6.
 if grep -E '"html2canvas":\s*"[\^~]' core/package.json; then
   echo "ERROR: html2canvas in core/package.json is caret/tilde-pinned; PHASE_PLANNING §5 requires exact pins" >&2

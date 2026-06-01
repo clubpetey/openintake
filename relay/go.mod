@@ -11,6 +11,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/openai/openai-go v1.12.0
+	github.com/prometheus/client_golang v1.20.5
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	golang.org/x/time v0.9.0
 	google.golang.org/genai v0.7.0
@@ -46,4 +47,5 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240903143218-8af14fe29dc1 // indirect
 	google.golang.org/grpc v1.66.2 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
