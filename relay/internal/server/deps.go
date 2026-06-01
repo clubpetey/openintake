@@ -10,6 +10,7 @@ import (
 	"intake/internal/classify"
 	"intake/internal/config"
 	"intake/internal/llm"
+	"intake/internal/metrics"
 	"intake/internal/payloadbuild"
 	"intake/internal/ratelimit/perip"
 	"intake/internal/router"
@@ -115,4 +116,13 @@ type Deps struct {
 	// when cfg.Attachments.Enabled=true; 1<<20 (1 MB) otherwise. main.go sets it
 	// once at startup based on cfg.Attachments.Enabled.
 	BodyCapBytes int64
+
+	// from 7-i (Phase 7):
+
+	// Metrics is the Prometheus metrics registry. nil-safe: when main.go
+	// populates this from a disabled config, the *Registry's Middleware()
+	// returns a literal passthrough and Record* methods are no-ops, so all
+	// existing tests that construct Deps{} without setting this field
+	// continue to work without modification.
+	Metrics *metrics.Registry
 }
