@@ -13,7 +13,7 @@ Ships the v0 release & operations infrastructure behind the **frozen** Phase 0-6
 - Phase 7 design: [docs/specs/2026-05-29-phase-7-release-ops-design.md](../../../docs/specs/2026-05-29-phase-7-release-ops-design.md)
 - Parent decomposition: [docs/specs/2026-05-26-v0-decomposition-and-phasing-design.md](../../../docs/specs/2026-05-26-v0-decomposition-and-phasing-design.md) (Phase 7 row + "everything → P7" dependency)
 - Source of truth for scope/contracts: [docs/PROJECT.md](../../../docs/PROJECT.md) §14 (repo layout), §15 (build/release), §10 (observability config)
-- Closes: [ai/tasks/phase-6/FOLLOWUPS.md](../phase-6/FOLLOWUPS.md) (I1, I2, M2, M4 all folded into Phase 7-i; renamed to `FOLLOWUPS-resolved.md` after 7-i)
+- Closes: [ai/tasks/phase-6/FOLLOWUPS-resolved.md](../phase-6/FOLLOWUPS-resolved.md) (I1, I2, M2, M4 all folded into Phase 7-i; renamed from `FOLLOWUPS.md` in Phase 7-v)
 - Phase 4-6 patterns mirrored: Phase 6's L022-consolidated startup gate (Phase 7-i closes the contract gap by folding `buildRegistry` failures in), Phase 6's per-sub-plan implementer + spec review + code quality review cadence
 - Phase 0-6 frozen seams (unchanged here): `relay/internal/adapter/adapter.go`, `relay/internal/payload/types.go`, `schema/payload.v1.json`, `relay/internal/auth/middleware.go` (Handler signature + SessionContext), `relay/internal/server/server.go` (chi route shape), `relay/internal/attachvalidate/` + `relay/internal/adapter/capabilities.go`
 
