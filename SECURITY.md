@@ -9,7 +9,7 @@ intake follows semantic versioning. During the v0 development cycle the followin
 | 0.1.x | Active | Yes — patched on the `main` branch and released as patch versions. |
 | 0.0.x | Pre-release | No — pre-release builds are not supported; upgrade to the latest 0.1.x. |
 
-Once v1.0.0 ships, the v0.x line will enter maintenance mode for **6 months** with security-only patches. After that window, v0.x is end-of-life.
+**Future support policy (post-v1):** When v1.0.0 ships, we intend to provide approximately 6 months of v0.x security-only patches. This policy may evolve before v1.0.0 is announced; the matrix above will be updated when v1.0.0 is committed.
 
 ## Reporting a vulnerability
 
