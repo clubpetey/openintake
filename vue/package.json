@@ -12,7 +12,9 @@
   },
   "main": "./dist/intake-vue.js",
   "types": "./dist/src/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "vite build && vue-tsc -b",
     "type-check": "vue-tsc -b",

@@ -2,18 +2,18 @@
 # Curated ruleset (NOT --enable-all). Signal over noise.
 # See ai/tasks/phase-7/README.md §6 build-fail item 3.
 run:
-  go: "1.23"
+  go: '1.23'
   timeout: 5m
 
 linters:
   disable-all: true
   enable:
-    - errcheck      # unchecked error returns
-    - govet         # standard go vet
-    - staticcheck   # SA-prefixed bugs
-    - gosec         # security issues (G-prefixed)
-    - ineffassign   # ineffectual assignments
-    - unused        # unused vars, consts, funcs
+    - errcheck # unchecked error returns
+    - govet # standard go vet
+    - staticcheck # SA-prefixed bugs
+    - gosec # security issues (G-prefixed)
+    - ineffassign # ineffectual assignments
+    - unused # unused vars, consts, funcs
 
 linters-settings:
   errcheck:
