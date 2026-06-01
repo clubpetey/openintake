@@ -2,13 +2,20 @@ package server_test
 
 import (
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	metricstestutil "github.com/prometheus/client_golang/prometheus/testutil"
 
 	"intake/internal/auth"
 	"intake/internal/config"
+	metricsregistry "intake/internal/metrics"
+	"intake/internal/ratelimit/perip"
 	"intake/internal/server"
 	"intake/internal/version"
 )
@@ -217,5 +224,52 @@ func TestCORS_VaryOriginAlwaysSet(t *testing.T) {
 	vary := w.Header().Get("Vary")
 	if vary == "" {
 		t.Error("Vary header is absent; want Vary: Origin on CORS responses")
+	}
+}
+
+// ---- Phase 7-i: metrics middleware wiring ----
+
+// TestServer_MetricsMiddlewareCountsRateLimited429s asserts the metrics
+// middleware runs BEFORE the per-IP rate limiter — a request that gets
+// rate-limited (429) is still counted. This is the "observability sees ALL
+// inbound traffic" invariant.
+func TestServer_MetricsMiddlewareCountsRateLimited429s(t *testing.T) {
+	reg := metricsregistry.New(true, ":0")
+	// PerIP limiter with a tiny non-zero RPS but burst=0 → first request 429s.
+	// (rps=0 in perip means "no rate" / always allow; we need a non-zero rate
+	// with zero burst to force a reject on the first request.)
+	limiter := perip.New(0.001, 0, 1*time.Minute, time.Now)
+
+	cfg := &config.Config{}
+	deps := server.Deps{
+		Logger:         slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		PerIP:          limiter,
+		Metrics:        reg,
+		Auth:           auth.NewMiddleware(auth.NewStore(), nil, nil),
+		TrustedProxies: nil,
+	}
+	h := server.New(cfg, deps)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/intake/init", nil)
+	req.RemoteAddr = "192.0.2.1:12345"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d; want 429", rec.Code)
+	}
+	// chi resolves RoutePattern incrementally as a request descends through
+	// nested r.Route() groups. When a middleware INSIDE /v1/intake (the
+	// per-IP limiter) short-circuits with 429, the leaf route /v1/intake/init
+	// has not yet matched, so chi's RoutePattern is the group prefix wildcard
+	// "/v1/intake/*". Either form is bounded (cardinality-safe — the set of
+	// possible patterns is the set of chi route declarations), so we accept
+	// both. The invariant under test: a 429 IS counted (observability sees
+	// ALL inbound traffic, including rate-limited rejects).
+	pat := metricstestutil.ToFloat64(reg.HTTPRequestsTotalForTest("/v1/intake/init", "429"))
+	groupWildcard := metricstestutil.ToFloat64(reg.HTTPRequestsTotalForTest("/v1/intake/*", "429"))
+	unmatched := metricstestutil.ToFloat64(reg.HTTPRequestsTotalForTest("unmatched", "429"))
+	if pat+groupWildcard+unmatched != 1 {
+		t.Errorf("counter for 429 total = %v (init=%v, wildcard=%v, unmatched=%v); want 1", pat+groupWildcard+unmatched, pat, groupWildcard, unmatched)
 	}
 }

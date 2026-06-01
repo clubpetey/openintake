@@ -244,3 +244,9 @@ func (r *Registry) LLMTokensTotalForTest(provider, direction string) prometheus.
 func (r *Registry) AdapterCallsTotalForTest(adapter, result string) prometheus.Counter {
 	return r.adapterCallsTotal.WithLabelValues(adapter, result)
 }
+
+// PromRegistryForTest exposes the underlying *prometheus.Registry for tests
+// that need to Gather() all collected series for debugging. Test-only.
+func (r *Registry) PromRegistryForTest() *prometheus.Registry {
+	return r.reg
+}
