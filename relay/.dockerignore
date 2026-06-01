@@ -1,0 +1,15 @@
+# Test artifacts + IDE files that have no business in the build context.
+*_test.go
+testdata/
+.git/
+.github/
+.idea/
+.vscode/
+*.md
+ai/
+docs/
+local-dev/
+examples/
+node_modules/
+dist/
+**/.DS_Store
