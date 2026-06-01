@@ -86,19 +86,11 @@ func main() {
 	// — parsed once inside startupProblems; used by clientIPMiddleware via Deps.
 
 	// --- Adapter registry (3-i; 3-ii…3-v add adapters; 3-vi adds the license gate) ---
-	// Moved up so that Phase 6 validateAttachments() can run BEFORE the single
-	// consolidated exit below. buildRegistry only consumes cfg.Adapters + license
-	// state; it does NOT depend on any field that Phase 5 startupProblems() gates,
-	// so it is safe to run even when Phase 5 reported problems.
-	registry, err := buildRegistry(cfg, licState, logger)
-	if err != nil {
-		logger.Error("relay: adapter registry build failed", "error", err)
-		os.Exit(1)
-	}
-	if len(registry) == 0 {
-		logger.Error("relay: no adapters enabled — enable at least one in config.adapters")
-		os.Exit(1)
-	}
+	// FOLLOWUPS I1 (Phase 7-i): buildRegistry returns problems slice instead of
+	// os.Exit. Per-adapter Configure failures + "no adapters enabled" flow into
+	// the shared problems slice; consolidated exit fires after all gates have run.
+	registry, regProblems := buildRegistry(cfg, licState, logger)
+	problems = append(problems, regProblems...)
 
 	// --- Phase 6 attachments startup gate ---
 	// Runs after buildRegistry because the warn-on-unknown-MIME side-channel
@@ -106,11 +98,7 @@ func main() {
 	// L016 — consumers below must use `attachmentsCfg`, not `cfg.Attachments`.
 	// Problems are appended to the SHARED `problems` slice so the consolidated
 	// log line below lists every Phase-5 AND Phase-6 misconfig in one go.
-	enabledList := make([]adapter.Adapter, 0, len(registry))
-	for _, ad := range registry {
-		enabledList = append(enabledList, ad)
-	}
-	attachmentsCfg, attProblems := validateAttachments(cfg, enabledList)
+	attachmentsCfg, attProblems := validateAttachments(cfg, registry)
 	problems = append(problems, attProblems...)
 
 	// --- Single consolidated exit (Q9 contract) ---
@@ -125,7 +113,7 @@ func main() {
 	// Compute the published allowlist (cfg ∩ adapter union) — empty list means
 	// /init will omit capabilities.attachments and submitHandler will refuse
 	// non-empty attachments[] with 400 attachments_disabled.
-	attCaps := server.ComputeAttachmentsCaps(attachmentsCfg, enabledList)
+	attCaps := server.ComputeAttachmentsCaps(attachmentsCfg, registry)
 	var attachmentMIMEs []string
 	if attCaps != nil {
 		attachmentMIMEs = attCaps.AllowedMIMETypes
@@ -284,12 +272,12 @@ func main() {
 			To:             rc.To,
 		})
 	}
-	rtr, err := router.New(registry, rules, cfg.Routing.DefaultAdapter, logger)
+	rtr, err := router.New(adapterRegistryFromSlice(registry), rules, cfg.Routing.DefaultAdapter, logger)
 	if err != nil {
 		logger.Error("relay: router init failed", "default_adapter", cfg.Routing.DefaultAdapter, "error", err)
 		os.Exit(1)
 	}
-	logger.Info("relay: router ready", "default_adapter", cfg.Routing.DefaultAdapter, "adapters", adapterNames(registry))
+	logger.Info("relay: router ready", "default_adapter", cfg.Routing.DefaultAdapter, "adapters", adapterNames(adapterRegistryFromSlice(registry)))
 
 	// --- Classifier (1-iv) — reuses the same provider as /turn ---
 	classifier := classify.New(provider, model, maxTokens)
@@ -458,14 +446,27 @@ func licensed(ad adapter.Adapter, st *licensemgr.State, logger *slog.Logger) boo
 	return false
 }
 
-// buildRegistry constructs the set of enabled adapters. Each Phase-3 adapter
-// sub-plan (3-ii…3-v) adds its block here. The license gate is applied uniformly
-// via licensed() (3-vi hardening): construct, gate, then resolve token + configure.
-// This ordering ensures a paid adapter in free mode is silently skipped — never a
-// fatal missing-token error. Tokens resolve via config.RequireSecret and are passed
-// into Configure — never read from the environment by the adapter, never logged.
-func buildRegistry(cfg *config.Config, licState *licensemgr.State, logger *slog.Logger) (map[string]adapter.Adapter, error) {
-	reg := make(map[string]adapter.Adapter)
+// buildRegistry constructs the set of enabled adapters. Each adapter that
+// passes the license gate has its Configure() called; failures contribute to
+// the returned problems slice rather than calling os.Exit(1) (FOLLOWUPS I1 —
+// closes the L022 contract gap by routing per-adapter Configure failures
+// through the same consolidated startup-problems slice as Phase 5 and Phase 6
+// gates).
+//
+// Returns:
+//   - []adapter.Adapter — slice (NOT map) of successfully-configured adapters;
+//     order is webhook, chatwoot, fider, zendesk, linear, matching the order
+//     adapters are tried below. Caller may convert to a map via router.New.
+//   - []string — problems slice. Empty on success. Each entry is self-describing.
+//
+// "No adapters enabled" is added to the problems slice (NOT os.Exit'd) so it
+// composes with Phase 5+6 problems in the consolidated log line.
+//
+// License-gate "paid adapter without license" stays as slog.Warn (NOT a problem
+// entry) — free-mode is a valid operating state per the design spec.
+func buildRegistry(cfg *config.Config, licState *licensemgr.State, logger *slog.Logger) ([]adapter.Adapter, []string) {
+	var reg []adapter.Adapter
+	var problems []string
 
 	// webhook (1-iv) — free.
 	if cfg.Adapters.Webhook.Enabled {
@@ -479,10 +480,11 @@ func buildRegistry(cfg *config.Config, licState *licensemgr.State, logger *slog.
 					"backoff":      cfg.Adapters.Webhook.Retry.Backoff,
 				},
 			}); err != nil {
-				return nil, fmt.Errorf("webhook adapter: %w", err)
+				problems = append(problems, fmt.Sprintf("adapter %q: %v", wh.Name(), err))
+			} else {
+				reg = append(reg, wh)
+				logger.Info("relay: adapter enabled", "adapter", wh.Name())
 			}
-			reg[wh.Name()] = wh
-			logger.Info("relay: adapter enabled", "adapter", wh.Name())
 		}
 	}
 
@@ -492,18 +494,18 @@ func buildRegistry(cfg *config.Config, licState *licensemgr.State, logger *slog.
 		if licensed(cw, licState, logger) {
 			token, err := config.RequireSecret(cfg.Adapters.Chatwoot.APITokenEnv)
 			if err != nil {
-				return nil, fmt.Errorf("chatwoot adapter: %w", err)
-			}
-			if err := cw.Configure(map[string]any{
+				problems = append(problems, fmt.Sprintf("adapter %q: api_token_env=%q: %v", cw.Name(), cfg.Adapters.Chatwoot.APITokenEnv, err))
+			} else if err := cw.Configure(map[string]any{
 				"base_url":   cfg.Adapters.Chatwoot.BaseURL,
 				"account_id": cfg.Adapters.Chatwoot.AccountID,
 				"inbox_id":   cfg.Adapters.Chatwoot.InboxID,
 				"api_token":  token,
 			}); err != nil {
-				return nil, fmt.Errorf("chatwoot adapter: %w", err)
+				problems = append(problems, fmt.Sprintf("adapter %q: %v", cw.Name(), err))
+			} else {
+				reg = append(reg, cw)
+				logger.Info("relay: adapter enabled", "adapter", cw.Name())
 			}
-			reg[cw.Name()] = cw
-			logger.Info("relay: adapter enabled", "adapter", cw.Name())
 		}
 	}
 
@@ -513,60 +515,66 @@ func buildRegistry(cfg *config.Config, licState *licensemgr.State, logger *slog.
 		if licensed(fd, licState, logger) {
 			key, err := config.RequireSecret(cfg.Adapters.Fider.APIKeyEnv)
 			if err != nil {
-				return nil, fmt.Errorf("fider adapter: %w", err)
-			}
-			if err := fd.Configure(map[string]any{
+				problems = append(problems, fmt.Sprintf("adapter %q: api_key_env=%q: %v", fd.Name(), cfg.Adapters.Fider.APIKeyEnv, err))
+			} else if err := fd.Configure(map[string]any{
 				"base_url": cfg.Adapters.Fider.BaseURL,
 				"api_key":  key,
 			}); err != nil {
-				return nil, fmt.Errorf("fider adapter: %w", err)
+				problems = append(problems, fmt.Sprintf("adapter %q: %v", fd.Name(), err))
+			} else {
+				reg = append(reg, fd)
+				logger.Info("relay: adapter enabled", "adapter", fd.Name())
 			}
-			reg[fd.Name()] = fd
-			logger.Info("relay: adapter enabled", "adapter", fd.Name())
 		}
 	}
 
-	// zendesk (3-iv) — PAID; gated generically via RequiresLicense() (3-vi hardening).
+	// zendesk (3-iv) — PAID; gated generically via RequiresLicense().
 	if cfg.Adapters.Zendesk.Enabled {
 		zd := zendesk.New()
 		if licensed(zd, licState, logger) {
 			token, err := config.RequireSecret(cfg.Adapters.Zendesk.APITokenEnv)
 			if err != nil {
-				return nil, fmt.Errorf("zendesk adapter: %w", err)
-			}
-			if err := zd.Configure(map[string]any{
+				problems = append(problems, fmt.Sprintf("adapter %q: api_token_env=%q: %v", zd.Name(), cfg.Adapters.Zendesk.APITokenEnv, err))
+			} else if err := zd.Configure(map[string]any{
 				"subdomain":        cfg.Adapters.Zendesk.Subdomain,
 				"email":            cfg.Adapters.Zendesk.Email,
 				"api_token":        token,
 				"default_priority": cfg.Adapters.Zendesk.DefaultPriority,
 			}); err != nil {
-				return nil, fmt.Errorf("zendesk adapter: %w", err)
+				problems = append(problems, fmt.Sprintf("adapter %q: %v", zd.Name(), err))
+			} else {
+				reg = append(reg, zd)
+				logger.Info("relay: adapter enabled", "adapter", zd.Name())
 			}
-			reg[zd.Name()] = zd
-			logger.Info("relay: adapter enabled", "adapter", zd.Name())
 		}
 	}
 
-	// linear (3-v) — PAID; gated generically via RequiresLicense() (3-vi hardening).
+	// linear (3-v) — PAID; gated generically via RequiresLicense().
 	if cfg.Adapters.Linear.Enabled {
 		ln := linear.New()
 		if licensed(ln, licState, logger) {
 			key, err := config.RequireSecret(cfg.Adapters.Linear.APIKeyEnv)
 			if err != nil {
-				return nil, fmt.Errorf("linear adapter: %w", err)
-			}
-			if err := ln.Configure(map[string]any{
+				problems = append(problems, fmt.Sprintf("adapter %q: api_key_env=%q: %v", ln.Name(), cfg.Adapters.Linear.APIKeyEnv, err))
+			} else if err := ln.Configure(map[string]any{
 				"api_key": key,
 				"team_id": cfg.Adapters.Linear.TeamID,
 			}); err != nil {
-				return nil, fmt.Errorf("linear adapter: %w", err)
+				problems = append(problems, fmt.Sprintf("adapter %q: %v", ln.Name(), err))
+			} else {
+				reg = append(reg, ln)
+				logger.Info("relay: adapter enabled", "adapter", ln.Name())
 			}
-			reg[ln.Name()] = ln
-			logger.Info("relay: adapter enabled", "adapter", ln.Name())
 		}
 	}
 
-	return reg, nil
+	// "No adapters enabled" is a problem (not os.Exit) so it composes with
+	// Phase 5+6 problems in the consolidated log line.
+	if len(reg) == 0 {
+		problems = append(problems, "no adapters enabled — enable at least one in config.adapters")
+	}
+
+	return reg, problems
 }
 
 // adapterNames returns the registry keys sorted alphabetically, for stable logging.

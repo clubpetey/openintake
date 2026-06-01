@@ -1,10 +1,14 @@
 package main
 
 import (
+	"io"
+	"log/slog"
 	"strings"
 	"testing"
 
+	"intake/internal/adapter"
 	"intake/internal/config"
+	licensemgr "intake/internal/license"
 )
 
 func TestStartupProblems_ReturnsParsedPrefixes(t *testing.T) {
@@ -403,4 +407,105 @@ func TestValidateAttachments_DisabledShortCircuit(t *testing.T) {
 	if len(problems) != 0 {
 		t.Errorf("problems = %v; want empty when Enabled=false", problems)
 	}
+}
+
+// ---- Task 5 / FOLLOWUPS I1 tests ----
+
+// freeLicenseState returns a license.State in free mode (paid adapters
+// silently skipped via the licensed() helper).
+func freeLicenseState(t *testing.T) *licensemgr.State {
+	t.Helper()
+	return &licensemgr.State{Mode: "free", Message: "no license file"}
+}
+
+// discardLogger returns a slog.Logger that discards all output (test-only).
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewJSONHandler(io.Discard, nil))
+}
+
+// TestBuildRegistry_PerAdapterConfigureFailureContributesProblem asserts
+// FOLLOWUPS I1: a chatwoot adapter with api_token_env pointing at an unset env
+// var produces a problem entry, NOT an os.Exit(1). The function returns the
+// registry slice (possibly empty) and the problems slice; the caller decides.
+func TestBuildRegistry_PerAdapterConfigureFailureContributesProblem(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Adapters.Chatwoot.Enabled = true
+	cfg.Adapters.Chatwoot.BaseURL = "https://example.com"
+	cfg.Adapters.Chatwoot.AccountID = 1
+	cfg.Adapters.Chatwoot.InboxID = 1
+	cfg.Adapters.Chatwoot.APITokenEnv = "INTAKE_TEST_NEVER_SET_XYZ"
+	licState := freeLicenseState(t)
+	logger := discardLogger()
+
+	registry, problems := buildRegistry(cfg, licState, logger)
+	if len(problems) == 0 {
+		t.Fatal("expected at least one problem for chatwoot api_token_env unset; got none")
+	}
+	foundChatwootProblem := false
+	for _, p := range problems {
+		if strings.Contains(p, "chatwoot") {
+			foundChatwootProblem = true
+			break
+		}
+	}
+	if !foundChatwootProblem {
+		t.Errorf("expected a problem mentioning chatwoot; got %v", problems)
+	}
+	// Registry should NOT contain chatwoot (Configure failed) and may be empty.
+	for _, ad := range registry {
+		if ad.Name() == "chatwoot" {
+			t.Error("chatwoot adapter present in registry despite Configure failure")
+		}
+	}
+}
+
+// TestBuildRegistry_NoAdaptersEnabledContributesProblem asserts the second
+// FOLLOWUPS I1 case: cfg with NO adapters enabled produces a problem entry,
+// not os.Exit(1).
+func TestBuildRegistry_NoAdaptersEnabledContributesProblem(t *testing.T) {
+	cfg := &config.Config{} // all adapters disabled by default
+	licState := freeLicenseState(t)
+	logger := discardLogger()
+
+	registry, problems := buildRegistry(cfg, licState, logger)
+	if len(registry) != 0 {
+		t.Errorf("registry len = %d; want 0", len(registry))
+	}
+	foundNoAdaptersProblem := false
+	for _, p := range problems {
+		if strings.Contains(p, "no adapters enabled") {
+			foundNoAdaptersProblem = true
+			break
+		}
+	}
+	if !foundNoAdaptersProblem {
+		t.Errorf("expected a problem mentioning 'no adapters enabled'; got %v", problems)
+	}
+}
+
+// TestBuildRegistry_FreeAdapterEnabled is the happy-path baseline: webhook
+// enabled with valid config → registry has webhook, problems is empty.
+func TestBuildRegistry_FreeAdapterEnabled(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Adapters.Webhook.Enabled = true
+	cfg.Adapters.Webhook.URL = "https://hooks.example.com/intake"
+	licState := freeLicenseState(t)
+	logger := discardLogger()
+
+	registry, problems := buildRegistry(cfg, licState, logger)
+	if len(problems) != 0 {
+		t.Errorf("happy path: problems = %v; want empty", problems)
+	}
+	if len(registry) != 1 || registry[0].Name() != "webhook" {
+		t.Errorf("registry = %v; want [webhook]", adapterListNames(registry))
+	}
+}
+
+// adapterListNames is a small test helper to extract adapter names for assertion messages.
+func adapterListNames(reg []adapter.Adapter) []string {
+	out := make([]string, 0, len(reg))
+	for _, ad := range reg {
+		out = append(out, ad.Name())
+	}
+	return out
 }
