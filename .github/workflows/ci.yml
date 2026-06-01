@@ -56,3 +56,68 @@ jobs:
         run: |
           go build ./...
           go vet ./internal/payload/...
+
+  lint-go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.2"
+          cache-dependency-path: relay/go.sum
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.62.2
+          working-directory: relay
+          args: --timeout=5m
+
+  lint-ts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install deps
+        run: npm ci
+      - name: ESLint (core)
+        run: npm run lint -w @intake/core
+      - name: ESLint (vue)
+        run: npm run lint -w @intake/vue
+      - name: Prettier check
+        run: npm run lint:prettier
+
+  test-go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.2"
+          cache-dependency-path: relay/go.sum
+      - name: Go test (race)
+        working-directory: relay
+        run: go test -race ./...
+
+  test-ts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install deps
+        run: npm ci
+      - name: Type-check (core)
+        run: npm run -w @intake/core type-check
+      - name: Test (core)
+        run: npm test -w @intake/core
+      - name: Test (vue)
+        run: npm test -w @intake/vue
