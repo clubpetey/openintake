@@ -1,0 +1,116 @@
+# Phase 7-iii — Intake demo stack.
+#
+# Three services + one bridge network. Boots a complete working intake instance
+# with one command and zero external credentials:
+#
+#   cd examples/docker-compose
+#   docker-compose up -d
+#
+# See README.md for the full walkthrough and verification curl snippets.
+#
+# Service-to-service DNS uses docker-compose's built-in resolver:
+#   relay → fake-llm           via http://fake-llm:11434
+#   relay → webhook-receiver   via http://webhook-receiver:9099
+# Host port mapping uses non-standard offsets (18080, 19090, 19099) to avoid
+# conflicts with developer-local processes; 11434 is the standard Ollama port
+# and is kept as-is so the fake-llm impersonates it transparently.
+
+name: intake-demo
+
+networks:
+  intake_demo:
+    driver: bridge
+
+services:
+  fake-llm:
+    image: intake-relay:local
+    build:
+      context: ../../relay
+    container_name: intake-fake-llm
+    # The relay image's default ENTRYPOINT is /intake-relay; clear it so the
+    # `command:` below runs /fake-llm instead. See Task 3 in the 7-iii plan.
+    entrypoint: []
+    command:
+      - /fake-llm
+      - --addr
+      - ":11434"
+      - --input-tokens
+      - "50"
+      - --output-tokens
+      - "25"
+    networks:
+      - intake_demo
+    ports:
+      - "11434:11434"
+    healthcheck:
+      # fake-llm has no /health endpoint; an `nc -z` style check is unavailable
+      # in distroless. Use a TCP-reachability check via the Go binary itself:
+      # the binary listens immediately, so any successful TCP connect signals
+      # ready. Compose can use a `tcp://` test in modern versions, but to keep
+      # the file portable we just rely on the relay's depends_on retry loop:
+      # the relay healthcheck retries until /v1/health is 200, which only
+      # happens after the LLM is reachable for any startup probe. Hence
+      # fake-llm declares only a static `service_started` condition — see
+      # the relay's depends_on block below.
+      disable: true
+
+  webhook-receiver:
+    image: intake-webhook-receiver:local
+    build:
+      context: ../webhook-receiver
+    container_name: intake-webhook-receiver
+    networks:
+      - intake_demo
+    ports:
+      - "19099:9099"
+    healthcheck:
+      # The receiver exposes no /health endpoint; a 404 on / signals "process
+      # is up and serving". Use wget --spider with an accepted-status hack:
+      # node:24-alpine ships busybox wget which exits 0 on any 2xx/3xx and
+      # exits 1 on 4xx/5xx. We POST a minimal probe to /intake which returns
+      # 200, so this works cleanly.
+      test: ["CMD-SHELL", "wget -q --post-data='{}' -O - http://127.0.0.1:9099/intake || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  relay:
+    image: intake-relay:local
+    build:
+      context: ../../relay
+    container_name: intake-relay
+    depends_on:
+      fake-llm:
+        condition: service_started
+      webhook-receiver:
+        condition: service_healthy
+    environment:
+      # Relay startup gate requires ANTHROPIC_API_KEY to be SET (not necessarily
+      # valid) when the anthropic adapter is in the registry. Default to "dummy"
+      # so the demo runs without any real credentials. The demo uses fake-llm
+      # for LLM calls, so the value is never sent over the wire.
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-dummy}"
+    volumes:
+      - ./config.yaml:/etc/intake/config.yaml:ro
+    command:
+      - --config
+      - /etc/intake/config.yaml
+    networks:
+      - intake_demo
+    ports:
+      - "18080:8080"
+      - "19090:9090"
+    healthcheck:
+      # Distroless has no shell + no wget. The relay image ships the
+      # intake-relay binary which has a built-in /v1/health endpoint we curl
+      # from a tiny one-shot exec. Distroless also has no curl. We use the
+      # one tool guaranteed to exist: the relay binary itself with a hidden
+      # `--health-check` flag would be ideal but Phase 7-i does NOT add one.
+      #
+      # Instead: rely on docker-compose's start-period + the receiver gating
+      # via service_healthy; the relay's HTTP listener binds < 1s after
+      # process start. Declare no healthcheck (disable: true) so dependent
+      # smokes use `until curl ... /v1/health` from the host (port 18080) —
+      # this is what drive-docker-compose.ts (Phase 7-v) does.
+      disable: true
