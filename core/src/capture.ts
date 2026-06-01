@@ -34,9 +34,7 @@ export function __resetCaptureForTests(): void {
  */
 export async function capturePage(): Promise<HTMLCanvasElement> {
   if (registered === null) {
-    throw new Error(
-      'capture: html2canvas not registered; call setHtml2Canvas(fn) first',
-    );
+    throw new Error('capture: html2canvas not registered; call setHtml2Canvas(fn) first');
   }
   const canvas = await registered(document.body, {
     // Conservative defaults — tests pass an opts object through but do not

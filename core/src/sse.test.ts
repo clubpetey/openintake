@@ -24,9 +24,7 @@ describe('consumeSSE', () => {
 
   it('calls onFrame for done event', async () => {
     const frames: SSEFrame[] = [];
-    const stream = streamFrom(
-      'data: {"done":true,"input_tokens":5,"output_tokens":10}\n\n'
-    );
+    const stream = streamFrom('data: {"done":true,"input_tokens":5,"output_tokens":10}\n\n');
     await consumeSSE(stream, (f) => frames.push(f));
     expect(frames).toHaveLength(1);
     expect(frames[0]).toEqual({ done: true, input_tokens: 5, output_tokens: 10 });
@@ -64,10 +62,7 @@ describe('consumeSSE', () => {
 
   it('handles a stream split across multiple chunks', async () => {
     const enc = new TextEncoder();
-    const parts = [
-      'data: {"del',
-      'ta":"split"}\n\n',
-    ];
+    const parts = ['data: {"del', 'ta":"split"}\n\n'];
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         for (const p of parts) controller.enqueue(enc.encode(p));

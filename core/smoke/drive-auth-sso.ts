@@ -28,7 +28,7 @@ import { IntakeClient } from '../src/index.js';
 import type { ChatMessage } from '../src/index.js';
 
 const RELAY_URL = process.env['RELAY_URL'] ?? 'http://localhost:8080';
-const TOKEN     = process.env['INTAKE_SSO_TOKEN'] ?? '';
+const TOKEN = process.env['INTAKE_SSO_TOKEN'] ?? '';
 
 const USER_TURNS: string[] = [
   "Hi — I'd like to report that exports from the dashboard are coming through empty since the last release.",
@@ -37,7 +37,11 @@ const USER_TURNS: string[] = [
 
 function stubBrowserGlobals(): void {
   const defs = {
-    window: { location: { href: 'http://localhost:5173/sso-smoke' }, innerWidth: 1280, innerHeight: 720 },
+    window: {
+      location: { href: 'http://localhost:5173/sso-smoke' },
+      innerWidth: 1280,
+      innerHeight: 720,
+    },
     navigator: { userAgent: 'intake-smoke/drive-auth-sso', language: 'en-US' },
     document: {
       referrer: '',
@@ -52,7 +56,9 @@ function stubBrowserGlobals(): void {
 
 async function main(): Promise<void> {
   if (!TOKEN) {
-    throw new Error('INTAKE_SSO_TOKEN env var is required (paste a real RS256 access token from your IdP)');
+    throw new Error(
+      'INTAKE_SSO_TOKEN env var is required (paste a real RS256 access token from your IdP)',
+    );
   }
   console.log(`[sso-smoke] relay=${RELAY_URL} token=<${TOKEN.length} chars>`);
 
@@ -68,9 +74,13 @@ async function main(): Promise<void> {
   const init = await client.init();
   console.log(`[sso-smoke] init session_id=${init.session_id}`);
   if (!init.capabilities.auth_modes.includes('sso')) {
-    throw new Error(`init.capabilities.auth_modes = ${JSON.stringify(init.capabilities.auth_modes)}; want includes "sso"`);
+    throw new Error(
+      `init.capabilities.auth_modes = ${JSON.stringify(init.capabilities.auth_modes)}; want includes "sso"`,
+    );
   }
-  console.log(`[sso-smoke] capabilities.auth_modes=${JSON.stringify(init.capabilities.auth_modes)}`);
+  console.log(
+    `[sso-smoke] capabilities.auth_modes=${JSON.stringify(init.capabilities.auth_modes)}`,
+  );
 
   // 2. Attach the externally minted bearer.
   client.setBearerToken(TOKEN);
@@ -91,7 +101,9 @@ async function main(): Promise<void> {
     });
     process.stdout.write('\n');
     if (tokens.input_tokens <= 0 || tokens.output_tokens <= 0) {
-      throw new Error(`turn ${i + 1}: zero token counts (input=${tokens.input_tokens}, output=${tokens.output_tokens})`);
+      throw new Error(
+        `turn ${i + 1}: zero token counts (input=${tokens.input_tokens}, output=${tokens.output_tokens})`,
+      );
     }
     history.push({ role: 'assistant', content: deltas.join('') });
   }
@@ -100,7 +112,9 @@ async function main(): Promise<void> {
   //    user.{auth_mode:"sso", id:<sub>, email:<email>?, verified:true}.
   stubBrowserGlobals();
   const result = await client.submit(history);
-  console.log(`[sso-smoke] submit complete: external_id=${result.external_id} adapter=${result.adapter_name}`);
+  console.log(
+    `[sso-smoke] submit complete: external_id=${result.external_id} adapter=${result.adapter_name}`,
+  );
 
   console.log('[sso-smoke] PASS');
   console.log('[sso-smoke] inspect the webhook receiver to confirm user.{auth_mode,id,verified}');

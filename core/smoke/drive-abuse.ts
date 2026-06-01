@@ -34,7 +34,10 @@ async function initSession(): Promise<string> {
   return body.session_id;
 }
 
-async function turn(sessionID: string, tenant?: string): Promise<{ status: number; retryAfter: string | null; bodyHead: string }> {
+async function turn(
+  sessionID: string,
+  tenant?: string,
+): Promise<{ status: number; retryAfter: string | null; bodyHead: string }> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-Intake-Session': sessionID,
@@ -105,7 +108,10 @@ async function smokePerSessionCap(): Promise<void> {
   const r4 = await turn(session);
   assert(r4.status === 429, 'turn 4 returns 429');
   assert(r4.bodyHead.includes('session_turns_exhausted'), 'body contains session_turns_exhausted');
-  assert(r4.retryAfter !== null && Number(r4.retryAfter) >= 1, 'Retry-After header present and >=1');
+  assert(
+    r4.retryAfter !== null && Number(r4.retryAfter) >= 1,
+    'Retry-After header present and >=1',
+  );
 }
 
 async function smokeDailyBudget(): Promise<void> {
@@ -119,10 +125,16 @@ async function smokeDailyBudget(): Promise<void> {
   // r1 could be 503 (budget already exhausted from Smoke 2's no-tenant turns)
   // OR 429 (per-session if Smoke 2's session somehow leaked) — either is acceptable
   // as proof that SOME gate fires beyond 200.
-  assert(r1.status === 503 || r1.status === 429, `turn 1 of fresh session returns 503 or 429 (got ${r1.status})`);
+  assert(
+    r1.status === 503 || r1.status === 429,
+    `turn 1 of fresh session returns 503 or 429 (got ${r1.status})`,
+  );
   if (r1.status === 503) {
     assert(r1.bodyHead.includes('daily_budget_exhausted'), 'body contains daily_budget_exhausted');
-    assert(r1.retryAfter !== null && Number(r1.retryAfter) >= 1, 'Retry-After header present and >=1');
+    assert(
+      r1.retryAfter !== null && Number(r1.retryAfter) >= 1,
+      'Retry-After header present and >=1',
+    );
   }
 }
 

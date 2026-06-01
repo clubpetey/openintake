@@ -33,7 +33,10 @@ describe('useIntake', () => {
   });
 
   it('start() calls client.init() and returns session_id', async () => {
-    mockInit.mockResolvedValue({ session_id: 'sess-abc', capabilities: { auth_modes: ['anonymous'], streaming: true } });
+    mockInit.mockResolvedValue({
+      session_id: 'sess-abc',
+      capabilities: { auth_modes: ['anonymous'], streaming: true },
+    });
     const intake = useIntake({ relayUrl: 'http://localhost:8080', widgetVersion: '0.1.0' });
     const session = await intake.start();
     expect(mockInit).toHaveBeenCalledOnce();
@@ -41,7 +44,10 @@ describe('useIntake', () => {
   });
 
   it('sendTurn() appends user message, streams assistant deltas, sets streaming=true then false', async () => {
-    mockInit.mockResolvedValue({ session_id: 'sess-abc', capabilities: { auth_modes: ['anonymous'], streaming: true } });
+    mockInit.mockResolvedValue({
+      session_id: 'sess-abc',
+      capabilities: { auth_modes: ['anonymous'], streaming: true },
+    });
 
     // turn() invokes onDelta twice then resolves
     mockTurn.mockImplementation(async (_messages: unknown, onDelta: (d: string) => void) => {
@@ -61,7 +67,10 @@ describe('useIntake', () => {
   });
 
   it('streaming is true during sendTurn and false after', async () => {
-    mockInit.mockResolvedValue({ session_id: 'sess-abc', capabilities: { auth_modes: ['anonymous'], streaming: true } });
+    mockInit.mockResolvedValue({
+      session_id: 'sess-abc',
+      capabilities: { auth_modes: ['anonymous'], streaming: true },
+    });
 
     let capturedStreaming: boolean | null = null;
     mockTurn.mockImplementation(async (_messages: unknown, onDelta: (d: string) => void) => {
@@ -86,7 +95,10 @@ describe('useIntake', () => {
   });
 
   it('submit() sets submitting=true, calls client.submit(), stores result, resets submitting', async () => {
-    mockInit.mockResolvedValue({ session_id: 'sess-abc', capabilities: { auth_modes: ['anonymous'], streaming: true } });
+    mockInit.mockResolvedValue({
+      session_id: 'sess-abc',
+      capabilities: { auth_modes: ['anonymous'], streaming: true },
+    });
     mockTurn.mockResolvedValue({ input_tokens: 1, output_tokens: 1 });
     mockSubmit.mockResolvedValue({
       external_id: 'ticket-123',
@@ -107,7 +119,10 @@ describe('useIntake', () => {
   });
 
   it('submit() passes all accumulated messages to client.submit()', async () => {
-    mockInit.mockResolvedValue({ session_id: 'sess-abc', capabilities: { auth_modes: ['anonymous'], streaming: true } });
+    mockInit.mockResolvedValue({
+      session_id: 'sess-abc',
+      capabilities: { auth_modes: ['anonymous'], streaming: true },
+    });
     mockTurn.mockResolvedValue({ input_tokens: 1, output_tokens: 1 });
     mockSubmit.mockResolvedValue({
       external_id: 'ticket-xyz',
@@ -129,7 +144,10 @@ describe('useIntake', () => {
   // --- Error-path tests ---
 
   it('sendTurn() rejection: sets error, resets streaming, removes empty assistant placeholder', async () => {
-    mockInit.mockResolvedValue({ session_id: 'sess-abc', capabilities: { auth_modes: ['anonymous'], streaming: true } });
+    mockInit.mockResolvedValue({
+      session_id: 'sess-abc',
+      capabilities: { auth_modes: ['anonymous'], streaming: true },
+    });
     mockTurn.mockRejectedValue(new Error('relay down'));
 
     const intake = useIntake({ relayUrl: 'http://localhost:8080', widgetVersion: '0.1.0' });
@@ -146,7 +164,10 @@ describe('useIntake', () => {
   });
 
   it('submit() rejection: sets error and resets submitting', async () => {
-    mockInit.mockResolvedValue({ session_id: 'sess-abc', capabilities: { auth_modes: ['anonymous'], streaming: true } });
+    mockInit.mockResolvedValue({
+      session_id: 'sess-abc',
+      capabilities: { auth_modes: ['anonymous'], streaming: true },
+    });
     mockSubmit.mockRejectedValue(new Error('submit failed'));
 
     const intake = useIntake({ relayUrl: 'http://localhost:8080', widgetVersion: '0.1.0' });

@@ -86,7 +86,9 @@ describe('IntakeWidget Attach → modal → strip → Submit flow', () => {
     // Stub toDataURL so Save emits a deterministic value.
     HTMLCanvasElement.prototype.toDataURL = vi
       .fn()
-      .mockReturnValue('data:image/png;base64,AAAA') as unknown as typeof HTMLCanvasElement.prototype.toDataURL;
+      .mockReturnValue(
+        'data:image/png;base64,AAAA',
+      ) as unknown as typeof HTMLCanvasElement.prototype.toDataURL;
 
     await wrapper.find('[data-testid="redactor-save"]').trigger('click');
     await flushPromises();
@@ -118,7 +120,9 @@ describe('IntakeWidget Attach → modal → strip → Submit flow', () => {
     await flushPromises();
     HTMLCanvasElement.prototype.toDataURL = vi
       .fn()
-      .mockReturnValue('data:image/png;base64,AAAA') as unknown as typeof HTMLCanvasElement.prototype.toDataURL;
+      .mockReturnValue(
+        'data:image/png;base64,AAAA',
+      ) as unknown as typeof HTMLCanvasElement.prototype.toDataURL;
     await wrapper.find('[data-testid="redactor-save"]').trigger('click');
     await flushPromises();
 

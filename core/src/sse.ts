@@ -38,7 +38,7 @@ function dispatchBlock(block: string, onFrame: (f: SSEFrame) => void): void {
 
 export async function consumeSSE(
   stream: ReadableStream<Uint8Array>,
-  onFrame: (frame: SSEFrame) => void
+  onFrame: (frame: SSEFrame) => void,
 ): Promise<void> {
   const decoder = new TextDecoder();
   const reader = stream.getReader();
@@ -50,7 +50,10 @@ export async function consumeSSE(
       if (done) break;
 
       // Normalize CRLF line endings from proxies/CDNs before buffering
-      const chunk = decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      const chunk = decoder
+        .decode(value, { stream: true })
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n');
       buffer += chunk;
 
       // Split on double newline (SSE event boundary)

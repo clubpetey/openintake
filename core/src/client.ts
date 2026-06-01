@@ -38,7 +38,7 @@ export class IntakeClient {
 
   async turn(
     messages: ChatMessage[],
-    onDelta: (delta: string) => void
+    onDelta: (delta: string) => void,
   ): Promise<{ input_tokens: number; output_tokens: number }> {
     if (this.sessionId === null) {
       throw new Error('IntakeClient: call init() before turn()');
@@ -66,37 +66,35 @@ export class IntakeClient {
       throw new Error('turn: response has no body');
     }
 
-    return new Promise<{ input_tokens: number; output_tokens: number }>(
-      (resolve, reject) => {
-        let settled = false;
-        const settle = (fn: () => void) => {
-          if (!settled) {
-            settled = true;
-            fn();
-          }
-        };
+    return new Promise<{ input_tokens: number; output_tokens: number }>((resolve, reject) => {
+      let settled = false;
+      const settle = (fn: () => void) => {
+        if (!settled) {
+          settled = true;
+          fn();
+        }
+      };
 
-        const onFrame = (frame: SSEFrame) => {
-          if ('error' in frame) {
-            settle(() => reject(new Error(frame.error)));
-          } else if ('done' in frame && frame.done) {
-            settle(() =>
-              resolve({
-                input_tokens: frame.input_tokens,
-                output_tokens: frame.output_tokens,
-              })
-            );
-          } else if ('delta' in frame) {
-            onDelta(frame.delta);
-          }
-        };
+      const onFrame = (frame: SSEFrame) => {
+        if ('error' in frame) {
+          settle(() => reject(new Error(frame.error)));
+        } else if ('done' in frame && frame.done) {
+          settle(() =>
+            resolve({
+              input_tokens: frame.input_tokens,
+              output_tokens: frame.output_tokens,
+            }),
+          );
+        } else if ('delta' in frame) {
+          onDelta(frame.delta);
+        }
+      };
 
-        consumeSSE(res.body as ReadableStream<Uint8Array>, onFrame).then(
-          () => settle(() => reject(new Error('turn: stream ended without a done frame'))),
-          (err: unknown) => settle(() => reject(err instanceof Error ? err : new Error(String(err)))),
-        );
-      }
-    );
+      consumeSSE(res.body as ReadableStream<Uint8Array>, onFrame).then(
+        () => settle(() => reject(new Error('turn: stream ended without a done frame'))),
+        (err: unknown) => settle(() => reject(err instanceof Error ? err : new Error(String(err)))),
+      );
+    });
   }
 
   async submit(

@@ -239,7 +239,10 @@ async function smokeEnabledArm(): Promise<void> {
   );
   const caps = initResp.capabilities.attachments!;
   assert(caps.max_size_bytes === 5_242_880, `max_size_bytes is 5 MB (got ${caps.max_size_bytes})`);
-  assert(caps.max_total_bytes === 10_485_760, `max_total_bytes is 10 MB (got ${caps.max_total_bytes})`);
+  assert(
+    caps.max_total_bytes === 10_485_760,
+    `max_total_bytes is 10 MB (got ${caps.max_total_bytes})`,
+  );
   assert(
     caps.allowed_mime_types.length === 3 &&
       caps.allowed_mime_types.includes('image/png') &&
