@@ -81,6 +81,8 @@ docs(7-iv): COMMERCIAL.md DRAFT — paid-adapter open-core terms
 
 Before opening a PR, run each of these locally and confirm they pass. The `phase-N` branch will not merge until they all pass; CI runs the same set on every push.
 
+> **Tool versions:** `golangci-lint`, `prettier`, `eslint`, `goreleaser`, and node + go versions are exact-pinned. `scripts/check-pins.sh` enforces the pins. To match CI exactly, install the same versions referenced in `.github/workflows/ci.yml` (or run `bash scripts/check-pins.sh` to see what CI expects). Mismatched local versions are the most common source of "works on CI, not locally" lint surprises.
+
 ### Go
 
 ```bash
