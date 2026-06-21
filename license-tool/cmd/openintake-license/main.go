@@ -3,6 +3,10 @@
 // It signs licenses with the maintainer's offline Ed25519 private key, using the
 // SAME relay/license canonicalization the relay verifies (shared via replace).
 //
+// Building or running this tool does NOT let you issue valid licenses: every license
+// must be signed with the maintainer's Ed25519 private key, which is never committed
+// to this repository. Security rests on the secrecy of that key, not on this source.
+//
 //	openintake-license keygen [--key priv.key] [--pub pub.txt]
 //	openintake-license sign   --in template.json --key priv.key [--out license.json] [--days 365]
 //	openintake-license verify --in license.json --pubkey <base64>

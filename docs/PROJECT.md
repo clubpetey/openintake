@@ -922,20 +922,20 @@ Documented to prevent scope creep:
 
 ---
 
-## 19. Open questions
+## 19. Resolved decisions
 
-To resolve before/during implementation:
+These were the v0 open questions. All are now resolved; recorded here for provenance.
 
-1. **Final product name.** ~~RESOLVED:~~ The product name is **OpenIntake**. Repo `github.com/clubpetey/openintake`; npm scope `@openintake`; Go module path, GitHub org, and binary names (`openintake-relay`, `openintake-license`) follow.
-2. **Pricing tiers.** Working assumption: Free (OSS, free adapters only), Pro ($X/yr — paid adapters), Team ($Y/yr — Pro + priority support + multi-org). Numbers TBD.
-3. **Trial-state file location** under Windows. `~/.config/` works on Linux/macOS; Windows needs `%APPDATA%\intake\`. Confirm cross-platform path resolution.
-4. **Ollama auth.** Ollama default has no auth. Should relay support an optional bearer token in front of an Ollama instance for hardened self-host? (Lean: yes, optional.)
-5. **Anthropic / OpenAI default models.** Lock in defaults for v0 — likely `claude-sonnet-4-6` (Anthropic) and the current best-cost OpenAI model. Document override path.
-6. **System prompt licensing.** The bundled system prompt is part of the product. Apache 2.0 covers it, but should we mark it explicitly as prompt-IP for clarity?
-7. **Schema codegen tool choice.** `quicktype` vs `json-schema-to-typescript` + `go-jsonschema`. Trial both for a day.
-8. **Attachment redaction UX.** Should the widget force users to confirm "no PII" before sending screenshots? Or rely on host-app responsibility?
-9. **Anonymous mode without CAPTCHA — allowed?** Strong default: no. Should relay reject this config or just warn?
-10. **License generation tool — open source or maintainer-only?** Leaning maintainer-only; documenting publicly invites confusion ("can I generate my own license?").
+1. **Product name** — **OpenIntake**. Repo `github.com/clubpetey/openintake`; npm scope `@openintake`; Go module path, GitHub org, and binary names (`openintake-relay`, `openintake-license`) follow.
+2. **Pricing** — Finalized in `COMMERCIAL.md`: a single commercial license at **$1,500/yr** (both paid adapters + up to 3 production relay instances), **+$400/yr** per additional instance, plus an **Enterprise/custom** tier (>3 instances, air-gapped, or bundled support). Supersedes the earlier Free/Pro/Team sketch.
+3. **Trial-state file location** — `license.DefaultStatePath()` uses `os.UserConfigDir()`: `%AppData%\openintake\state.json` (Windows), `~/.config/openintake/state.json` (Linux), `~/Library/Application Support/openintake/state.json` (macOS). Cross-platform, no per-OS branching.
+4. **Ollama auth** — Optional bearer token via `llm.ollama.bearer_token_env`. The `Authorization: Bearer` header is sent only when configured; the token is redacted from logs and error messages.
+5. **Default models** — Applied in `config.go` when the model is unset: `anthropic: claude-sonnet-4-6`, `openai: gpt-4o-mini`, `gemini: gemini-2.0-flash`, `ollama: llama3.1`. All overridable via `llm.<provider>.model`.
+6. **System prompt licensing** — No special treatment: the bundled prompt (`relay/internal/triage/prompt.txt`) is Apache 2.0 like all source, and operator-overridable at runtime via `llm.system_prompt_file` (§7). No "prompt-IP" carve-out.
+7. **Schema codegen tool** — `json-schema-to-typescript` (TS) + `go-jsonschema` (Go), driven by `npm run codegen` / `scripts/codegen-go.sh`. CI fails on stale generated files.
+8. **Attachment redaction UX** — No forced "no-PII" confirmation by default; the widget ships redaction tooling, and a host app may opt into a forced acknowledgment via `require_redaction_ack` (default `false`). Redaction responsibility otherwise sits with the host app.
+9. **Anonymous mode without CAPTCHA** — Fail-closed: anonymous requires a CAPTCHA by default. An operator may explicitly opt out via `auth.anonymous.allow_without_captcha` (default `false`); the relay never silently allows it.
+10. **License-generation tool** — Maintainer-only. The `license-tool/` source stays in the repo (transparency; it shares `relay/license` with the runtime gate) but is excluded from all release artifacts and ships no public binary. Issuing a valid license requires the maintainer's offline Ed25519 private key, which is never committed — so the tool's presence does not enable license forgery.
 
 ---
 

@@ -1,8 +1,8 @@
 // Package triage provides the bundled system prompt for the intake triage flow.
 //
-// Copyright 2026 Mantichor. Licensed under Apache 2.0.
-// prompt.txt is product IP — the embedded prompt drives the guided triage UX
-// and is never sent to or exposed to the client.
+// Copyright 2026 Mantichor LLC. Licensed under Apache 2.0 — same as all source here.
+// prompt.txt drives the guided triage UX, is operator-overridable via
+// llm.system_prompt_file (PROJECT.md §7), and is never sent to or exposed to the client.
 package triage
 
 import (
