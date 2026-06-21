@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"intake/internal/adapter/chatwoot"
-	"intake/internal/payload"
+	"github.com/clubpetey/openintake/relay/internal/adapter/chatwoot"
+	"github.com/clubpetey/openintake/relay/internal/payload"
 )
 
 const testToken = "super-secret-chatwoot-token-xyz"

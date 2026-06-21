@@ -71,7 +71,7 @@ docker-compose down -v
 
 The docker-compose stack ran three services:
 
-- **relay** — the `intake-relay` Go binary, listening on port `18080` (HTTP) and `19090` (Prometheus metrics).
+- **relay** — the `openintake-relay` Go binary, listening on port `18080` (HTTP) and `19090` (Prometheus metrics).
 - **fake-llm** — a stub LLM server on port `11434` that emits canned SSE responses. The relay's `/v1/intake/turn` endpoint uses this in place of a real Anthropic / OpenAI / Gemini / Ollama call.
 - **webhook-receiver** — a tiny Node.js HTTP server on port `19099` that logs every POST it receives. The relay's `webhook` adapter forwards submissions here.
 
@@ -97,7 +97,7 @@ npm run codegen                    # regenerate types from schema/payload.v1.jso
 
 # Build the relay
 cd relay
-go build -o intake-relay ./cmd/relay
+go build -o openintake-relay ./cmd/relay
 cd ..
 
 # Start the fake-llm in one terminal:
@@ -107,7 +107,7 @@ go run ./relay/cmd/fake-llm --addr :11434
 node examples/webhook-receiver/server.mjs    # listens on :19099
 
 # Start the relay in a third terminal, using the quickstart config:
-./relay/intake-relay --config examples/docker-compose/config.yaml
+./relay/openintake-relay --config examples/docker-compose/config.yaml
 ```
 
 The relay's config (used by docker-compose too) routes submissions to the webhook adapter on `http://127.0.0.1:19099/intake`. Drive it with the same `curl` commands as the 60-second path above.
@@ -138,7 +138,7 @@ See `docs/attachments.md` for the full attachment behavior — validation errors
 
 You now have a working intake stack. Where to go next depends on what you want to do:
 
-- **Production-deploy intake** — read `docs/self-hosting.md`. Covers binary deployment via systemd, Docker deployment, reverse-proxy + TLS, env-var management, secret resolution, the Phase 5 abuse gates, the Phase 6 attachments config, and the Phase 4 auth modes.
+- **Production-deploy OpenIntake** — read `docs/self-hosting.md`. Covers binary deployment via systemd, Docker deployment, reverse-proxy + TLS, env-var management, secret resolution, the Phase 5 abuse gates, the Phase 6 attachments config, and the Phase 4 auth modes.
 - **Set up a real downstream system** (Chatwoot, Zendesk, Linear, Fider) — read `docs/adapters.md`. Per-adapter config keys, env vars, attachment behavior, and links to each downstream's own API docs.
 - **Understand the licensing** — read `docs/license.md`. The framework is Apache 2.0; the `zendesk` and `linear` adapters are paid, with a 14-day trial. `COMMERCIAL.md` has the (draft) commercial terms.
 - **Wire in a real LLM** — `docs/self-hosting.md` § LLM providers covers the four providers (Anthropic, OpenAI, Gemini, Ollama) and their config blocks. The fake-llm we used here is for development only.

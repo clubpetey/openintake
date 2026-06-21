@@ -8,7 +8,7 @@
 
 The **code** in this repository is licensed under Apache 2.0 (see `LICENSE`). You may read, fork, modify, and redistribute the source code freely under those terms.
 
-The **use** of certain adapter functionality in production deployments requires a paid commercial license. Specifically, the following adapters are gated at runtime by the intake license-key check:
+The **use** of certain adapter functionality in production deployments requires a paid commercial license. Specifically, the following adapters are gated at runtime by the OpenIntake license-key check:
 
 - `zendesk` — Zendesk ticketing adapter
 - `linear` — Linear issue adapter
@@ -17,7 +17,7 @@ The following adapters and components are **always free** under Apache 2.0:
 
 - `webhook`, `chatwoot`, `fider` adapters
 - The relay binary and source code
-- The `@intake/core` and `@intake/vue` widget packages
+- The `@openintake/core` and `@openintake/vue` widget packages
 - The schema, codegen pipeline, and developer tooling
 - All four LLM providers (`anthropic`, `openai`, `gemini`, `ollama`)
 - All three authentication modes (`anonymous`, `email`, `sso`)
@@ -35,7 +35,7 @@ Compiling, running, testing, and debugging the paid adapters against test fixtur
 
 ## Trial period
 
-New installations of intake automatically enable a 14-day trial during which all paid adapters operate fully without a license key. The trial begins on the first relay startup that resolves an installation-state file at `os.UserConfigDir()/intake/state.json`. Once the trial expires:
+New installations of OpenIntake automatically enable a 14-day trial during which all paid adapters operate fully without a license key. The trial begins on the first relay startup that resolves an installation-state file at `os.UserConfigDir()/openintake/state.json`. Once the trial expires:
 
 - Free adapters (`webhook`, `chatwoot`, `fider`) continue to operate.
 - Paid adapters (`zendesk`, `linear`) are disabled. The relay starts cleanly, logs a warning at `slog.Warn` level for each paid adapter that was configured but is now license-gated, and routes traffic only through the enabled free adapters.
@@ -49,7 +49,7 @@ See `docs/license.md` for the full trial state machine.
 To obtain a commercial license, contact:
 
 - **Email:** `licensing@<domain>` *(placeholder — final domain TBD with Q1 final-name lock)*
-- **Subject line:** "intake commercial license — \<your organization\>"
+- **Subject line:** "OpenIntake commercial license — \<your organization\>"
 
 Please include in your inquiry:
 
@@ -73,7 +73,7 @@ Upon termination or expiration, you must disable the paid adapters in any produc
 
 ## Source-available vs. open-source
 
-The intake project intentionally distributes the paid-adapter source code under Apache 2.0 (not a source-available or restrictive license). This is deliberate:
+The OpenIntake project intentionally distributes the paid-adapter source code under Apache 2.0 (not a source-available or restrictive license). This is deliberate:
 
 - You can audit every line of code that runs in your environment.
 - You can build, modify, and run the paid adapters against test fixtures without limitation.

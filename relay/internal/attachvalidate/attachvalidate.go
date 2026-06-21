@@ -17,7 +17,7 @@ import (
 	"net/http"
 	"strings"
 
-	"intake/internal/payload"
+	"github.com/clubpetey/openintake/relay/internal/payload"
 )
 
 // Decoded is the validator's per-attachment output: bytes pulled out of the

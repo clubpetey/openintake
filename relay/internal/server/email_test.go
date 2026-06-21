@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"intake/internal/auth"
-	"intake/internal/auth/emailcode"
-	"intake/internal/auth/emailjwt"
-	"intake/internal/auth/smtpsend"
-	"intake/internal/config"
-	"intake/internal/server"
+	"github.com/clubpetey/openintake/relay/internal/auth"
+	"github.com/clubpetey/openintake/relay/internal/auth/emailcode"
+	"github.com/clubpetey/openintake/relay/internal/auth/emailjwt"
+	"github.com/clubpetey/openintake/relay/internal/auth/smtpsend"
+	"github.com/clubpetey/openintake/relay/internal/config"
+	"github.com/clubpetey/openintake/relay/internal/server"
 )
 
 var testSecret = []byte("0123456789abcdef0123456789abcdef") // 32 bytes

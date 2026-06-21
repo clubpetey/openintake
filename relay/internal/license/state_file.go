@@ -14,14 +14,14 @@ type trialState struct {
 	TrialStartedAt time.Time `json:"trial_started_at"`
 }
 
-// DefaultStatePath returns os.UserConfigDir()/intake/state.json (Q3): %AppData%\intake
-// on Windows, ~/.config/intake on Linux, ~/Library/Application Support/intake on macOS.
+// DefaultStatePath returns os.UserConfigDir()/openintake/state.json (Q3): %AppData%\openintake
+// on Windows, ~/.config/openintake on Linux, ~/Library/Application Support/openintake on macOS.
 func DefaultStatePath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "intake", "state.json"), nil
+	return filepath.Join(dir, "openintake", "state.json"), nil
 }
 
 // readTrialState returns (state, true, nil) if a state file exists and parses,

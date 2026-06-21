@@ -26,10 +26,10 @@ This directly targets the v0 success criterion: "embed the widget, run the relay
 
 ```
 Browser (host app)                         Relay (Go)                         Anthropic
-  @intake/vue  ── POST /v1/intake/init ───►  init: issue session_id ──┐
+  @openintake/vue  ── POST /v1/intake/init ───►  init: issue session_id ──┐
    (launcher+      ◄── {session_id, caps}                              │
     panel)                                                             │
-  @intake/core ── POST /v1/intake/turn ───►  auth → build messages ───┼──► Messages API (stream)
+  @openintake/core ── POST /v1/intake/turn ───►  auth → build messages ───┼──► Messages API (stream)
                ◄═══ SSE: {delta}… {done} ═══  proxy token stream  ◄────┘
                ── POST /v1/intake/submit ─►  classify() ─────────────────► Messages API (structured)
                                              assemble payload.Payload
@@ -50,8 +50,8 @@ Phase lives in `ai/tasks/phase-1/` (README + sub-plans per [ai/PHASE_PLANNING.md
 | 1-ii | **LLM `Provider` + Anthropic** — interface per §7; Anthropic Messages API streaming; token counts on `Done` | **`llm.Provider`** | Go test streams a real completion given `ANTHROPIC_API_KEY`; mock-based unit test for chunk assembly |
 | 1-iii | **Session + anonymous auth + `/init` + `/turn`** — auth middleware contract (anonymous resolver only), session issuance/validation, bundled triage system prompt, SSE token streaming | **auth middleware contract + SSE `/turn` protocol** | `POST /init` issues a session; `POST /turn` streams assistant tokens end-to-end |
 | 1-iv | **`Adapter` + webhook + `/submit`** — interface per §8; webhook adapter (URL/headers/retry); server-side `classify()`; canonical `payload.Payload` assembly + schema validation; routing to webhook | **`adapter.Adapter`** | `POST /submit` → local webhook receiver records the canonical payload with AI-derived fields |
-| 1-v | **`@intake/core`** — HTTP/SSE client, context capture (url/referrer/viewport/locale/user-agent), SSE consumer, `SubmitRequest` serializer; consumes Phase-0 generated types | client↔relay TS contract | Node script drives init→turn→submit against a running relay |
-| 1-vi | **`@intake/vue` (launcher+panel) + `examples/vue-anonymous`** — `IntakeWidget.vue`, `ConversationView.vue`, `useIntake` composable wrapping `@intake/core` | — | **phase final smoke (§8)** |
+| 1-v | **`@openintake/core`** — HTTP/SSE client, context capture (url/referrer/viewport/locale/user-agent), SSE consumer, `SubmitRequest` serializer; consumes Phase-0 generated types | client↔relay TS contract | Node script drives init→turn→submit against a running relay |
+| 1-vi | **`@openintake/vue` (launcher+panel) + `examples/vue-anonymous`** — `IntakeWidget.vue`, `ConversationView.vue`, `useIntake` composable wrapping `@openintake/core` | — | **phase final smoke (§8)** |
 
 **Dependency graph (mostly serial):**
 ```

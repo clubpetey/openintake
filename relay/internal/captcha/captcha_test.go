@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"intake/internal/captcha"
+	"github.com/clubpetey/openintake/relay/internal/captcha"
 )
 
 type fakeClock struct{ now time.Time }

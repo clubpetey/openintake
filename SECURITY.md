@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-intake follows semantic versioning. During the v0 development cycle the following support matrix applies:
+OpenIntake follows semantic versioning. During the v0 development cycle the following support matrix applies:
 
 | Version | Status | Security fixes |
 |---|---|---|
@@ -15,7 +15,7 @@ intake follows semantic versioning. During the v0 development cycle the followin
 
 **Do NOT report security vulnerabilities through public GitHub Issues, public discussions, or any public channel.**
 
-If you discover a security issue in intake — the relay, the widget packages, the `license-tool`, or any supported adapter integration — please email the maintainer privately:
+If you discover a security issue in OpenIntake — the relay, the widget packages, the `license-tool`, or any supported adapter integration — please email the maintainer privately:
 
 - **Email:** `security@<domain>` *(placeholder — final domain TBD with Q1 final-name lock)*
 - **Subject line:** `[SECURITY] <one-line summary>`
@@ -25,7 +25,7 @@ If you discover a security issue in intake — the relay, the widget packages, t
 
 - A clear description of the vulnerability and its impact.
 - A minimal reproduction (config file, request payload, command sequence). For widget-side issues, include the browser + version.
-- The affected version(s) — output of `intake-relay --version` if applicable.
+- The affected version(s) — output of `openintake-relay --version` if applicable.
 - Your name and organization (optional, for credit).
 
 ### What to expect
@@ -44,22 +44,22 @@ Security issues are in-scope when they affect:
 - The relay binary (`relay/cmd/relay`) — including auth, abuse gates, attachment validation, license enforcement, adapter dispatch, license-key signature verification.
 - The widget packages (`core/`, `vue/`) — XSS, secret exposure, embedded-page isolation, screenshot redaction integrity.
 - The `license-tool/` — license-key generation and signature primitives.
-- The supported adapter integrations — when the issue is in intake's adapter code (NOT in the downstream system itself).
+- The supported adapter integrations — when the issue is in OpenIntake's adapter code (NOT in the downstream system itself).
 - Build & release artifacts — the Dockerfile, goreleaser config, npm tarballs, and GitHub Actions workflows.
 
 ## Out-of-scope
 
-The following are explicitly out-of-scope for the intake security policy:
+The following are explicitly out-of-scope for the OpenIntake security policy:
 
 - **Third-party LLM provider security** — vulnerabilities in Anthropic, OpenAI, Google Gemini, or Ollama themselves. Report those to the respective vendors.
-- **Downstream adapter system security** — vulnerabilities in Chatwoot, Fider, Linear, Zendesk, or any webhook receiver. Report those to the respective vendors. Adapter *integration* bugs (e.g. an intake adapter mishandling a downstream response) ARE in-scope.
+- **Downstream adapter system security** — vulnerabilities in Chatwoot, Fider, Linear, Zendesk, or any webhook receiver. Report those to the respective vendors. Adapter *integration* bugs (e.g. an OpenIntake adapter mishandling a downstream response) ARE in-scope.
 - **Misconfigurations by the operator** — running the relay without TLS, exposing the `/metrics` endpoint to the public internet, choosing a weak SMTP password. Documentation defects that would *cause* such misconfigs ARE in-scope.
 - **Denial-of-service from upstream resource exhaustion** — if Chatwoot's API rate-limits us and our retry loop misbehaves, that's a bug; but raw bandwidth/CPU DoS against the relay is mitigated by the operator's reverse proxy (see `docs/self-hosting.md`).
 - **Social engineering, physical security, and supply-chain attacks against the maintainer's machines** — these are tracked separately and are not solicited bug-bounty surface.
 
 ## Existing security posture
 
-intake ships several invariants that are exercised by the Phase 0-7 smoke suite. Reviewers and reporters should know these are the existing baseline:
+OpenIntake ships several invariants that are exercised by the Phase 0-7 smoke suite. Reviewers and reporters should know these are the existing baseline:
 
 - **Redact-before-truncate in adapter error messages.** Tokens, API keys, and other secrets passed to adapters are scrubbed from error logs and HTTP error bodies *before* any string-truncation step. A truncated middle of a JSON object cannot leak the front of an API token. (LESSONS L005.)
 - **Never include token material in error responses.** Adapter errors return a redacted summary, not a verbatim downstream body. (LESSONS L011.)
@@ -90,4 +90,4 @@ The smoke drivers in `core/smoke/` cover the live abuse-gate, attachment-validat
 
 Security researchers and contributors who have reported issues will be acknowledged here, with their permission, after the issue is publicly disclosed.
 
-*No public disclosures yet — intake is pre-release.*
+*No public disclosures yet — OpenIntake is pre-release.*

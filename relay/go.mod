@@ -1,4 +1,4 @@
-module intake
+module github.com/clubpetey/openintake/relay
 
 go 1.23.0
 

@@ -49,7 +49,7 @@ jobs:
           fi
 
       - name: Type-check generated TS
-        run: npm run -w @intake/core type-check
+        run: npm run -w @openintake/core type-check
 
       - name: Build + vet generated Go
         working-directory: relay
@@ -85,9 +85,9 @@ jobs:
       - name: Install deps
         run: npm ci
       - name: ESLint (core)
-        run: npm run lint -w @intake/core
+        run: npm run lint -w @openintake/core
       - name: ESLint (vue)
-        run: npm run lint -w @intake/vue
+        run: npm run lint -w @openintake/vue
       - name: Prettier check
         run: npm run lint:prettier
 
@@ -116,11 +116,11 @@ jobs:
       - name: Install deps
         run: npm ci
       - name: Type-check (core)
-        run: npm run -w @intake/core type-check
+        run: npm run -w @openintake/core type-check
       - name: Test (core)
-        run: npm test -w @intake/core
+        run: npm test -w @openintake/core
       - name: Test (vue)
-        run: npm test -w @intake/vue
+        run: npm test -w @openintake/vue
 
   goreleaser-check:
     runs-on: ubuntu-latest
@@ -178,11 +178,11 @@ jobs:
           set -euo pipefail
           missing=0
           for pattern in \
-            "dist/intake-relay_*_linux_amd64.tar.gz" \
-            "dist/intake-relay_*_linux_arm64.tar.gz" \
-            "dist/intake-relay_*_darwin_amd64.tar.gz" \
-            "dist/intake-relay_*_darwin_arm64.tar.gz" \
-            "dist/intake-relay_*_windows_amd64.zip"; do
+            "dist/openintake-relay_*_linux_amd64.tar.gz" \
+            "dist/openintake-relay_*_linux_arm64.tar.gz" \
+            "dist/openintake-relay_*_darwin_amd64.tar.gz" \
+            "dist/openintake-relay_*_darwin_arm64.tar.gz" \
+            "dist/openintake-relay_*_windows_amd64.zip"; do
             if ! ls $pattern >/dev/null 2>&1; then
               echo "::error::missing archive matching pattern: $pattern"
               missing=1
@@ -206,14 +206,14 @@ jobs:
           # files literally named 'credentials' or '*credentials' at any depth.
           pattern='(^|/)(\.env(\..*)?|secrets/|credentials(\..*)?|.*\.pem|.*\.key|local-dev/)'
           leak=0
-          for f in dist/intake-relay_*.tar.gz; do
+          for f in dist/openintake-relay_*.tar.gz; do
             if tar -tzf "$f" | grep -qE "$pattern"; then
               echo "::error::archive contains secret-like file: $f"
               tar -tzf "$f" | grep -E "$pattern"
               leak=1
             fi
           done
-          for f in dist/intake-relay_*.zip; do
+          for f in dist/openintake-relay_*.zip; do
             if unzip -l "$f" | awk '{print $4}' | grep -qE "$pattern"; then
               echo "::error::archive contains secret-like file: $f"
               unzip -l "$f" | awk '{print $4}' | grep -E "$pattern"
@@ -225,13 +225,13 @@ jobs:
       - name: Verify binary version string
         run: |
           set -euo pipefail
-          mkdir -p /tmp/intake-check
-          tar xzf dist/intake-relay_*_linux_amd64.tar.gz -C /tmp/intake-check
-          /tmp/intake-check/intake-relay --version
+          mkdir -p /tmp/openintake-check
+          tar xzf dist/openintake-relay_*_linux_amd64.tar.gz -C /tmp/openintake-check
+          /tmp/openintake-check/openintake-relay --version
           # The --version flag must exit 0 and print a non-empty line that
           # includes 'snapshot' (the snapshot-template suffix). This is the
           # §11.1 item 5 binary-vs-tag identity invariant.
-          out=$(/tmp/intake-check/intake-relay --version)
+          out=$(/tmp/openintake-check/openintake-relay --version)
           case "$out" in
             *snapshot*) echo "OK: version string contains 'snapshot'" ;;
             *)          echo "::error::version string missing snapshot suffix: $out"; exit 1 ;;

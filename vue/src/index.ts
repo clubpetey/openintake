@@ -16,7 +16,7 @@ export type {
   IntakeConfig,
   PendingAttachment,
   AttachmentLimits,
-} from '@intake/core';
+} from '@openintake/core';
 
 /**
  * Vue plugin — optional. Registers IntakeWidget globally.

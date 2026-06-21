@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"intake/internal/adapter"
-	"intake/internal/payload"
+	"github.com/clubpetey/openintake/relay/internal/adapter"
+	"github.com/clubpetey/openintake/relay/internal/payload"
 )
 
 // Rule is the resolved form of config.Rule. Empty Classification/Severity = wildcard.

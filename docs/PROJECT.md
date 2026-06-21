@@ -1,6 +1,6 @@
-# Intake — v0 Specification
+# OpenIntake — v0 Specification
 
-> **Working name:** `intake` (placeholder — final name TBD)
+> **Product name:** OpenIntake (repo `github.com/clubpetey/openintake`, npm scope `@openintake`)
 > **Status:** Draft v0 spec, pre-implementation
 > **Audience:** Project maintainers, contributors, future Claude sessions
 
@@ -10,7 +10,7 @@ This document is the source of truth for v0 scope, architecture, and contracts. 
 
 ## 1. Overview
 
-**Intake** is an open-source, AI-native feedback and support intake system. It consists of:
+**OpenIntake** is an open-source, AI-native feedback and support intake system. It consists of:
 
 - An **embeddable widget** (Vue 3 in v0, React in v1) that runs in a host web application.
 - A **single-binary Go relay** that orchestrates LLM conversations, classifies and routes intake, and delivers tickets to downstream support/feedback systems.
@@ -19,7 +19,7 @@ The widget runs a short conversational triage with the end-user (powered by a pl
 
 ### Why it exists
 
-Existing feedback widgets either auto-attach context with no triage, or rely on closed SaaS backends. Intake is the OSS, self-hostable, AI-native alternative — built for teams that want a real intake conversation, full control over their data, and a clean integration into the support and feedback tools they already use.
+Existing feedback widgets either auto-attach context with no triage, or rely on closed SaaS backends. OpenIntake is the OSS, self-hostable, AI-native alternative — built for teams that want a real intake conversation, full control over their data, and a clean integration into the support and feedback tools they already use.
 
 ### Differentiators
 
@@ -72,9 +72,9 @@ Existing feedback widgets either auto-attach context with no triage, or rely on 
 │  Host web application (any framework; React/Vue widget)     │
 │                                                             │
 │  ┌───────────────────────────────────────────────────┐      │
-│  │  @intake/vue widget                               │      │
+│  │  @openintake/vue widget                               │      │
 │  │  ┌─────────────────────────────────────────┐      │      │
-│  │  │  @intake/core (shared TS engine)        │      │      │
+│  │  │  @openintake/core (shared TS engine)        │      │      │
 │  │  │  - Conversation client                  │      │      │
 │  │  │  - Context capture (URL, app context)   │      │      │
 │  │  │  - Screenshot capture (html2canvas)     │      │      │
@@ -88,7 +88,7 @@ Existing feedback widgets either auto-attach context with no triage, or rely on 
                            │  POST /v1/intake/submit (final)
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  intake-relay (Go binary)                                   │
+│  openintake-relay (Go binary)                                   │
 │                                                             │
 │  ┌─────────────┐   ┌─────────────┐   ┌──────────────┐       │
 │  │ HTTP server │ → │ Auth /      │ → │ Rate limit / │       │
@@ -124,10 +124,10 @@ Existing feedback widgets either auto-attach context with no triage, or rely on 
 
 | Component | Lang | Distribution |
 |---|---|---|
-| `@intake/core` | TypeScript | npm |
-| `@intake/vue` | TypeScript / Vue 3 | npm |
-| `intake-relay` | Go | GitHub Releases (multi-platform), Docker image, `go install` |
-| `intake-license` (CLI) | Go | Internal tool; not distributed publicly in v0 |
+| `@openintake/core` | TypeScript | npm |
+| `@openintake/vue` | TypeScript / Vue 3 | npm |
+| `openintake-relay` | Go | GitHub Releases (multi-platform), Docker image, `go install` |
+| `openintake-license` (CLI) | Go | Internal tool; not distributed publicly in v0 |
 | `payload.v1.json` | JSON Schema | Repo source of truth; codegen target for both TS and Go |
 
 ---
@@ -388,7 +388,7 @@ package adapter
 
 import (
     "context"
-    "intake/internal/payload"
+    "github.com/clubpetey/openintake/relay/internal/payload"
 )
 
 type CreateResult struct {
@@ -436,7 +436,7 @@ Relay config is a single YAML file. Environment variables override file values. 
 ```yaml
 server:
   addr: ":8080"
-  external_url: "https://intake.example.com"
+  external_url: "https://openintake.example.com"
   cors_origins:
     - "https://app.example.com"
   tls:
@@ -445,7 +445,7 @@ server:
     key_file: ""
 
 license:
-  file: "/etc/intake/license.json"
+  file: "/etc/openintake/license.json"
   # Alternatively: license env var INTAKE_LICENSE (base64-encoded license JSON)
 
 auth:
@@ -671,8 +671,8 @@ Relay searches for the license in this order:
 1. CLI flag: `--license-file=/path/to/license.json`
 2. Env var: `INTAKE_LICENSE` (base64-encoded JSON)
 3. Env var: `INTAKE_LICENSE_FILE` (path)
-4. Default path: `/etc/intake/license.json`
-5. Default path: `~/.config/intake/license.json`
+4. Default path: `/etc/openintake/license.json`
+5. Default path: `~/.config/openintake/license.json`
 
 If no license found, relay starts in **free mode** — all free adapters available, all paid adapters disabled (with clear startup log).
 
@@ -680,7 +680,7 @@ If no license found, relay starts in **free mode** — all free adapters availab
 
 - A new relay install (no license, no prior trial state) enters a **14-day trial** automatically.
 - During trial, all adapters including paid ones are enabled.
-- Trial state stored in `~/.config/intake/state.json` (or configured state path).
+- Trial state stored in `~/.config/openintake/state.json` (or configured state path).
 - Startup log clearly displays remaining trial days.
 - On trial expiry: paid adapters disabled, free adapters continue working.
 
@@ -696,7 +696,7 @@ If no license found, relay starts in **free mode** — all free adapters availab
 
 - Ed25519 keypair generated once. Private key stored offline (1Password, hardware token, paper backup).
 - Public key committed to the repo as a Go constant.
-- License generation tool: separate Go CLI (`intake-license`) not distributed publicly. Used by maintainer to sign new licenses.
+- License generation tool: separate Go CLI (`openintake-license`) not distributed publicly. Used by maintainer to sign new licenses.
 
 ### Revocation
 
@@ -754,7 +754,7 @@ Single monorepo. v0 layout:
 ├── schema/
 │   ├── payload.v1.json
 │   └── codegen.config.json
-├── core/                       # @intake/core (TypeScript)
+├── core/                       # @openintake/core (TypeScript)
 │   ├── package.json
 │   ├── src/
 │   │   ├── index.ts
@@ -768,7 +768,7 @@ Single monorepo. v0 layout:
 │   │   └── generated/
 │   │       └── payload.ts      # generated from schema
 │   └── tsconfig.json
-├── vue/                        # @intake/vue (TypeScript)
+├── vue/                        # @openintake/vue (TypeScript)
 │   ├── package.json
 │   ├── src/
 │   │   ├── index.ts
@@ -780,7 +780,7 @@ Single monorepo. v0 layout:
 │   │   └── composables/
 │   │       └── useIntake.ts
 │   └── tsconfig.json
-├── relay/                      # intake-relay (Go)
+├── relay/                      # openintake-relay (Go)
 │   ├── go.mod
 │   ├── cmd/
 │   │   └── relay/
@@ -810,7 +810,7 @@ Single monorepo. v0 layout:
 │   └── .goreleaser.yaml
 ├── license-tool/               # Maintainer-only CLI; not published
 │   ├── go.mod
-│   └── cmd/intake-license/
+│   └── cmd/openintake-license/
 │       └── main.go
 ├── docs/
 │   ├── quickstart.md
@@ -856,11 +856,11 @@ GitHub Actions on every PR:
 Triggered by tagging `vX.Y.Z`:
 
 - `goreleaser` builds relay binaries for: linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64.
-- Docker image published to GitHub Container Registry: `ghcr.io/[org]/intake-relay:vX.Y.Z`.
-- npm packages published: `@intake/core@X.Y.Z`, `@intake/vue@X.Y.Z`.
+- Docker image published to GitHub Container Registry: `ghcr.io/[org]/openintake-relay:vX.Y.Z`.
+- npm packages published: `@openintake/core@X.Y.Z`, `@openintake/vue@X.Y.Z`.
 - GitHub Release with changelog and checksums.
 
-The `intake-license` maintainer CLI in `license-tool/` is excluded from goreleaser per the v0 decomposition decision Q10 (it is not distributed publicly in v0; the maintainer runs it locally to sign new licenses). It is built ad-hoc via `go build -o intake-license ./license-tool/cmd/intake-license`.
+The `openintake-license` maintainer CLI in `license-tool/` is excluded from goreleaser per the v0 decomposition decision Q10 (it is not distributed publicly in v0; the maintainer runs it locally to sign new licenses). It is built ad-hoc via `go build -o openintake-license ./license-tool/cmd/openintake-license`.
 
 ### Versioning
 
@@ -926,7 +926,7 @@ Documented to prevent scope creep:
 
 To resolve before/during implementation:
 
-1. **Final product name.** Working name `intake` is a placeholder. Affects npm scope, Go module path, GitHub org, domain.
+1. **Final product name.** ~~RESOLVED:~~ The product name is **OpenIntake**. Repo `github.com/clubpetey/openintake`; npm scope `@openintake`; Go module path, GitHub org, and binary names (`openintake-relay`, `openintake-license`) follow.
 2. **Pricing tiers.** Working assumption: Free (OSS, free adapters only), Pro ($X/yr — paid adapters), Team ($Y/yr — Pro + priority support + multi-org). Numbers TBD.
 3. **Trial-state file location** under Windows. `~/.config/` works on Linux/macOS; Windows needs `%APPDATA%\intake\`. Confirm cross-platform path resolution.
 4. **Ollama auth.** Ollama default has no auth. Should relay support an optional bearer token in front of an Ollama instance for hardened self-host? (Lean: yes, optional.)

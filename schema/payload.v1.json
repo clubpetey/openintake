@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://intake.dev/schema/payload.v1.json",
+  "$id": "https://openintake.dev/schema/payload.v1.json",
   "title": "IntakePayload",
   "type": "object",
   "additionalProperties": false,

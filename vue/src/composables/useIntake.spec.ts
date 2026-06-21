@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useIntake } from './useIntake';
 
-// --- Mock @intake/core ---
+// --- Mock @openintake/core ---
 // We mock the IntakeClient class so no real HTTP calls happen.
 const mockInit = vi.fn();
 const mockTurn = vi.fn();
 const mockSubmit = vi.fn();
 
-vi.mock('@intake/core', async (orig) => {
+vi.mock('@openintake/core', async (orig) => {
   const actual = (await orig()) as Record<string, unknown>;
   function IntakeClient() {
     return {

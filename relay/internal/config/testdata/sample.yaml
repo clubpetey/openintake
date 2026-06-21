@@ -37,7 +37,7 @@ auth:
     smtp_port: 587
     smtp_user: "intake@example.com"
     smtp_pass_env: "INTAKE_SMTP_PASS"
-    from: "Intake <intake@example.com>"
+    from: "OpenIntake <intake@example.com>"
     code_ttl: "10m"
     jwt_ttl: "15m"
     jwt_secret_env: "INTAKE_EMAIL_JWT_SECRET"
@@ -91,7 +91,7 @@ routing:
         classification: ["question", "other"]
       to: "chatwoot"
 license:
-  file: "/etc/intake/license.json"
+  file: "/etc/openintake/license.json"
 captcha:
   enabled: false
   provider: "turnstile"

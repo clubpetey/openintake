@@ -8,10 +8,10 @@ local-dev/
 .env
 .env.*
 !.env.example
-relay/intake-relay
+relay/openintake-relay
 relay/relay
 relay/relay.exe
-relay/intake-relay.exe
-license-tool/intake-license
-license-tool/intake-license.exe
+relay/openintake-relay.exe
+license-tool/openintake-license
+license-tool/openintake-license.exe
 *.out

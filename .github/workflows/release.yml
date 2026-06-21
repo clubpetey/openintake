@@ -72,7 +72,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ==========================================================================
-  # release-npm — publishes @intake/core and @intake/vue to the public npm
+  # release-npm — publishes @openintake/core and @openintake/vue to the public npm
   # registry. Requires NPM_TOKEN with publish scope; configured per-repo by
   # the maintainer before the first Phase 7.5+ release.
   # ==========================================================================
@@ -95,18 +95,18 @@ jobs:
       - name: Install workspace dependencies
         run: npm ci
 
-      - name: Build @intake/core
-        run: npm run -w @intake/core build || true   # source-only TS today; build is no-op
+      - name: Build @openintake/core
+        run: npm run -w @openintake/core build || true   # source-only TS today; build is no-op
 
-      - name: Build @intake/vue
-        run: npm run -w @intake/vue build
+      - name: Build @openintake/vue
+        run: npm run -w @openintake/vue build
 
-      - name: Publish @intake/core
-        run: npm publish -w @intake/core --access public
+      - name: Publish @openintake/core
+        run: npm publish -w @openintake/core --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Publish @intake/vue
-        run: npm publish -w @intake/vue --access public
+      - name: Publish @openintake/vue
+        run: npm publish -w @openintake/vue --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,10 +1,10 @@
 <script setup lang="ts">
 // Security invariant: this widget NEVER handles provider API keys.
-// It only calls the relay through @intake/core's IntakeClient.
+// It only calls the relay through @openintake/core's IntakeClient.
 // All LLM calls happen inside the relay process — never from this browser widget.
 
 import { ref, onMounted } from 'vue';
-import { capturePage } from '@intake/core';
+import { capturePage } from '@openintake/core';
 import ConversationView from './ConversationView.vue';
 import ScreenshotRedactor from './ScreenshotRedactor.vue';
 import AttachmentStrip from './AttachmentStrip.vue';

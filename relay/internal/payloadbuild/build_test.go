@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"intake/internal/auth"
-	"intake/internal/classify"
-	"intake/internal/dto"
-	"intake/internal/payloadbuild"
+	"github.com/clubpetey/openintake/relay/internal/auth"
+	"github.com/clubpetey/openintake/relay/internal/classify"
+	"github.com/clubpetey/openintake/relay/internal/dto"
+	"github.com/clubpetey/openintake/relay/internal/payloadbuild"
 )
 
 func testSession() *auth.SessionContext {

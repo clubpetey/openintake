@@ -8,10 +8,10 @@ import (
 	"net/http"
 	"time"
 
-	"intake/internal/attachvalidate"
-	"intake/internal/auth"
-	"intake/internal/llm"
-	"intake/internal/payloadbuild"
+	"github.com/clubpetey/openintake/relay/internal/attachvalidate"
+	"github.com/clubpetey/openintake/relay/internal/auth"
+	"github.com/clubpetey/openintake/relay/internal/llm"
+	"github.com/clubpetey/openintake/relay/internal/payloadbuild"
 )
 
 // submitHandler handles POST /v1/intake/submit.

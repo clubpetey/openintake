@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"intake/internal/auth"
+	"github.com/clubpetey/openintake/relay/internal/auth"
 )
 
 // sentinelHandler is a handler that records whether it was called and captures

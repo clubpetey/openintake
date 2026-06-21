@@ -15,7 +15,7 @@
 # conflicts with developer-local processes; 11434 is the standard Ollama port
 # and is kept as-is so the fake-llm impersonates it transparently.
 
-name: intake-demo
+name: openintake-demo
 
 networks:
   intake_demo:
@@ -23,11 +23,11 @@ networks:
 
 services:
   fake-llm:
-    image: intake-relay:local
+    image: openintake-relay:local
     build:
       context: ../../relay
-    container_name: intake-fake-llm
-    # The relay image's default ENTRYPOINT is /intake-relay; clear it so the
+    container_name: openintake-fake-llm
+    # The relay image's default ENTRYPOINT is /openintake-relay; clear it so the
     # `command:` below runs /fake-llm instead. See Task 3 in the 7-iii plan.
     entrypoint: []
     command:
@@ -55,10 +55,10 @@ services:
       disable: true
 
   webhook-receiver:
-    image: intake-webhook-receiver:local
+    image: openintake-webhook-receiver:local
     build:
       context: ../webhook-receiver
-    container_name: intake-webhook-receiver
+    container_name: openintake-webhook-receiver
     networks:
       - intake_demo
     ports:
@@ -72,10 +72,10 @@ services:
       disable: true
 
   relay:
-    image: intake-relay:local
+    image: openintake-relay:local
     build:
       context: ../../relay
-    container_name: intake-relay
+    container_name: openintake-relay
     depends_on:
       fake-llm:
         condition: service_started
@@ -88,10 +88,10 @@ services:
       # for LLM calls, so the value is never sent over the wire.
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-dummy}"
     volumes:
-      - ./config.yaml:/etc/intake/config.yaml:ro
+      - ./config.yaml:/etc/openintake/config.yaml:ro
     command:
       - --config
-      - /etc/intake/config.yaml
+      - /etc/openintake/config.yaml
     networks:
       - intake_demo
     ports:
@@ -99,7 +99,7 @@ services:
       - "19090:9090"
     healthcheck:
       # Distroless has no shell + no wget. The relay image ships the
-      # intake-relay binary which has a built-in /v1/health endpoint we curl
+      # openintake-relay binary which has a built-in /v1/health endpoint we curl
       # from a tiny one-shot exec. Distroless also has no curl. We use the
       # one tool guaranteed to exist: the relay binary itself with a hidden
       # `--health-check` flag would be ideal but Phase 7-i does NOT add one.

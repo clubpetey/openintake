@@ -3,7 +3,7 @@ package version_test
 import (
 	"testing"
 
-	"intake/internal/version"
+	"github.com/clubpetey/openintake/relay/internal/version"
 )
 
 func TestBuildInfo_Defaults(t *testing.T) {

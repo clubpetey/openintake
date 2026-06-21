@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"intake/internal/classify"
-	"intake/internal/llm"
+	"github.com/clubpetey/openintake/relay/internal/classify"
+	"github.com/clubpetey/openintake/relay/internal/llm"
 )
 
 // fakeProvider returns a canned response as a single Done chunk.

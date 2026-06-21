@@ -1,10 +1,10 @@
-# Intake — Docker-Compose Demo
+# OpenIntake — Docker-Compose Demo
 
 A complete working intake instance you can boot in 60 seconds with one
 command. Three services share a private docker-compose network: the **relay**
-(intake-relay binary, distroless), a **fake-llm** that impersonates the
+(openintake-relay binary, distroless), a **fake-llm** that impersonates the
 Ollama API (no LLM credit consumed), and a **webhook-receiver** that logs
-every submitted ticket to its stdout. Use this stack to evaluate intake,
+every submitted ticket to its stdout. Use this stack to evaluate OpenIntake,
 exercise the `/init → /turn → /submit` flow against an adapter, or as a
 template for your own self-hosted deployment.
 
@@ -34,8 +34,8 @@ docker-compose up -d
 docker-compose ps
 ```
 
-You should see three rows: `intake-relay`, `intake-fake-llm`, and
-`intake-webhook-receiver`, all with `State: running`. The relay takes ~1
+You should see three rows: `openintake-relay`, `openintake-fake-llm`, and
+`openintake-webhook-receiver`, all with `State: running`. The relay takes ~1
 second to start after the receiver is healthy.
 
 ## Submit a ticket

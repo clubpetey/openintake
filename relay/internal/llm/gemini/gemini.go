@@ -12,7 +12,7 @@ import (
 
 	"google.golang.org/genai"
 
-	"intake/internal/llm"
+	"github.com/clubpetey/openintake/relay/internal/llm"
 )
 
 // Provider implements llm.Provider for the Google Gemini API.

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"intake/internal/adapter"
-	"intake/internal/payload"
-	"intake/internal/router"
+	"github.com/clubpetey/openintake/relay/internal/adapter"
+	"github.com/clubpetey/openintake/relay/internal/payload"
+	"github.com/clubpetey/openintake/relay/internal/router"
 )
 
 // stubAdapter is a no-op adapter with a fixed name.

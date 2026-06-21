@@ -13,7 +13,7 @@ version: 2
 
 # `project_name` controls the archive name template and the default Docker
 # image name. Stable across pre-release / final-release.
-project_name: intake-relay
+project_name: openintake-relay
 
 before:
   hooks:
@@ -28,14 +28,14 @@ before:
 builds:
   - id: relay
     main: ./cmd/relay
-    binary: intake-relay
+    binary: openintake-relay
     dir: relay
     env:
       - CGO_ENABLED=0
     flags:
       - -trimpath
     ldflags:
-      - -s -w -X intake/internal/version.version={{.Version}} -X intake/internal/version.commit={{.FullCommit}} -X intake/internal/version.buildTime={{.Date}}
+      - -s -w -X github.com/clubpetey/openintake/relay/internal/version.version={{.Version}} -X github.com/clubpetey/openintake/relay/internal/version.commit={{.FullCommit}} -X github.com/clubpetey/openintake/relay/internal/version.buildTime={{.Date}}
     goos:
       - linux
       - darwin
@@ -60,7 +60,7 @@ archives:
   - id: relay-archive
     builds:
       - relay
-    name_template: "intake-relay_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    name_template: "openintake-relay_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     formats: ['tar.gz']
     format_overrides:
       - goos: windows
@@ -115,7 +115,7 @@ dockers:
     ids:
       - relay
     image_templates:
-      - "ghcr.io/intake/intake-relay:{{ .Version }}-amd64"
+      - "ghcr.io/clubpetey/openintake-relay:{{ .Version }}-amd64"
     dockerfile: relay/Dockerfile.goreleaser
     use: buildx
     build_flag_templates:
@@ -131,7 +131,7 @@ dockers:
       - relay
     goarch: arm64
     image_templates:
-      - "ghcr.io/intake/intake-relay:{{ .Version }}-arm64"
+      - "ghcr.io/clubpetey/openintake-relay:{{ .Version }}-arm64"
     dockerfile: relay/Dockerfile.goreleaser
     use: buildx
     build_flag_templates:
@@ -145,14 +145,14 @@ dockers:
 
 # Multi-arch manifest — stitches amd64 + arm64 into a single tag.
 docker_manifests:
-  - name_template: "ghcr.io/intake/intake-relay:{{ .Version }}"
+  - name_template: "ghcr.io/clubpetey/openintake-relay:{{ .Version }}"
     image_templates:
-      - "ghcr.io/intake/intake-relay:{{ .Version }}-amd64"
-      - "ghcr.io/intake/intake-relay:{{ .Version }}-arm64"
-  - name_template: "ghcr.io/intake/intake-relay:latest"
+      - "ghcr.io/clubpetey/openintake-relay:{{ .Version }}-amd64"
+      - "ghcr.io/clubpetey/openintake-relay:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/clubpetey/openintake-relay:latest"
     image_templates:
-      - "ghcr.io/intake/intake-relay:{{ .Version }}-amd64"
-      - "ghcr.io/intake/intake-relay:{{ .Version }}-arm64"
+      - "ghcr.io/clubpetey/openintake-relay:{{ .Version }}-amd64"
+      - "ghcr.io/clubpetey/openintake-relay:{{ .Version }}-arm64"
     # `latest` updates only on full releases (not pre-releases).
     skip_push: auto
 
@@ -165,13 +165,13 @@ release:
   draft: false
   prerelease: auto
   github:
-    owner: intake
-    name: intake
+    owner: clubpetey
+    name: openintake
   header: |
-    ## intake-relay {{ .Tag }}
+    ## openintake-relay {{ .Tag }}
 
     See the changelog below for what changed.
   footer: |
     ---
-    **Container image:** `docker pull ghcr.io/intake/intake-relay:{{ .Tag }}`
-    **Source:** [intake/intake@{{ .ShortCommit }}](https://github.com/intake/intake/tree/{{ .FullCommit }})
+    **Container image:** `docker pull ghcr.io/clubpetey/openintake-relay:{{ .Tag }}`
+    **Source:** [clubpetey/openintake@{{ .ShortCommit }}](https://github.com/clubpetey/openintake/tree/{{ .FullCommit }})

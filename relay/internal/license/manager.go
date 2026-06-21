@@ -1,7 +1,7 @@
 // Package license (internal) is the relay-only license manager: it embeds the
 // maintainer public key, runs the load order, applies the trial/free state machine,
 // and answers the adapter gate via State.Permits. It imports the importable
-// intake/license package for the struct + Verify. Where both packages are needed
+// relay/license package for the struct + Verify. Where both packages are needed
 // (main.go), import THIS one with the alias `licensemgr`.
 package license
 
@@ -14,13 +14,13 @@ import (
 	"path/filepath"
 	"time"
 
-	pubkglicense "intake/license"
+	pubkglicense "github.com/clubpetey/openintake/relay/license"
 
-	"intake/internal/config"
+	"github.com/clubpetey/openintake/relay/internal/config"
 )
 
 // PricingURL is shown in the free/expired startup logs (PROJECT.md §12 wording).
-const PricingURL = "https://intake.example.com/pricing"
+const PricingURL = "https://openintake.example.com/pricing"
 
 const trialDuration = 14 * 24 * time.Hour
 
@@ -80,7 +80,7 @@ func loadWithKey(pub ed25519.PublicKey, cfg config.LicenseConfig, statePath stri
 
 	if found {
 		if pub == nil {
-			return nil, fmt.Errorf("license: a license is present but this build has no embedded public key (maintainer must run `intake-license keygen` and embed it)")
+			return nil, fmt.Errorf("license: a license is present but this build has no embedded public key (maintainer must run `openintake-license keygen` and embed it)")
 		}
 		lic, err := pubkglicense.Verify(pub, blob)
 		if err != nil {
@@ -181,12 +181,12 @@ func findLicense(cfg config.LicenseConfig) ([]byte, bool, error) {
 	return nil, false, nil
 }
 
-// defaultLicensePaths returns /etc/intake/license.json and
-// os.UserConfigDir()/intake/license.json (the latter only if resolvable).
+// defaultLicensePaths returns /etc/openintake/license.json and
+// os.UserConfigDir()/openintake/license.json (the latter only if resolvable).
 func defaultLicensePaths() []string {
-	paths := []string{"/etc/intake/license.json"}
+	paths := []string{"/etc/openintake/license.json"}
 	if dir, err := os.UserConfigDir(); err == nil {
-		paths = append(paths, filepath.Join(dir, "intake", "license.json"))
+		paths = append(paths, filepath.Join(dir, "openintake", "license.json"))
 	}
 	return paths
 }

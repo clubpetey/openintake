@@ -1,4 +1,4 @@
-# Intake v0 — Decomposition & Phasing Design
+# OpenIntake v0 — Decomposition & Phasing Design
 
 > **Status:** Approved design (brainstorming output), pre-planning
 > **Date:** 2026-05-26
@@ -28,7 +28,7 @@ Eight phases. Phase 0 is the wire-contract foundation; Phase 1 proves the spine 
 | Phase | Deliverable | Adds | Final smoke (real environment) |
 |---|---|---|---|
 | **0 — Contract spine** | Monorepo skeleton, `schema/payload.v1.json`, codegen → `core/src/generated/payload.ts` + `relay/internal/payload/types.go`, CI staleness gate | the wire contract (nothing runnable) | Edit schema → run codegen → both TS+Go regenerate & compile; CI **fails** on stale generated files, **passes** when fresh |
-| **1 — Walking skeleton** | Relay (config loader, chi server, `/v1/health`, `/v1/version`, `/v1/intake/init`, `/v1/intake/turn` SSE, `/v1/intake/submit`) + `@intake/core` + minimal `@intake/vue` | **anonymous** auth, **anthropic** provider, **webhook** adapter only | Embed widget in `examples/vue-anonymous`, run relay with `ANTHROPIC_API_KEY`, hold a 2-turn conversation, click Submit → local webhook receiver logs the canonical payload |
+| **1 — Walking skeleton** | Relay (config loader, chi server, `/v1/health`, `/v1/version`, `/v1/intake/init`, `/v1/intake/turn` SSE, `/v1/intake/submit`) + `@openintake/core` + minimal `@openintake/vue` | **anonymous** auth, **anthropic** provider, **webhook** adapter only | Embed widget in `examples/vue-anonymous`, run relay with `ANTHROPIC_API_KEY`, hold a 2-turn conversation, click Submit → local webhook receiver logs the canonical payload |
 | **2 — Provider breadth** | `openai`, `gemini`, `ollama` behind the frozen `Provider` iface; optional Ollama bearer token | 3 more LLM providers | 5-turn conversation completes end-to-end through **each** provider; Ollama runs offline with no API key |
 | **3 — Adapters + license** | `chatwoot`, `fider`, `zendesk`, `linear`; Ed25519 license verify, trial/free mode, router (`routing_hint` → rules → default), `license-tool` CLI | 4 adapters, license gate, routing | Route a real ticket into a **live Chatwoot**; paid adapter blocked w/o license, permitted w/ signed test license; free-mode disables paid adapters with a clear startup log |
 | **4 — Auth breadth** | Email magic-link (SMTP → 6-digit code → 15-min JWT), host-app SSO (JWKS validation, Auth0/OIDC/custom HS256+RS256) | 2 more auth modes | Email flow end-to-end via Mailpit (`user.verified=true`); SSO validates a real Auth0/OIDC RS256 access token |
@@ -78,12 +78,12 @@ From PROJECT.md §19. Six block specific phases and are resolved here; two are p
 | Q7 | Schema codegen tool | `json-schema-to-typescript` (TS) + `go-jsonschema` (Go), **exact-pinned**. Codegen produces deploy-time artifacts → caret-versioning forbidden per template §5. Chosen over `quicktype`: each is single-purpose with idiomatic per-target output. | **P0** |
 | Q5 | Default LLM models | anthropic `claude-sonnet-4-6`; ollama `llama3.1`; openai + gemini ship a documented, configurable default (no hard pin — user-supplied keys, models churn). Override path documented in `docs/llm-providers.md`. | P1, P2 |
 | Q4 | Ollama auth | Optional `ollama.bearer_token_env` config for hardened self-host (Ollama has no native auth). | P2 |
-| Q3 | Trial-state path (Windows) | Use Go `os.UserConfigDir()`: `%AppData%\intake\state.json` (Windows), `~/.config/intake/` (Linux), `~/Library/Application Support/intake/` (macOS). Cross-platform resolved. | P3 |
+| Q3 | Trial-state path (Windows) | Use Go `os.UserConfigDir()`: `%AppData%\intake\state.json` (Windows), `~/.config/openintake/` (Linux), `~/Library/Application Support/openintake/` (macOS). Cross-platform resolved. | P3 |
 | Q10 | License tool OSS? | Maintainer-only. Lives in `license-tool/`; **excluded from all release artifacts** (goreleaser ignore + npm not applicable). | P3 |
 | Q9 | Anonymous without CAPTCHA | **Fail-closed:** relay refuses to start if `auth.anonymous=true` and CAPTCHA disabled, unless explicit `auth.anonymous.allow_without_captcha: true`. Safe default with an explicit escape hatch; this is a fatal config error, not a warning (template build-fail discipline §4). | P5 |
 | Q8 | Redaction UX | Widget provides redaction tools; **no** forced "no-PII" confirmation by default. Configurable `require_redaction_ack` (default `false`) lets a host app opt into a forced acknowledgment. | P6 |
 | Q6 | System prompt IP | Apache 2.0; add a header comment marking it as product prompt-IP for clarity. Doc-only. | none |
-| Q1 | Product name | **Keep `intake` placeholder.** Hard **pre-P0 gate** — sets npm scope `@intake/*`, Go module path, GitHub org, domain. Must be locked before Phase 0 begins. **Requires maintainer decision.** | pre-P0 |
+| Q1 | Product name | **Keep `intake` placeholder.** Hard **pre-P0 gate** — sets npm scope `@openintake/*`, Go module path, GitHub org, domain. Must be locked before Phase 0 begins. **Requires maintainer decision.** | pre-P0 |
 | Q2 | Pricing tiers | **Deferred.** Business decision, blocks no code. Free / Pro / Team structure stands; numbers TBD before public launch (a P7-adjacent concern, not a build blocker). | none |
 
 ---
@@ -102,7 +102,7 @@ Three internal contradictions in PROJECT.md that this design settles. These shou
 
 These two items are decided with safe defaults so planning can proceed. Both are cheap to override later:
 
-- **Product name (Q1) — proceeding on the `intake` placeholder.** P0 hard-codes the npm scope `@intake/*`, Go module path `intake/...`, and repo paths. The placeholder is deliberately a single, mechanical find-replace away from a final name. Phase 0's plan will isolate every name-bearing token (module path, package scope) so the rename is one scripted pass. **Override:** lock a final name before P0 implementation begins and the rename cost drops to zero.
+- **Product name (Q1) — proceeding on the `intake` placeholder.** P0 hard-codes the npm scope `@openintake/*`, Go module path `intake/...`, and repo paths. The placeholder is deliberately a single, mechanical find-replace away from a final name. Phase 0's plan will isolate every name-bearing token (module path, package scope) so the rename is one scripted pass. **Override:** lock a final name before P0 implementation begins and the rename cost drops to zero.
 - **Provider count (inconsistency #2) — proceeding with four providers including `gemini`.** Matches the most specific statement in PROJECT.md §7. Affects only P2 scope. **Override:** drop gemini to v1 to return to three; removes one implementation from P2, no structural impact.
 
 All other resolutions in §4 are decided and need no further input.

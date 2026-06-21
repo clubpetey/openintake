@@ -2,9 +2,9 @@ package version
 
 // Build-time variables. Override with:
 //
-//	go build -ldflags "-X intake/internal/version.version=v1.2.3 \
-//	  -X intake/internal/version.commit=abc1234 \
-//	  -X intake/internal/version.buildTime=2026-01-01T00:00:00Z" ./cmd/relay
+//	go build -ldflags "-X github.com/clubpetey/openintake/relay/internal/version.version=v1.2.3 \
+//	  -X github.com/clubpetey/openintake/relay/internal/version.commit=abc1234 \
+//	  -X github.com/clubpetey/openintake/relay/internal/version.buildTime=2026-01-01T00:00:00Z" ./cmd/relay
 var (
 	version   = "dev"
 	commit    = "none"

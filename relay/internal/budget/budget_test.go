@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"intake/internal/budget"
+	"github.com/clubpetey/openintake/relay/internal/budget"
 )
 
 type fakeClock struct{ now time.Time }

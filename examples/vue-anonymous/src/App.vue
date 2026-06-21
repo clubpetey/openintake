@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { IntakeWidget } from '@intake/vue';
+import { IntakeWidget } from '@openintake/vue';
 </script>
 
 <template>

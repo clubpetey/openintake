@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"intake/internal/auth"
-	"intake/internal/budget"
-	"intake/internal/llm"
+	"github.com/clubpetey/openintake/relay/internal/auth"
+	"github.com/clubpetey/openintake/relay/internal/budget"
+	"github.com/clubpetey/openintake/relay/internal/llm"
 )
 
 // fakeProvider is a minimal llm.Provider that emits a single SSEDone with

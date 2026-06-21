@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { mount } from '@vue/test-utils';
 import AttachmentStrip from './AttachmentStrip.vue';
-import type { PendingAttachment } from '@intake/core';
+import type { PendingAttachment } from '@openintake/core';
 
 function mkAtt(sizeBytes: number, label?: string): PendingAttachment {
   return {

@@ -51,7 +51,7 @@ echo ""
 
 # ── 6. TypeScript type-check ───────────────────────────────────────────────
 echo "--- [6/7] Type-checking generated TypeScript (tsc --noEmit)..."
-npm run -w @intake/core type-check
+npm run -w @openintake/core type-check
 echo ""
 
 # ── 7. Go build + vet ─────────────────────────────────────────────────────

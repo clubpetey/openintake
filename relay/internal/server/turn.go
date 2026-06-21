@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"time"
 
-	"intake/internal/auth"
-	"intake/internal/llm"
+	"github.com/clubpetey/openintake/relay/internal/auth"
+	"github.com/clubpetey/openintake/relay/internal/llm"
 )
 
 // initHandler handles POST /v1/intake/init.

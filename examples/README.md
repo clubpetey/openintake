@@ -1,6 +1,6 @@
-# Intake Examples
+# OpenIntake Examples
 
-This directory contains runnable examples for the Intake project.
+This directory contains runnable examples for the OpenIntake project.
 
 ## Prerequisites
 
@@ -68,7 +68,7 @@ The widget NEVER holds or transmits the `ANTHROPIC_API_KEY`. The key lives only 
 
 ## examples/vue-anonymous
 
-A minimal Vite+Vue SPA demonstrating anonymous integration. Mounts `IntakeWidget` from `@intake/vue` pointed at `http://localhost:8080`.
+A minimal Vite+Vue SPA demonstrating anonymous integration. Mounts `IntakeWidget` from `@openintake/vue` pointed at `http://localhost:8080`.
 
 ## examples/webhook-receiver
 

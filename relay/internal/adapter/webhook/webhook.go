@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"time"
 
-	"intake/internal/adapter"
-	"intake/internal/payload"
+	"github.com/clubpetey/openintake/relay/internal/adapter"
+	"github.com/clubpetey/openintake/relay/internal/payload"
 
 	"github.com/google/uuid"
 )

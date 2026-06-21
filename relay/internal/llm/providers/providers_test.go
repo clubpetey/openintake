@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"intake/internal/config"
-	"intake/internal/llm/providers"
+	"github.com/clubpetey/openintake/relay/internal/config"
+	"github.com/clubpetey/openintake/relay/internal/llm/providers"
 )
 
 // TestNew_Anthropic_WithKey verifies that a valid anthropic config + key env

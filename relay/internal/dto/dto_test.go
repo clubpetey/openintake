@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"intake/internal/dto"
+	"github.com/clubpetey/openintake/relay/internal/dto"
 )
 
 func TestSubmitRequest_AttachmentsRoundTrip(t *testing.T) {

@@ -1,6 +1,6 @@
-# Self-hosting intake
+# Self-hosting OpenIntake
 
-This document is the production operator's reference. It assumes you already ran the quickstart (`docs/quickstart.md`) and want to deploy intake for real: behind a load balancer, with TLS, with secrets managed properly, with metrics scraped into Prometheus, and with the right abuse / attachment / auth posture for your environment.
+This document is the production operator's reference. It assumes you already ran the quickstart (`docs/quickstart.md`) and want to deploy OpenIntake for real: behind a load balancer, with TLS, with secrets managed properly, with metrics scraped into Prometheus, and with the right abuse / attachment / auth posture for your environment.
 
 Sections:
 
@@ -32,15 +32,15 @@ cd intake
 npm ci
 npm run codegen
 cd relay
-go build -ldflags '-s -w' -trimpath -o intake-relay ./cmd/relay
-sudo install -m 0755 intake-relay /usr/local/bin/intake-relay
+go build -ldflags '-s -w' -trimpath -o openintake-relay ./cmd/relay
+sudo install -m 0755 openintake-relay /usr/local/bin/openintake-relay
 ```
 
-A minimal systemd unit at `/etc/systemd/system/intake-relay.service`:
+A minimal systemd unit at `/etc/systemd/system/openintake-relay.service`:
 
 ```ini
 [Unit]
-Description=intake relay
+Description=OpenIntake relay
 After=network.target
 Wants=network-online.target
 
@@ -48,8 +48,8 @@ Wants=network-online.target
 Type=simple
 User=intake
 Group=intake
-ExecStart=/usr/local/bin/intake-relay --config /etc/intake/relay.yaml
-EnvironmentFile=/etc/intake/relay.env
+ExecStart=/usr/local/bin/openintake-relay --config /etc/openintake/relay.yaml
+EnvironmentFile=/etc/openintake/relay.env
 Restart=on-failure
 RestartSec=5s
 LimitNOFILE=65536
@@ -67,21 +67,21 @@ Create the user, config dir, and state dir:
 
 ```bash
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin intake
-sudo install -d -o intake -g intake -m 0750 /etc/intake /var/lib/intake
-sudo install -m 0640 -o root -g intake my-relay.yaml /etc/intake/relay.yaml
-sudo install -m 0640 -o root -g intake my-license.json /etc/intake/license.json
-sudo install -m 0640 -o root -g intake my-relay.env /etc/intake/relay.env
+sudo install -d -o intake -g intake -m 0750 /etc/openintake /var/lib/intake
+sudo install -m 0640 -o root -g intake my-relay.yaml /etc/openintake/relay.yaml
+sudo install -m 0640 -o root -g intake my-license.json /etc/openintake/license.json
+sudo install -m 0640 -o root -g intake my-relay.env /etc/openintake/relay.env
 
 sudo systemctl daemon-reload
-sudo systemctl enable --now intake-relay
-sudo systemctl status intake-relay
+sudo systemctl enable --now openintake-relay
+sudo systemctl status openintake-relay
 ```
 
 The `relay.env` file holds secrets, one per line in `KEY=value` shell syntax. Restrict it to mode `0640` and ownership `root:intake`.
 
 ### Docker
 
-The release ships a multi-stage distroless image at `ghcr.io/intake/intake-relay:vX.Y.Z` (when public). Image properties:
+The release ships a multi-stage distroless image at `ghcr.io/clubpetey/openintake-relay:vX.Y.Z` (when public). Image properties:
 
 - Base: `gcr.io/distroless/static-debian12:nonroot`
 - Runs as UID `65532` (`nonroot`)
@@ -93,16 +93,16 @@ Run it with a config file and environment variables:
 
 ```bash
 docker run -d \
-  --name intake-relay \
+  --name openintake-relay \
   -p 8080:8080 \
   -p 9090:9090 \
-  -v /etc/intake/relay.yaml:/etc/intake/relay.yaml:ro \
-  -v /etc/intake/license.json:/etc/intake/license.json:ro \
-  --env-file /etc/intake/relay.env \
+  -v /etc/openintake/relay.yaml:/etc/openintake/relay.yaml:ro \
+  -v /etc/openintake/license.json:/etc/openintake/license.json:ro \
+  --env-file /etc/openintake/relay.env \
   --read-only \
   --restart unless-stopped \
-  ghcr.io/intake/intake-relay:vX.Y.Z \
-  --config /etc/intake/relay.yaml
+  ghcr.io/clubpetey/openintake-relay:vX.Y.Z \
+  --config /etc/openintake/relay.yaml
 ```
 
 Use `docker-compose` for multi-service deployments; the `examples/docker-compose/` directory in the repo has a working template.
@@ -128,7 +128,7 @@ observability: # log level/format, Prometheus metrics
 
 ## Environment variables and secrets
 
-intake follows a strict "secrets via env, not in config" pattern. The config file references env var **names** via `*_env` keys; the relay resolves them at startup. This means the config file is safe to commit, mount, or check into source control — no secret material is in it.
+OpenIntake follows a strict "secrets via env, not in config" pattern. The config file references env var **names** via `*_env` keys; the relay resolves them at startup. This means the config file is safe to commit, mount, or check into source control — no secret material is in it.
 
 The `config.ResolveSecret` / `RequireSecret` contract:
 
@@ -165,10 +165,10 @@ Two env vars (`INTAKE_LICENSE`, `INTAKE_LICENSE_FILE`) are env-only — they are
 
 | Deployment | Recommended pattern |
 |---|---|
-| systemd + bare metal | `EnvironmentFile=/etc/intake/relay.env`, mode `0640`, owned `root:intake` |
-| Docker | `--env-file /etc/intake/relay.env` or Docker secrets (`secrets:` block in compose) |
+| systemd + bare metal | `EnvironmentFile=/etc/openintake/relay.env`, mode `0640`, owned `root:intake` |
+| Docker | `--env-file /etc/openintake/relay.env` or Docker secrets (`secrets:` block in compose) |
 | Kubernetes | mount a `Secret` as env vars on the pod spec |
-| Hashicorp Vault | sidecar template renders `/etc/intake/relay.env` from Vault KV |
+| Hashicorp Vault | sidecar template renders `/etc/openintake/relay.env` from Vault KV |
 | Cloud KMS | container init script fetches secrets, writes `relay.env`, then execs the relay |
 
 Never put secrets in the YAML config file. Even if you encrypt the YAML at rest, the running process logs config-load events at `slog.Info` and an operator misconfigured to log the loaded config would leak the secret. The `*_env` indirection is the only supported pattern.
@@ -206,7 +206,7 @@ llm:
 
 ## Authentication modes
 
-intake supports three auth modes; multiple can be enabled simultaneously, and the widget picks one based on the user's identity state.
+OpenIntake supports three auth modes; multiple can be enabled simultaneously, and the widget picks one based on the user's identity state.
 
 ```yaml
 auth:
@@ -244,7 +244,7 @@ auth:
 
 ### Claim mapping
 
-The `auth.sso.claims` block maps your IDP's JWT claim names to intake's canonical fields. Adjust for your IDP (Auth0, Okta, Azure AD, Cognito, etc.). The defaults match Auth0's OIDC claim names.
+The `auth.sso.claims` block maps your IDP's JWT claim names to OpenIntake's canonical fields. Adjust for your IDP (Auth0, Okta, Azure AD, Cognito, etc.). The defaults match Auth0's OIDC claim names.
 
 ## Abuse and rate-limiting
 
@@ -423,7 +423,7 @@ sum by (adapter) (rate(intake_adapter_calls_total{result="error"}[5m]))
 ```yaml
 # prometheus.yml
 scrape_configs:
-  - job_name: 'intake-relay'
+  - job_name: 'openintake-relay'
     scrape_interval: 30s
     static_configs:
       - targets: ['intake.internal:9090']
@@ -443,12 +443,12 @@ No metric is sensitive in itself, but the cardinality of `path` labels can revea
 
 ## Trusted proxies
 
-When intake is behind a load balancer or reverse proxy, the client IP must be resolved from `X-Forwarded-For`. The `server.trusted_proxies` config controls which proxy IPs are trusted to set that header.
+When OpenIntake is behind a load balancer or reverse proxy, the client IP must be resolved from `X-Forwarded-For`. The `server.trusted_proxies` config controls which proxy IPs are trusted to set that header.
 
 ```yaml
 server:
   addr: ":8080"
-  external_url: "https://intake.example.com"
+  external_url: "https://openintake.example.com"
   cors_origins:
     - "https://app.example.com"
   trusted_proxies:
@@ -459,7 +459,7 @@ server:
 
 - Every entry MUST be a valid CIDR block. Invalid CIDRs are caught by the consolidated startup gate (`server.trusted_proxies contains an invalid CIDR "not-a-cidr"`).
 - Requests from non-trusted addresses ignore any `X-Forwarded-For` header — the connection's `RemoteAddr` wins. This prevents IP spoofing from outside the trusted network.
-- Set to an empty list `[]` if intake is directly internet-facing (no proxy). The per-IP rate limiter will use the connection's `RemoteAddr` directly.
+- Set to an empty list `[]` if OpenIntake is directly internet-facing (no proxy). The per-IP rate limiter will use the connection's `RemoteAddr` directly.
 
 Behind a public CDN (Cloudflare, Fastly, etc.), include the CDN's published IP ranges. Refresh those ranges periodically — the relay does not auto-update them.
 
@@ -480,13 +480,13 @@ Set `observability.log_format: "text"` for human-readable output in development.
 Because logs are line-delimited JSON to stdout, any standard log-shipping tool works:
 
 - **Loki + Promtail / Alloy** — pick up stdout from the systemd journal or Docker logs; parse with the `json` stage.
-- **Datadog Agent** — install the Datadog Agent on the host; configure `logs.processing_rules` for the `intake-relay` source.
+- **Datadog Agent** — install the Datadog Agent on the host; configure `logs.processing_rules` for the `openintake-relay` source.
 - **Splunk Universal Forwarder** — point at the journal or Docker logs; use `INDEXED_EXTRACTIONS = json`.
 - **Fluentd / Fluent Bit / Vector** — same shape; any JSON-aware shipper works.
 
 ### Sensitive data
 
-intake's logging discipline (LESSONS L005 / L011):
+OpenIntake's logging discipline (LESSONS L005 / L011):
 
 - API tokens, magic-link codes, and CAPTCHA secrets are **never** logged verbatim — they are scrubbed before any log emission.
 - Adapter errors are redacted-before-truncated: a truncated middle cannot leak the front of a token.
@@ -498,19 +498,19 @@ If you need richer log shipping for support escalations, set `log_level: "debug"
 
 See `docs/license.md` for the full license model. The operator-facing summary:
 
-- License file path is resolved via (in order) the `--license` CLI flag, `INTAKE_LICENSE` env (inline JSON), `INTAKE_LICENSE_FILE` env (path), then default paths starting with `/etc/intake/license.json`.
+- License file path is resolved via (in order) the `--license` CLI flag, `INTAKE_LICENSE` env (inline JSON), `INTAKE_LICENSE_FILE` env (path), then default paths starting with `/etc/openintake/license.json`.
 - Without a license, the relay enters a 14-day trial. All adapters work during the trial.
 - After trial or license expiry, free adapters continue, paid adapters (`zendesk`, `linear`) are disabled with a `slog.Warn` line each.
 - The license check is **fail-open in favor of availability** — a signature mismatch, missing file, or expired license never bricks startup.
 
 ## Reverse proxy and TLS
 
-intake does not terminate TLS itself in v0 — put it behind a reverse proxy. Two reference configurations:
+OpenIntake does not terminate TLS itself in v0 — put it behind a reverse proxy. Two reference configurations:
 
 ### Caddy
 
 ```caddyfile
-intake.example.com {
+openintake.example.com {
     encode gzip zstd
 
     @widget_origin {
@@ -544,10 +544,10 @@ upstream intake {
 
 server {
     listen 443 ssl http2;
-    server_name intake.example.com;
+    server_name openintake.example.com;
 
-    ssl_certificate     /etc/letsencrypt/live/intake.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/intake.example.com/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/openintake.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/openintake.example.com/privkey.pem;
 
     location /v1/intake/turn {
         # SSE — disable buffering
@@ -582,7 +582,7 @@ Add `nginx`'s `set_real_ip_from` matching your `trusted_proxies` CIDRs if you wa
 
 ## The startup gate
 
-intake's consolidated startup gate (Phase 5 introduced; Phase 7-i extended) collects every misconfiguration across every subsystem into a single ERROR log line at startup, then exits with code 1. **One restart cycle reveals every misconfig.**
+OpenIntake's consolidated startup gate (Phase 5 introduced; Phase 7-i extended) collects every misconfiguration across every subsystem into a single ERROR log line at startup, then exits with code 1. **One restart cycle reveals every misconfig.**
 
 Example output for a maximally-broken config:
 
@@ -621,7 +621,7 @@ Metrics-port conflicts are NOT fatal either (they are runtime warnings) — obse
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `relay: startup config errors` with N problems | One or more misconfigs across phases | Fix every entry in the `problems` slice; restart |
-| `adapter "chatwoot": api_token_env="X" is not set in the environment` | Env var not exported to the relay process | `systemctl edit intake-relay` to add `Environment=X=...`, or update `EnvironmentFile` |
+| `adapter "chatwoot": api_token_env="X" is not set in the environment` | Env var not exported to the relay process | `systemctl edit openintake-relay` to add `Environment=X=...`, or update `EnvironmentFile` |
 | `auth.modes.anonymous=true requires captcha.enabled=true` | Forgot to enable CAPTCHA on a public-facing relay | Set `captcha.enabled: true` + provide site/secret keys, OR set `auth.anonymous.allow_without_captcha: true` if you really want unauthenticated anonymous |
 | `attachments.storage.mode="s3" is not supported in v0` | Tried to use the v1+ S3 hook | Set `storage.mode: "forward"` (the only supported v0 value) |
 | `/metrics` returns "connection refused" on port 9090 | `observability.metrics.enabled: false` (default) | Set `observability.metrics.enabled: true` and restart |
@@ -629,7 +629,7 @@ Metrics-port conflicts are NOT fatal either (they are runtime warnings) — obse
 | 429 on every request after the first 10 | Per-IP rate limit too tight | Bump `ratelimit.per_ip.requests_per_second` / `burst` |
 | 429 after ~30 turns from one user | Per-session cap hit (the expected behavior) | Either raise `per_session.max_turns` or use email/SSO mode to identify legitimate heavy users |
 | SSE `/turn` connections hang at 60 seconds | Reverse proxy buffering | See § Reverse proxy and TLS — `proxy_buffering off` + long `proxy_read_timeout` |
-| 502 from `/submit` after a long pause | Adapter timeout (Chatwoot / Zendesk / Linear unreachable) | Check the downstream system; intake retries 5xx per `adapters.<name>.retry` if configured |
+| 502 from `/submit` after a long pause | Adapter timeout (Chatwoot / Zendesk / Linear unreachable) | Check the downstream system; OpenIntake retries 5xx per `adapters.<name>.retry` if configured |
 | Empty `capabilities.attachments` block in `/init` | Attachments disabled, OR the intersected MIME allowlist is empty | See `docs/attachments.md` § Capabilities discovery |
 | `license: signature verification failed` | License file is from a different keypair than the relay binary | Confirm you have the right license for this release; contact licensing |
 

@@ -10,8 +10,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"intake/internal/auth/sso"
-	"intake/internal/config"
+	"github.com/clubpetey/openintake/relay/internal/auth/sso"
+	"github.com/clubpetey/openintake/relay/internal/config"
 )
 
 // hs256Secret is a deterministic 32-byte secret used in all HS256 tests.

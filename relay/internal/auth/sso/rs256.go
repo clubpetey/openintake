@@ -10,8 +10,8 @@ import (
 	"github.com/MicahParks/keyfunc/v3"
 	"github.com/golang-jwt/jwt/v5"
 
-	"intake/internal/auth"
-	"intake/internal/config"
+	"github.com/clubpetey/openintake/relay/internal/auth"
+	"github.com/clubpetey/openintake/relay/internal/config"
 )
 
 // RS256Verifier validates RS256-signed SSO tokens against a JWKS fetched

@@ -12,12 +12,12 @@ import (
 
 	metricstestutil "github.com/prometheus/client_golang/prometheus/testutil"
 
-	"intake/internal/auth"
-	"intake/internal/config"
-	metricsregistry "intake/internal/metrics"
-	"intake/internal/ratelimit/perip"
-	"intake/internal/server"
-	"intake/internal/version"
+	"github.com/clubpetey/openintake/relay/internal/auth"
+	"github.com/clubpetey/openintake/relay/internal/config"
+	metricsregistry "github.com/clubpetey/openintake/relay/internal/metrics"
+	"github.com/clubpetey/openintake/relay/internal/ratelimit/perip"
+	"github.com/clubpetey/openintake/relay/internal/server"
+	"github.com/clubpetey/openintake/relay/internal/version"
 )
 
 // ---- helpers ----

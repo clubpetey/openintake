@@ -4,12 +4,12 @@ import (
 	"reflect"
 	"testing"
 
-	"intake/internal/adapter"
-	"intake/internal/adapter/chatwoot"
-	"intake/internal/adapter/fider"
-	"intake/internal/adapter/linear"
-	"intake/internal/adapter/webhook"
-	"intake/internal/adapter/zendesk"
+	"github.com/clubpetey/openintake/relay/internal/adapter"
+	"github.com/clubpetey/openintake/relay/internal/adapter/chatwoot"
+	"github.com/clubpetey/openintake/relay/internal/adapter/fider"
+	"github.com/clubpetey/openintake/relay/internal/adapter/linear"
+	"github.com/clubpetey/openintake/relay/internal/adapter/webhook"
+	"github.com/clubpetey/openintake/relay/internal/adapter/zendesk"
 )
 
 // TestCapableAdapter_AllFiveAdaptersAdvertiseV0List asserts each of the five

@@ -8,7 +8,7 @@
 
 ## 1. Goal
 
-Add the four remaining v0 adapters (`chatwoot`, `fider` free; `zendesk`, `linear` paid) behind the **frozen** `adapter.Adapter` interface; add a **router** that resolves a submission to one adapter (`routing_hint` → rules → default, PROJECT.md §8); add **Ed25519 license verification** (embedded public key, signed-JSON license, load order, 14-day trial, free-mode fallback, PROJECT.md §12); apply the **license gate** to the two paid adapters; and implement the maintainer-only **`intake-license` CLI** (PROJECT.md §12 key management, decomposition Q10).
+Add the four remaining v0 adapters (`chatwoot`, `fider` free; `zendesk`, `linear` paid) behind the **frozen** `adapter.Adapter` interface; add a **router** that resolves a submission to one adapter (`routing_hint` → rules → default, PROJECT.md §8); add **Ed25519 license verification** (embedded public key, signed-JSON license, load order, 14-day trial, free-mode fallback, PROJECT.md §12); apply the **license gate** to the two paid adapters; and implement the maintainer-only **`openintake-license` CLI** (PROJECT.md §12 key management, decomposition Q10).
 
 Success (decomposition §2, Phase 3 row): "Route a real ticket into a **live Chatwoot**; paid adapter blocked w/o license, permitted w/ signed test license; free-mode disables paid adapters with a clear startup log."
 
@@ -35,7 +35,7 @@ func (r *Router) Route(p *payload.IntakePayload) (adapter.Adapter, error)
 
 ### 2.2 License seam (shared-package split, honoring Go's `internal/` rule)
 
-The relay (module `intake`) **verifies** with an embedded *public* key; the `intake-license` CLI (module `intake-license-tool`) **signs** with the *private* key. Both must agree byte-for-byte on canonicalization, but `internal/` blocks the CLI from importing `intake/internal/...`. Resolution (chosen approach): a small **importable** package.
+The relay (module `intake`) **verifies** with an embedded *public* key; the `openintake-license` CLI (module `openintake-license-tool`) **signs** with the *private* key. Both must agree byte-for-byte on canonicalization, but `internal/` blocks the CLI from importing `intake/internal/...`. Resolution (chosen approach): a small **importable** package.
 
 - **`relay/license/`** (package `license`, **NOT** under `internal/`): the `License` struct, `Canonicalize`, `Sign(priv, *License)`, `Verify(pub, blob) (*License, error)`. Pure `crypto/ed25519` + `encoding/json`; zero relay-internal dependencies. **Single source of truth for canonicalization.**
 - **`relay/internal/license/`** (package `license`, relay-only): the **embedded public-key constant**, the **loader** (load order), the **trial/free state machine**, and the **gate** (`Permits(adapterName) bool`). Imports `intake/license`.
@@ -59,7 +59,7 @@ Seven sub-plans. Seam first (3-i), then one adapter each (3-ii…3-v), then lice
 | 3-iv | **zendesk** (paid) | `adapter/zendesk`, `RequiresLicense()=true` — ticket + priority + custom fields | Unit: `httptest`; basic-auth `email/token`. Live: **pauses** (needs Zendesk token). |
 | 3-v | **linear** (paid) | `adapter/linear`, `RequiresLicense()=true` — GraphQL `issueCreate` | Unit: `httptest` mocks the GraphQL endpoint. Live: **pauses** (needs Linear token). |
 | 3-vi | **license verify + gate** | `relay/license` (struct/canon/sign/verify) + `relay/internal/license` (embedded key, loader, trial/free machine) + gate retrofit into the 3-i registry + `main.go` wiring + license config block | Unit: ephemeral test keypair via **injectable verifier**; trial/free/expired/bad-sig matrix; gate skips unlicensed paid. **Free-mode startup-log behavior is smokeable with NO external dep** (boot with zendesk enabled, no license → paid skipped + clear log). |
-| 3-vii | **intake-license CLI** | `license-tool` `keygen` + `sign` (+ `verify`), `replace intake => ../relay`; excluded from release artifacts | Local round-trip: `keygen` → `sign` a test license → relay `Verify` accepts it; tamper one byte → relay rejects. No network, no real key. |
+| 3-vii | **openintake-license CLI** | `license-tool` `keygen` + `sign` (+ `verify`), `replace intake => ../relay`; excluded from release artifacts | Local round-trip: `keygen` → `sign` a test license → relay `Verify` accepts it; tamper one byte → relay rejects. No network, no real key. |
 
 **Dependency graph:** `3-i → {3-ii, 3-iii, 3-iv, 3-v} → 3-vi → 3-vii`. The four adapters depend only on the 3-i registry/config seam and are mutually independent (each adds a distinct package + one config block + one registry entry); they may be built in parallel or serially. 3-vi retrofits the gate into the registry (so it follows the adapters). 3-vii depends on 3-vi's `relay/license` package (shared `Sign`/`Verify`).
 
@@ -70,8 +70,8 @@ Seven sub-plans. Seam first (3-i), then one adapter each (3-ii…3-v), then lice
 1. CLI flag `--license-file=<path>`
 2. env `INTAKE_LICENSE` (base64-encoded license JSON)
 3. env `INTAKE_LICENSE_FILE` (path)
-4. `/etc/intake/license.json`
-5. `os.UserConfigDir()/intake/license.json`
+4. `/etc/openintake/license.json`
+5. `os.UserConfigDir()/openintake/license.json`
 
 First hit wins. The loader returns "no license found" distinctly from "license found but invalid."
 
@@ -86,7 +86,7 @@ First hit wins. The loader returns "no license found" distinctly from "license f
 | No license + trial state, ≤ 14 days old | **Trial** — all adapters enabled, log remaining days |
 | No license + trial expired | **Free** — paid adapters skipped, clear startup log naming the pricing URL |
 
-Trial-state path (decomposition Q3): `os.UserConfigDir()/intake/state.json` → `%AppData%\intake\state.json` (Windows), `~/.config/intake/state.json` (Linux), `~/Library/Application Support/intake/state.json` (macOS). In an ephemeral container the trial restarts each boot; production is expected to carry a license (noted in §6 / Phase 7 docs).
+Trial-state path (decomposition Q3): `os.UserConfigDir()/openintake/state.json` → `%AppData%\intake\state.json` (Windows), `~/.config/openintake/state.json` (Linux), `~/Library/Application Support/openintake/state.json` (macOS). In an ephemeral container the trial restarts each boot; production is expected to carry a license (noted in §6 / Phase 7 docs).
 
 ### 4.3 The gate
 
@@ -183,10 +183,10 @@ adapters:
 Credit-free unit tests back everything above. The live smoke needs real downstream targets and a maintainer-signed license; **pause and hand off to the maintainer** for these:
 
 ```
-1. Maintainer keygen pause (one-time): run `intake-license keygen`; store the private
+1. Maintainer keygen pause (one-time): run `openintake-license keygen`; store the private
    key offline; commit the generated public key as the embedded constant in
    relay/internal/license; rebuild relay.
-2. Maintainer sign pause: `intake-license sign` a short-lived license granting
+2. Maintainer sign pause: `openintake-license sign` a short-lived license granting
    {zendesk, linear} → license.json.
 3. Live Chatwoot: point adapters.chatwoot at a running Chatwoot instance; submit a
    conversation through the widget/driver → a conversation appears in the inbox with
@@ -214,4 +214,4 @@ Per the credit/secret guard, steps 1–2 (keygen/sign), 3 (live Chatwoot), and a
 
 ## 12. Non-goals (Phase 3)
 
-Attachment forwarding (P6); multi-adapter dispatch / fan-out (v1); license revocation / CRL (v1); online activation or phone-home (never — §12); publishing the `intake-license` CLI (maintainer-only, Q10); per-tenant adapter config overrides beyond honoring the `hosted` tier marker (hosted-relay project, §16); adapter-specific features beyond ticket/issue/post creation with basic field mapping (custom-field editors, status sync, comments — post-v0).
+Attachment forwarding (P6); multi-adapter dispatch / fan-out (v1); license revocation / CRL (v1); online activation or phone-home (never — §12); publishing the `openintake-license` CLI (maintainer-only, Q10); per-tenant adapter config overrides beyond honoring the `hosted` tier marker (hosted-relay project, §16); adapter-specific features beyond ticket/issue/post creation with basic field mapping (custom-field editors, status sync, comments — post-v0).

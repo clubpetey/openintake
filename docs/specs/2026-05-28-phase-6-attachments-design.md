@@ -82,7 +82,7 @@ Single stdlib call on the first 512 bytes; rejects when detected MIME ≠ declar
 
 `ScreenshotRedactor.vue` is a full-screen modal launched on Attach-click. Capture runs immediately; modal hosts a `<canvas>` with mouse-drawn solid-fill rectangles + Clear All + Save + Cancel. Tested via `@vue/test-utils` mount-in-isolation with a stubbed `html2canvas` and a stubbed canvas-2d context. `html2canvas` is dependency-injected via `core/src/capture.ts` `setHtml2Canvas(fn)` so tests don't load the real library.
 
-**Revisit trigger:** the v1 React widget reuses redaction logic → extract a framework-agnostic redaction primitive into `@intake/core`.
+**Revisit trigger:** the v1 React widget reuses redaction logic → extract a framework-agnostic redaction primitive into `@openintake/core`.
 
 ---
 
@@ -282,7 +282,7 @@ The corresponding TS types in `core/src/types.ts` mirror these additively.
 
 `payloadbuild.Build` is extended additively: when `req.Attachments` is non-empty, populate `p.Attachments` with one `payload.Attachment` per entry. The runtime schema validation (L003 mitigation) covers existing schema rules. **Magic-byte + size-cap validation does NOT live in payloadbuild** — it's a separate post-build step in submitHandler. payloadbuild stays focused on shape; attachvalidate stays focused on content.
 
-### 5.7 Widget components (Vue 3 + @intake/core)
+### 5.7 Widget components (Vue 3 + @openintake/core)
 
 ```
 core/src/

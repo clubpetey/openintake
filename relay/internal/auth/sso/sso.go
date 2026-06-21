@@ -30,8 +30,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"intake/internal/auth"
-	"intake/internal/config"
+	"github.com/clubpetey/openintake/relay/internal/auth"
+	"github.com/clubpetey/openintake/relay/internal/config"
 )
 
 // Verifier verifies an SSO JWT and returns the mapped claims. It is the

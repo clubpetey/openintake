@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"intake/internal/config"
+	"github.com/clubpetey/openintake/relay/internal/config"
 )
 
 func TestLoad_ParsesSampleYAML(t *testing.T) {
@@ -247,8 +247,8 @@ func TestLoad_ParsesAdapterBlocks(t *testing.T) {
 	if cfg.Adapters.Linear.TeamID != "TEAM_ID" {
 		t.Errorf("linear.team_id = %q; want TEAM_ID", cfg.Adapters.Linear.TeamID)
 	}
-	if cfg.License.File != "/etc/intake/license.json" {
-		t.Errorf("license.file = %q; want /etc/intake/license.json", cfg.License.File)
+	if cfg.License.File != "/etc/openintake/license.json" {
+		t.Errorf("license.file = %q; want /etc/openintake/license.json", cfg.License.File)
 	}
 }
 

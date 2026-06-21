@@ -12,7 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
-	"intake/internal/metrics"
+	"github.com/clubpetey/openintake/relay/internal/metrics"
 )
 
 // TestRegistry_DisabledIsNoOp asserts the zero-cost-when-disabled invariant:

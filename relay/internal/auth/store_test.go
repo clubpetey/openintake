@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"intake/internal/auth"
+	"github.com/clubpetey/openintake/relay/internal/auth"
 )
 
 func TestStore_IssueAndValidate(t *testing.T) {

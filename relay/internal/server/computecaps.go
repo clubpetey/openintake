@@ -1,8 +1,8 @@
 package server
 
 import (
-	"intake/internal/adapter"
-	"intake/internal/config"
+	"github.com/clubpetey/openintake/relay/internal/adapter"
+	"github.com/clubpetey/openintake/relay/internal/config"
 )
 
 // ComputeAttachmentsCaps returns the CapabilitiesAttachments to advertise on

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"intake/internal/auth/smtpsend"
+	"github.com/clubpetey/openintake/relay/internal/auth/smtpsend"
 )
 
 func TestFakeSender_CapturesInOrder(t *testing.T) {

@@ -1,5 +1,5 @@
 /**
- * Provider-agnostic 5-turn smoke driver for @intake/core.
+ * Provider-agnostic 5-turn smoke driver for @openintake/core.
  *
  * Drives init() then 5 sequential turn() calls, accumulating the conversation
  * history across turns (user message + synthesized assistant response from
@@ -10,7 +10,7 @@
  * final smoke points the relay at each provider in turn.
  *
  * Does NOT call submit(), so no browser-global stubs (window/navigator/document)
- * are required. init() and turn() are SSR-safe in @intake/core.
+ * are required. init() and turn() are SSR-safe in @openintake/core.
  *
  * Usage:
  *   RELAY_URL=http://localhost:8080 npx tsx core/smoke/drive-multi.ts

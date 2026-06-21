@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"intake/internal/payload"
+	"github.com/clubpetey/openintake/relay/internal/payload"
 )
 
 // validBasePayload returns a fully-valid IntakePayload that passes schema validation.

@@ -4,17 +4,17 @@ import (
 	"log/slog"
 	"net/netip"
 
-	"intake/internal/auth"
-	"intake/internal/budget"
-	"intake/internal/captcha"
-	"intake/internal/classify"
-	"intake/internal/config"
-	"intake/internal/llm"
-	"intake/internal/metrics"
-	"intake/internal/payloadbuild"
-	"intake/internal/ratelimit/perip"
-	"intake/internal/router"
-	"intake/internal/version"
+	"github.com/clubpetey/openintake/relay/internal/auth"
+	"github.com/clubpetey/openintake/relay/internal/budget"
+	"github.com/clubpetey/openintake/relay/internal/captcha"
+	"github.com/clubpetey/openintake/relay/internal/classify"
+	"github.com/clubpetey/openintake/relay/internal/config"
+	"github.com/clubpetey/openintake/relay/internal/llm"
+	"github.com/clubpetey/openintake/relay/internal/metrics"
+	"github.com/clubpetey/openintake/relay/internal/payloadbuild"
+	"github.com/clubpetey/openintake/relay/internal/ratelimit/perip"
+	"github.com/clubpetey/openintake/relay/internal/router"
+	"github.com/clubpetey/openintake/relay/internal/version"
 )
 
 // Deps holds the dependencies injected into the HTTP server at startup.

@@ -2,7 +2,7 @@
 
 > **Status:** Approved design decision
 > **Date:** 2026-05-27
-> **Applies to:** the `intake-relay` binary across all distributions (container image, native binary, `go install`)
+> **Applies to:** the `openintake-relay` binary across all distributions (container image, native binary, `go install`)
 > **Implements / refines:** [docs/PROJECT.md](../PROJECT.md) §9 (configuration), §17 (security); [Phase 1 design](2026-05-26-phase-1-walking-skeleton-design.md) §2, §7
 
 ## 1. The model: config and secrets are separate sources
@@ -39,14 +39,14 @@ A single `KEY=value` file of all secrets (`.env` / Java `.properties` style) is 
 
 - Docker: `docker run --env-file secrets.env …`
 - Compose: `env_file: ./secrets.env`
-- systemd (native binary): `EnvironmentFile=/etc/intake/secrets.env`
+- systemd (native binary): `EnvironmentFile=/etc/openintake/secrets.env`
 - shell/dev: `set -a; source secrets.env; set +a`
 
 So the "one file for all secrets" experience is delivered by the platform's env-file mechanism. Building a properties/dotenv parser into the relay would add a format to maintain, invite format bikeshedding, and re-introduce a secrets-in-a-file coupling — for no capability gain. The `$NAME` path already covers it.
 
 ## 4. Where each input comes from, per deployment
 
-- **YAML config:** mounted into the container (`-v ./config.yaml:/etc/intake/config.yaml` or a k8s ConfigMap mounted as a file), referenced via `--config`. Default lookup path `/etc/intake/config.yaml`. Not baked into the image, so config changes don't require a rebuild. For a native binary, a local path or the default.
+- **YAML config:** mounted into the container (`-v ./config.yaml:/etc/openintake/config.yaml` or a k8s ConfigMap mounted as a file), referenced via `--config`. Default lookup path `/etc/openintake/config.yaml`. Not baked into the image, so config changes don't require a rebuild. For a native binary, a local path or the default.
 - **Secrets:**
   - **Single combined file (simple self-host):** the operator's env-file (`--env-file` / compose `env_file:` / systemd `EnvironmentFile=`) → populates `$NAME`. *(This is the "single properties file" option.)*
   - **Per-secret mounted files (orchestrated):** Docker secrets (`/run/secrets/…`), k8s `Secret` mounted as files, Vault Agent file sinks → referenced via `$NAME_FILE`.

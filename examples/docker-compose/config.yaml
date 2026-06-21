@@ -1,6 +1,6 @@
 # Phase 7-iii — Intake relay config for the docker-compose demo.
 #
-# Mounted into the relay container at /etc/intake/config.yaml (read-only).
+# Mounted into the relay container at /etc/openintake/config.yaml (read-only).
 # Drives a complete working intake instance with zero external credentials:
 #
 #   - Anonymous auth, captcha NOT required → curl-friendly

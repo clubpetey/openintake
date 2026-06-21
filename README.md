@@ -1,20 +1,20 @@
-# intake
+# OpenIntake
 
-> **Working name** — final name TBD (see `docs/specs/2026-05-26-v0-decomposition-and-phasing-design.md` §6).
+> AI-native, self-hostable feedback & support intake — Apache-2.0 core, single-binary Go relay + embeddable Vue widget.
 
 <!-- Status badges — fill in post-public-release:
-[![CI](https://github.com/<org>/<repo>/actions/workflows/ci.yml/badge.svg)](https://github.com/<org>/<repo>/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/<org>/<repo>)](https://github.com/<org>/<repo>/releases)
+[![CI](https://github.com/clubpetey/openintake/actions/workflows/ci.yml/badge.svg)](https://github.com/clubpetey/openintake/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/clubpetey/openintake)](https://github.com/clubpetey/openintake/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 -->
 
-**intake** is an AI-native, self-hostable feedback & support intake stack: an embeddable Vue 3 widget + a single-binary Go relay. No SaaS dependency, no vendor lock-in, no third-party data plane — install the relay on your own infrastructure, drop the widget into your app, and route submissions into the support system you already use (Chatwoot, Zendesk, Linear, Fider, or any HTTP webhook).
+**OpenIntake** is an AI-native, self-hostable feedback & support intake stack: an embeddable Vue 3 widget + a single-binary Go relay. No SaaS dependency, no vendor lock-in, no third-party data plane — install the relay on your own infrastructure, drop the widget into your app, and route submissions into the support system you already use (Chatwoot, Zendesk, Linear, Fider, or any HTTP webhook).
 
 ## The 60-second demo
 
 ```bash
-git clone <repo-url>
-cd intake/examples/docker-compose
+git clone https://github.com/clubpetey/openintake.git
+cd openintake/examples/docker-compose
 docker-compose up -d
 ```
 
@@ -55,7 +55,7 @@ Plus: AI-driven classification + summarization, screenshot capture with client-s
 
 ## License
 
-intake uses a dual licensing model:
+OpenIntake uses a dual licensing model:
 
 - **Apache 2.0** covers the framework — the relay, the widget, the schema, the free adapters (`webhook`, `chatwoot`, `fider`), and all LLM providers. See [`LICENSE`](LICENSE).
 - **Commercial license** is required to operate the paid adapters (`zendesk`, `linear`) in production after the 14-day trial. See [`COMMERCIAL.md`](COMMERCIAL.md) for (draft) terms.
@@ -65,10 +65,10 @@ The source code is Apache 2.0 either way — the commercial gate is at runtime, 
 ## Repo layout
 
 ```
-intake/
-├── core/                # @intake/core — shared TypeScript engine (capture, client, types)
-├── vue/                 # @intake/vue — Vue 3 widget components
-├── relay/               # intake-relay Go binary + internal packages
+openintake/
+├── core/                # @openintake/core — shared TypeScript engine (capture, client, types)
+├── vue/                 # @openintake/vue — Vue 3 widget components
+├── relay/               # openintake-relay Go binary + internal packages
 ├── license-tool/        # maintainer-only license signer (not published)
 ├── schema/              # payload.v1.json — wire contract (source of truth)
 ├── examples/            # vue-anonymous, webhook-receiver, docker-compose
@@ -107,4 +107,4 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full developer workflow.
 
 ## Status
 
-intake is **pre-1.0**. The v0 wire contract is locked (`schema/payload.v1.json`), but the public release infrastructure is still local-only — see `docs/PROJECT.md` §15 for the release-pipeline status. Pin to specific commits if you depend on intake in production today; semver guarantees begin at v1.0.0.
+OpenIntake is **pre-1.0**. The v0 wire contract is locked (`schema/payload.v1.json`), but the public release infrastructure is still local-only — see `docs/PROJECT.md` §15 for the release-pipeline status. Pin to specific commits if you depend on OpenIntake in production today; semver guarantees begin at v1.0.0.

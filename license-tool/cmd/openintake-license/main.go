@@ -1,11 +1,11 @@
-// Command intake-license is the MAINTAINER-ONLY license tool. It is NOT distributed
+// Command openintake-license is the MAINTAINER-ONLY license tool. It is NOT distributed
 // (Q10): excluded from all release artifacts (goreleaser ignore / not published).
 // It signs licenses with the maintainer's offline Ed25519 private key, using the
 // SAME relay/license canonicalization the relay verifies (shared via replace).
 //
-//	intake-license keygen [--key priv.key] [--pub pub.txt]
-//	intake-license sign   --in template.json --key priv.key [--out license.json] [--days 365]
-//	intake-license verify --in license.json --pubkey <base64>
+//	openintake-license keygen [--key priv.key] [--pub pub.txt]
+//	openintake-license sign   --in template.json --key priv.key [--out license.json] [--days 365]
+//	openintake-license verify --in license.json --pubkey <base64>
 package main
 
 import (
@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"intake/license"
+	"github.com/clubpetey/openintake/relay/license"
 )
 
 func main() {
@@ -31,7 +31,7 @@ func main() {
 	var err error
 	switch os.Args[1] {
 	case "keygen":
-		keyPath, pubPath := "intake-license-private.key", "intake-license-public.txt"
+		keyPath, pubPath := "openintake-license-private.key", "openintake-license-public.txt"
 		parseFlags(os.Args[2:], map[string]*string{"key": &keyPath, "pub": &pubPath})
 		err = doKeygen(keyPath, pubPath, os.Stdout)
 	case "sign":
@@ -64,12 +64,12 @@ func main() {
 		os.Exit(2)
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "intake-license:", err)
+		fmt.Fprintln(os.Stderr, "openintake-license:", err)
 		os.Exit(1)
 	}
 }
 
-const usage = `intake-license (maintainer-only)
+const usage = `openintake-license (maintainer-only)
   keygen [--key priv.key] [--pub pub.txt]
   sign   --in template.json --key priv.key [--out license.json] [--days 365]
   verify --in license.json --pubkey <base64>`

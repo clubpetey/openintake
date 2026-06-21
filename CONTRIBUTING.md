@@ -1,4 +1,4 @@
-# Contributing to intake
+# Contributing to OpenIntake
 
 Thanks for your interest in contributing. This document covers how the project is laid out, how changes flow from idea to merge, and the local commands you should run before opening a pull request.
 
@@ -10,9 +10,9 @@ This project follows the Contributor Covenant 2.1 (TBD — pending maintainer ad
 
 ```
 intake/
-├── core/                # @intake/core — shared TypeScript engine
-├── vue/                 # @intake/vue — Vue 3 widget package
-├── relay/               # intake-relay Go binary + internal packages
+├── core/                # @openintake/core — shared TypeScript engine
+├── vue/                 # @openintake/vue — Vue 3 widget package
+├── relay/               # openintake-relay Go binary + internal packages
 ├── license-tool/        # maintainer-only license signer (not published)
 ├── schema/              # payload.v1.json — wire contract (source of truth)
 ├── examples/            # vue-anonymous, webhook-receiver, docker-compose
@@ -25,7 +25,7 @@ See `docs/PROJECT.md` §14 for the canonical repo layout description, and `docs/
 
 ## Branch and merge model
 
-intake develops in long-lived **phase branches** that batch related changes into a single bundled merge to `main`:
+OpenIntake develops in long-lived **phase branches** that batch related changes into a single bundled merge to `main`:
 
 - `main` — the integration branch. Always green: every Phase N merge passes the Phase N final smoke before merging.
 - `phase-N` — the active development branch for phase N. Sub-plans are implemented as a sequence of commits on this branch (typically one or more commits per sub-plan).
@@ -47,7 +47,7 @@ This model exists because Phase 0f shipped silently-broken Auth0 IaC and Phase 0
 
 ## Commit conventions
 
-intake uses Conventional Commits with a phase-scoped scope:
+OpenIntake uses Conventional Commits with a phase-scoped scope:
 
 ```
 <type>(<scope>): <short subject>
@@ -172,6 +172,6 @@ See `docs/quickstart.md` for a full walkthrough.
 
 ## License
 
-By contributing to intake, you agree that your contributions are licensed under Apache 2.0 (the project's primary license — see `LICENSE`). You retain copyright to your contributions; the Apache 2.0 license grants the project (and downstream users) the rights needed to use, modify, and distribute them.
+By contributing to OpenIntake, you agree that your contributions are licensed under Apache 2.0 (the project's primary license — see `LICENSE`). You retain copyright to your contributions; the Apache 2.0 license grants the project (and downstream users) the rights needed to use, modify, and distribute them.
 
 Contributions to the paid adapters (`zendesk`, `linear`) are also under Apache 2.0 — the commercial license model (see `COMMERCIAL.md`) gates *runtime use* in production, not contribution or modification of the source.

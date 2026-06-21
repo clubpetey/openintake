@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"intake/internal/llm"
-	ollamapkg "intake/internal/llm/ollama"
+	"github.com/clubpetey/openintake/relay/internal/llm"
+	ollamapkg "github.com/clubpetey/openintake/relay/internal/llm/ollama"
 )
 
 // TestIntegration_RealStream performs a live Ollama /api/chat call.

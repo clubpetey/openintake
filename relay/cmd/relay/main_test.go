@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"intake/internal/adapter"
-	"intake/internal/config"
-	licensemgr "intake/internal/license"
+	"github.com/clubpetey/openintake/relay/internal/adapter"
+	"github.com/clubpetey/openintake/relay/internal/config"
+	licensemgr "github.com/clubpetey/openintake/relay/internal/license"
 )
 
 // TestMain_VersionFlag_PrintsAndExits asserts the --version flag prints a
@@ -20,9 +20,9 @@ import (
 // smoke depends on.
 func TestMain_VersionFlag_PrintsAndExits(t *testing.T) {
 	tmp := t.TempDir()
-	binPath := filepath.Join(tmp, "intake-relay-test.exe")
+	binPath := filepath.Join(tmp, "openintake-relay-test.exe")
 	if os.PathSeparator == '/' {
-		binPath = filepath.Join(tmp, "intake-relay-test")
+		binPath = filepath.Join(tmp, "openintake-relay-test")
 	}
 	// Build the relay binary into a temp path. Build cwd is the cmd/relay dir.
 	build := exec.Command("go", "build", "-o", binPath, ".")
@@ -40,8 +40,8 @@ func TestMain_VersionFlag_PrintsAndExits(t *testing.T) {
 	if s == "" {
 		t.Fatalf("--version printed empty output; want a non-empty version string")
 	}
-	if !strings.Contains(s, "intake-relay") {
-		t.Errorf("--version output %q does not contain 'intake-relay'", s)
+	if !strings.Contains(s, "openintake-relay") {
+		t.Errorf("--version output %q does not contain 'openintake-relay'", s)
 	}
 }
 

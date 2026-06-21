@@ -13,11 +13,11 @@ import (
 
 	metricstestutil "github.com/prometheus/client_golang/prometheus/testutil"
 
-	"intake/internal/auth"
-	"intake/internal/config"
-	"intake/internal/llm"
-	metricsregistry "intake/internal/metrics"
-	"intake/internal/server"
+	"github.com/clubpetey/openintake/relay/internal/auth"
+	"github.com/clubpetey/openintake/relay/internal/config"
+	"github.com/clubpetey/openintake/relay/internal/llm"
+	metricsregistry "github.com/clubpetey/openintake/relay/internal/metrics"
+	"github.com/clubpetey/openintake/relay/internal/server"
 )
 
 // testProvider implements llm.Provider using a fixed list of chunks.

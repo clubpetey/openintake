@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"intake/internal/llm"
-	anthropicpkg "intake/internal/llm/anthropic"
+	"github.com/clubpetey/openintake/relay/internal/llm"
+	anthropicpkg "github.com/clubpetey/openintake/relay/internal/llm/anthropic"
 )
 
 // cannedSSE is a minimal Anthropic Messages API streaming response that emits

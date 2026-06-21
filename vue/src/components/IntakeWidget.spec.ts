@@ -6,8 +6,8 @@ const mockInit = vi.fn();
 const mockTurn = vi.fn();
 const mockSubmit = vi.fn();
 
-// Stub IntakeClient + capturePage from @intake/core (single mock factory).
-vi.mock('@intake/core', async (orig) => {
+// Stub IntakeClient + capturePage from @openintake/core (single mock factory).
+vi.mock('@openintake/core', async (orig) => {
   const actual = (await orig()) as Record<string, unknown>;
   function IntakeClient() {
     return { init: mockInit, turn: mockTurn, submit: mockSubmit };

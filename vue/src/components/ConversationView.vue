@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ChatMessage } from '@intake/core';
+import type { ChatMessage } from '@openintake/core';
 
 defineProps<{
   messages: ChatMessage[];

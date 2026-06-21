@@ -14,30 +14,30 @@ import (
 	"syscall"
 	"time"
 
-	"intake/internal/adapter"
-	"intake/internal/adapter/chatwoot"
-	"intake/internal/adapter/fider"
-	"intake/internal/adapter/linear"
-	"intake/internal/adapter/webhook"
-	"intake/internal/adapter/zendesk"
-	"intake/internal/auth"
-	"intake/internal/auth/emailcode"
-	"intake/internal/auth/emailjwt"
-	"intake/internal/auth/smtpsend"
-	"intake/internal/auth/sso"
-	"intake/internal/budget"
-	"intake/internal/captcha"
-	"intake/internal/classify"
-	"intake/internal/config"
-	licensemgr "intake/internal/license"
-	"intake/internal/llm/providers"
-	"intake/internal/metrics"
-	"intake/internal/payloadbuild"
-	"intake/internal/ratelimit/perip"
-	"intake/internal/router"
-	"intake/internal/server"
-	"intake/internal/triage"
-	"intake/internal/version"
+	"github.com/clubpetey/openintake/relay/internal/adapter"
+	"github.com/clubpetey/openintake/relay/internal/adapter/chatwoot"
+	"github.com/clubpetey/openintake/relay/internal/adapter/fider"
+	"github.com/clubpetey/openintake/relay/internal/adapter/linear"
+	"github.com/clubpetey/openintake/relay/internal/adapter/webhook"
+	"github.com/clubpetey/openintake/relay/internal/adapter/zendesk"
+	"github.com/clubpetey/openintake/relay/internal/auth"
+	"github.com/clubpetey/openintake/relay/internal/auth/emailcode"
+	"github.com/clubpetey/openintake/relay/internal/auth/emailjwt"
+	"github.com/clubpetey/openintake/relay/internal/auth/smtpsend"
+	"github.com/clubpetey/openintake/relay/internal/auth/sso"
+	"github.com/clubpetey/openintake/relay/internal/budget"
+	"github.com/clubpetey/openintake/relay/internal/captcha"
+	"github.com/clubpetey/openintake/relay/internal/classify"
+	"github.com/clubpetey/openintake/relay/internal/config"
+	licensemgr "github.com/clubpetey/openintake/relay/internal/license"
+	"github.com/clubpetey/openintake/relay/internal/llm/providers"
+	"github.com/clubpetey/openintake/relay/internal/metrics"
+	"github.com/clubpetey/openintake/relay/internal/payloadbuild"
+	"github.com/clubpetey/openintake/relay/internal/ratelimit/perip"
+	"github.com/clubpetey/openintake/relay/internal/router"
+	"github.com/clubpetey/openintake/relay/internal/server"
+	"github.com/clubpetey/openintake/relay/internal/triage"
+	"github.com/clubpetey/openintake/relay/internal/version"
 )
 
 func main() {
@@ -51,7 +51,7 @@ func main() {
 	// binary-vs-tag identity assertion target for the 7-ii snapshot-build smoke.
 	if *showVersion {
 		info := version.Info()
-		fmt.Printf("intake-relay %s (%s) built %s\n", info.Version, info.Commit, info.BuildTime)
+		fmt.Printf("openintake-relay %s (%s) built %s\n", info.Version, info.Commit, info.BuildTime)
 		os.Exit(0)
 	}
 

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"intake/license"
+	"github.com/clubpetey/openintake/relay/license"
 )
 
 func newLicense() license.License {

@@ -21,7 +21,7 @@ Ship the v0 release & operations infrastructure: every artifact a public release
 ### IN SCOPE — generate artifacts locally
 
 - `goreleaser release --snapshot --clean` → 5 platform binaries (`linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`, `windows/amd64`) sitting in `./dist/` with checksums
-- `docker build` → multi-arch image tagged `ghcr.io/intake/intake-relay:snapshot` in the local Docker daemon
+- `docker build` → multi-arch image tagged `ghcr.io/clubpetey/openintake-relay:snapshot` in the local Docker daemon
 - `npm pack` (or `npm publish --dry-run`) → `intake-core-0.0.0.tgz` + `intake-vue-0.0.0.tgz` tarballs in the working tree, validated against the registry's manifest rules
 - `docker-compose up` → full stack boots locally (`examples/docker-compose/`), processes a real ticket end-to-end
 - Prometheus metrics endpoint on a separate HTTP server (off-by-default), exporting 4 series
@@ -97,7 +97,7 @@ Phase 7-i includes an **initial-fix sweep task** that runs each linter locally, 
 - Platforms: `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`, `windows/amd64`.
 - `goreleaser` pinned exact (latest stable as of 2026-05-29; verify and pin in 7-ii first task) per `scripts/check-pins.sh`.
 - `release.yml` workflow is **authored in Phase 7-ii but never EXECUTED in Phase 7** — its correctness is verified via `goreleaser check` + the snapshot build smoke. Triggered only on tag push matching `v[0-9]+.[0-9]+.[0-9]+`.
-- Includes a `dockers:` block that builds + tags the multi-arch image as `ghcr.io/intake/intake-relay:vX.Y.Z` + `:latest` — but never `docker push` in Phase 7's flows.
+- Includes a `dockers:` block that builds + tags the multi-arch image as `ghcr.io/clubpetey/openintake-relay:vX.Y.Z` + `:latest` — but never `docker push` in Phase 7's flows.
 - `archives.files` uses an explicit allowlist (LICENSE, README.md, CHANGELOG.md, docs/) to prevent accidental inclusion of `.env`, `local-dev/`, etc.
 
 **Revisit trigger:** add a 6th platform (`linux/arm/v7`, `freebsd`) → extend the matrix; OR the npm scope `@intake` needs to change → update both goreleaser AND the npm publish step.
@@ -446,15 +446,15 @@ maintainer runs (Phase 7-v final smoke):
 goreleaser reads relay/.goreleaser.yaml
    │
    ├─► builds 5 platform binaries via `go build`
-   │     → dist/intake-relay_<version>_<os>_<arch>/intake-relay[.exe]
+   │     → dist/openintake-relay_<version>_<os>_<arch>/openintake-relay[.exe]
    │
    ├─► creates platform-specific archives (tar.gz on linux/darwin, zip on windows)
-   │     → dist/intake-relay_<version>_<os>_<arch>.{tar.gz,zip}
+   │     → dist/openintake-relay_<version>_<os>_<arch>.{tar.gz,zip}
    │
    ├─► generates SHA256SUMS.txt
    │
    ├─► (dockers block) builds multi-arch image LOCALLY
-   │     → tag: ghcr.io/intake/intake-relay:snapshot
+   │     → tag: ghcr.io/clubpetey/openintake-relay:snapshot
    │     → NEVER pushed (--snapshot disables push)
    │
    └─► (release block) generates CHANGELOG.md from git log
@@ -563,7 +563,7 @@ A failing snapshot smoke is a build-fail in Phase 7-v.
 
 | Failure | Cause | Resolution |
 |---|---|---|
-| `relay: cannot find /etc/intake/config.yaml` | mount path wrong | Fix `volumes:` in `docker-compose.yml` |
+| `relay: cannot find /etc/openintake/config.yaml` | mount path wrong | Fix `volumes:` in `docker-compose.yml` |
 | `webhook-receiver returns 502` | network alias misconfigured | Confirm `depends_on` + service names match `config.yaml`'s `adapters.webhook.url` |
 | `port 18080 in use` on host | conflict with developer's other processes | Document port-remap workaround in README.md |
 
@@ -672,7 +672,7 @@ Every line of new code has a Go unit test (httptest mocks) or a Vitest. Zero pai
 
 | Artifact | "Test" |
 |---|---|
-| `relay/Dockerfile` | `docker build -t intake-relay:test relay/` exits 0; image runs as `nonroot`; image size < 50 MB |
+| `relay/Dockerfile` | `docker build -t openintake-relay:test relay/` exits 0; image runs as `nonroot`; image size < 50 MB |
 | `relay/.goreleaser.yaml` | `goreleaser check` exits 0; `goreleaser release --snapshot --clean` produces all 5 archives + image in `./dist/` |
 | `.github/workflows/release.yml` | `actionlint` exits 0; YAML structurally valid; secret references syntactically present |
 | `.github/workflows/ci.yml` extension | `actionlint` exits 0 on new jobs; each new job's `run:` works when executed locally |
@@ -683,7 +683,7 @@ Every line of new code has a Go unit test (httptest mocks) or a Vitest. Zero pai
 |---|---|
 | `core/smoke/drive-docker-compose.ts` | `docker-compose up -d` → poll `/v1/health` → POST `/init` → SSE `/turn` → POST `/submit` → assert webhook-receiver logged the canonical payload → `docker-compose down -v` |
 | Metrics endpoint reachable | `curl http://localhost:19090/metrics` returns text starting with `# HELP intake_http_requests_total` |
-| Containers run as nonroot | `docker exec intake-relay id -u` prints `65532` |
+| Containers run as nonroot | `docker exec openintake-relay id -u` prints `65532` |
 
 #### 7-iv — Docs + governance
 
@@ -705,13 +705,13 @@ Internal-consistency checks: `license.md` claims match `LICENSE` + `COMMERCIAL.m
 
 3. Snapshot release smoke (no public artifacts; after 7-ii):
    `goreleaser release --snapshot --clean` produces ./dist/ with all 5
-   archives + SHA256SUMS.txt + ghcr.io/intake/intake-relay:snapshot tag in
+   archives + SHA256SUMS.txt + ghcr.io/clubpetey/openintake-relay:snapshot tag in
    local docker daemon + CHANGELOG.md (NOT uploaded). Each archive extracted
    and the binary's --version printout matches the tag string.
 
 4. npm pack dry-run smoke (after 7-ii):
-   `npm pack -w @intake/core` → intake-core-0.0.0.tgz; `npm publish
-   -w @intake/core --dry-run` exits 0. Same for @intake/vue. Tarball
+   `npm pack -w @openintake/core` → intake-core-0.0.0.tgz; `npm publish
+   -w @openintake/core --dry-run` exits 0. Same for @openintake/vue. Tarball
    contents inspected: no .env, no local-dev/, no secrets.
 
 5. docker-compose demo smoke (after 7-iii):
@@ -766,10 +766,10 @@ Every silent-failure shape gets a CI gate. Phase 7 additions:
 - [ ] `go mod tidy` produces any diff → **Fail** (one new module: `prometheus/client_golang`)
 - [ ] `goreleaser check` reports any issue → **Fail**
 - [ ] `goreleaser release --snapshot --clean` fails to produce any of the 5 archives → **Fail**
-- [ ] `docker build -t intake-relay relay/` fails → **Fail**
-- [ ] `docker inspect intake-relay --format '{{.Config.User}}'` returns root or empty → **Fail** (distroless nonroot)
-- [ ] `docker images intake-relay --format '{{.Size}}'` shows > 50 MB → **Fail**
-- [ ] `npm publish --dry-run -w @intake/core` or `-w @intake/vue` fails → **Fail**
+- [ ] `docker build -t openintake-relay relay/` fails → **Fail**
+- [ ] `docker inspect openintake-relay --format '{{.Config.User}}'` returns root or empty → **Fail** (distroless nonroot)
+- [ ] `docker images openintake-relay --format '{{.Size}}'` shows > 50 MB → **Fail**
+- [ ] `npm publish --dry-run -w @openintake/core` or `-w @openintake/vue` fails → **Fail**
 - [ ] `tar -tf dist/intake-core-*.tgz | grep -E '\.env|secrets|local-dev'` returns any line → **Fail** (secret leak)
 - [ ] `actionlint .github/workflows/*.yml` reports any issue → **Fail**
 - [ ] `cd examples/docker-compose && docker-compose config` fails → **Fail**
@@ -806,7 +806,7 @@ These should become L024-L028 lessons in `ai/LESSONS.md` (authored during 7-v).
 Two contradictions noticed during Phase 7 design — fix when convenient, does not block:
 
 - §14 repo layout lists `core/src/screenshot.ts` and `core/src/auth.ts` files that never existed (capture+attachments+client are the actual core/ files). The §14 listing also predates Phase 6's redactor + strip components. Refresh §14 to match the current state.
-- §15 lists `intake-license` (CLI) in the build/release section but `license-tool/` is excluded from goreleaser per the decomposition spec (Q10 resolution: maintainer-only). §15 should explicitly note the exclusion.
+- §15 lists `openintake-license` (CLI) in the build/release section but `license-tool/` is excluded from goreleaser per the decomposition spec (Q10 resolution: maintainer-only). §15 should explicitly note the exclusion.
 
 These are doc-only inconsistencies; the actual build pipeline is unaffected. A short PROJECT.md cleanup task can fold these into 7-iv if convenient.
 

@@ -11,12 +11,12 @@ package providers
 import (
 	"fmt"
 
-	"intake/internal/config"
-	"intake/internal/llm"
-	"intake/internal/llm/anthropic"
-	geminipkg "intake/internal/llm/gemini"
-	"intake/internal/llm/ollama"
-	"intake/internal/llm/openai"
+	"github.com/clubpetey/openintake/relay/internal/config"
+	"github.com/clubpetey/openintake/relay/internal/llm"
+	"github.com/clubpetey/openintake/relay/internal/llm/anthropic"
+	geminipkg "github.com/clubpetey/openintake/relay/internal/llm/gemini"
+	"github.com/clubpetey/openintake/relay/internal/llm/ollama"
+	"github.com/clubpetey/openintake/relay/internal/llm/openai"
 )
 
 // New constructs the provider selected by cfg.Provider, resolving the required

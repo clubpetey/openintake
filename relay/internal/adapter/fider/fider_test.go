@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"intake/internal/adapter/fider"
-	"intake/internal/payload"
+	"github.com/clubpetey/openintake/relay/internal/adapter/fider"
+	"github.com/clubpetey/openintake/relay/internal/payload"
 )
 
 // minimalPayload returns a schema-satisfying IntakePayload with a title, summary,

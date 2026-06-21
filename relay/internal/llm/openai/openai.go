@@ -27,7 +27,7 @@ import (
 	openaisdk "github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 
-	"intake/internal/llm"
+	"github.com/clubpetey/openintake/relay/internal/llm"
 )
 
 // Provider implements llm.Provider for the OpenAI Chat Completions API.

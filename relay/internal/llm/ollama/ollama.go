@@ -13,7 +13,7 @@ import (
 	"net/http"
 	"strings"
 
-	"intake/internal/llm"
+	"github.com/clubpetey/openintake/relay/internal/llm"
 )
 
 // Provider implements llm.Provider for a local Ollama instance.

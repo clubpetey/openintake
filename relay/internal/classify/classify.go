@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"intake/internal/llm"
+	"github.com/clubpetey/openintake/relay/internal/llm"
 )
 
 // Result is the structured triage output from classify(). Frozen in 1-iv (README §6.5).

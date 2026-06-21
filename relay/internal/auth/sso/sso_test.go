@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"intake/internal/auth/sso"
-	"intake/internal/config"
+	"github.com/clubpetey/openintake/relay/internal/auth/sso"
+	"github.com/clubpetey/openintake/relay/internal/config"
 )
 
 // silentLogger returns a logger that swallows output (so test logs stay clean).

@@ -8,7 +8,7 @@ import (
 
 // EmbeddedPublicKeyBase64 is the maintainer's Ed25519 public key (standard base64
 // of the 32-byte key). It is filled during the keygen pause (phase final smoke
-// step 1: `intake-license keygen` prints it). Empty in the committed source: a
+// step 1: `openintake-license keygen` prints it). Empty in the committed source: a
 // build with an empty key cannot verify a license, so Load treats a *present*
 // license as an error until the maintainer embeds the real key.
 const EmbeddedPublicKeyBase64 = "tw5CBPaQty7dhTa51G9JmC3h8EjCTipXy7eaLpusNKA="

@@ -1,7 +1,7 @@
 // Package license is the importable, dependency-free core of the license model:
 // the License struct and the canonicalize/sign/verify primitives. It is shared
 // verbatim by the relay (verifies with the embedded public key) and the
-// maintainer-only intake-license CLI (signs with the private key, via a replace
+// maintainer-only openintake-license CLI (signs with the private key, via a replace
 // directive). Keeping ONE definition here is what guarantees the two modules agree
 // byte-for-byte on what gets signed. No relay-internal imports may be added here.
 package license

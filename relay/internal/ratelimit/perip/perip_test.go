@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"intake/internal/ratelimit/perip"
+	"github.com/clubpetey/openintake/relay/internal/ratelimit/perip"
 )
 
 // fakeClock returns time.Time values from a controllable counter.

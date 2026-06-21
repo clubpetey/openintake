@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"intake/internal/attachvalidate"
-	"intake/internal/payload"
+	"github.com/clubpetey/openintake/relay/internal/attachvalidate"
+	"github.com/clubpetey/openintake/relay/internal/payload"
 )
 
 func defaultCfg() attachvalidate.Config {

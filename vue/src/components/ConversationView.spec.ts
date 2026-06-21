@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { mount } from '@vue/test-utils';
 import ConversationView from './ConversationView.vue';
-import type { ChatMessage } from '@intake/core';
+import type { ChatMessage } from '@openintake/core';
 
 describe('ConversationView', () => {
   it('renders nothing when messages is empty', () => {

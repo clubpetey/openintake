@@ -12,7 +12,7 @@
  *      assert canonical payload landed verbatim with messages/client/user
  *   7. curl http://localhost:19090/metrics → assert 4 series present AND
  *      intake_http_requests_total{path="/v1/intake/init",status="200"} >= 1
- *   8. docker exec intake-relay id -u → assert "65532" (distroless nonroot UID)
+ *   8. docker exec openintake-relay id -u → assert "65532" (distroless nonroot UID)
  *   9. docker-compose down -v (volumes too, no cross-run state)
  *
  * Self-contained: the demo uses fake-llm + the webhook adapter, so NO
@@ -300,8 +300,8 @@ async function assertMetricsSurface(): Promise<void> {
 }
 
 async function assertDistrolessNonrootUID(): Promise<void> {
-  console.log(`\n=== docker exec intake-relay id -u ===`);
-  const r = await exec('docker', ['exec', 'intake-relay', 'id', '-u']);
+  console.log(`\n=== docker exec openintake-relay id -u ===`);
+  const r = await exec('docker', ['exec', 'openintake-relay', 'id', '-u']);
   assert(
     r.code === 0,
     `docker exec id -u exit 0 (got ${r.code}); stderr=${r.stderr.slice(0, 200)}`,

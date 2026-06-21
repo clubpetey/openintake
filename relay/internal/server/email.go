@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"net/mail"
 
-	"intake/internal/auth/emailcode"
+	"github.com/clubpetey/openintake/relay/internal/auth/emailcode"
 )
 
 // emailStartRequest is the body of POST /v1/intake/auth/email/start.

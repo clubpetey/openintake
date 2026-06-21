@@ -4,9 +4,9 @@ import (
 	"reflect"
 	"testing"
 
-	"intake/internal/adapter"
-	"intake/internal/adapter/webhook"
-	"intake/internal/config"
+	"github.com/clubpetey/openintake/relay/internal/adapter"
+	"github.com/clubpetey/openintake/relay/internal/adapter/webhook"
+	"github.com/clubpetey/openintake/relay/internal/config"
 )
 
 func TestComputeAttachmentsCaps_DisabledReturnsNil(t *testing.T) {

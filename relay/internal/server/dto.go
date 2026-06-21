@@ -1,6 +1,6 @@
 package server
 
-import "intake/internal/dto"
+import "github.com/clubpetey/openintake/relay/internal/dto"
 
 // Session transport: the X-Intake-Session header carries the session_id on
 // every /turn and /submit request (single source of truth; NOT in the body).

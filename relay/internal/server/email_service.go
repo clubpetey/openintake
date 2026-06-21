@@ -5,9 +5,9 @@ import (
 	"errors"
 	"time"
 
-	"intake/internal/auth/emailcode"
-	"intake/internal/auth/emailjwt"
-	"intake/internal/auth/smtpsend"
+	"github.com/clubpetey/openintake/relay/internal/auth/emailcode"
+	"github.com/clubpetey/openintake/relay/internal/auth/emailjwt"
+	"github.com/clubpetey/openintake/relay/internal/auth/smtpsend"
 )
 
 // EmailService is the small orchestrator that the /auth/email/start and

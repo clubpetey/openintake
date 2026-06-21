@@ -19,10 +19,10 @@ import (
 	"github.com/google/uuid"
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 
-	"intake/internal/auth"
-	"intake/internal/classify"
-	"intake/internal/dto"
-	"intake/internal/payload"
+	"github.com/clubpetey/openintake/relay/internal/auth"
+	"github.com/clubpetey/openintake/relay/internal/classify"
+	"github.com/clubpetey/openintake/relay/internal/dto"
+	"github.com/clubpetey/openintake/relay/internal/payload"
 )
 
 //go:embed schema.json
@@ -39,10 +39,10 @@ func init() {
 	c := jsonschema.NewCompiler()
 	// AssertFormat enables format validation (uuid, date-time, uri) for draft-2020-12.
 	c.AssertFormat()
-	if err := c.AddResource("https://intake.dev/schema/payload.v1.json", doc); err != nil {
+	if err := c.AddResource("https://openintake.dev/schema/payload.v1.json", doc); err != nil {
 		panic(fmt.Sprintf("payloadbuild: add embedded schema resource: %v", err))
 	}
-	compiledSchema, err = c.Compile("https://intake.dev/schema/payload.v1.json")
+	compiledSchema, err = c.Compile("https://openintake.dev/schema/payload.v1.json")
 	if err != nil {
 		panic(fmt.Sprintf("payloadbuild: compile embedded schema: %v", err))
 	}

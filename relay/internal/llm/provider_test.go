@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"intake/internal/llm"
+	"github.com/clubpetey/openintake/relay/internal/llm"
 )
 
 // staticCheckProvider is a compile-time assertion that the Provider interface

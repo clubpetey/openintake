@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	pubkglicense "intake/license"
+	pubkglicense "github.com/clubpetey/openintake/relay/license"
 
-	"intake/internal/config"
+	"github.com/clubpetey/openintake/relay/internal/config"
 )
 
 func tmpStatePath(t *testing.T) string {

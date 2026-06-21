@@ -19,7 +19,7 @@ BIN="$(go env GOPATH)/bin/go-jsonschema"
 "$BIN" \
   --package payload \
   --struct-name-from-title \
-  --schema-output https://intake.dev/schema/payload.v1.json=relay/internal/payload/types.go \
+  --schema-output https://openintake.dev/schema/payload.v1.json=relay/internal/payload/types.go \
   schema/payload.v1.json
 
 echo "Generated relay/internal/payload/types.go"

@@ -7,7 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	"intake/internal/config"
+	"github.com/clubpetey/openintake/relay/internal/config"
 )
 
 // New constructs the relay HTTP handler (a chi Mux) with all middleware and

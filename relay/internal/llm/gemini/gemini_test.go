@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"intake/internal/llm"
-	geminipkg "intake/internal/llm/gemini"
+	"github.com/clubpetey/openintake/relay/internal/llm"
+	geminipkg "github.com/clubpetey/openintake/relay/internal/llm/gemini"
 )
 
 // cannedStream is a minimal Gemini GenerateContentStream SSE response that

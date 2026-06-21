@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"intake/internal/adapter/linear"
-	"intake/internal/payload"
+	"github.com/clubpetey/openintake/relay/internal/adapter/linear"
+	"github.com/clubpetey/openintake/relay/internal/payload"
 )
 
 // goldenPNGBytes is the smallest valid 1×1 PNG for upload-flow tests.

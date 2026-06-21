@@ -1,6 +1,6 @@
 # Adapters
 
-intake routes incoming submissions to a configurable adapter that creates the actual ticket / conversation / issue / post in a downstream system. v0 ships five adapters: three free, two paid. This document is an overview matrix only; for deep per-adapter API specifics, follow the link to each downstream system's own API documentation.
+OpenIntake routes incoming submissions to a configurable adapter that creates the actual ticket / conversation / issue / post in a downstream system. v0 ships five adapters: three free, two paid. This document is an overview matrix only; for deep per-adapter API specifics, follow the link to each downstream system's own API documentation.
 
 See also: `docs/self-hosting.md` for production config + secret management; `docs/license.md` for the paid-adapter tier; `docs/attachments.md` for the per-adapter attachment-forwarding behavior.
 
@@ -77,7 +77,7 @@ The webhook adapter is JSON pass-through: every attachment in the canonical payl
 
 ### Notes
 
-- No native upload mechanism — the entire payload (including any attachment `data:` URLs) goes into a single POST body. Watch your receiver's request-body limit; intake's default 14 MB cap (when attachments are enabled) is the practical upper bound for the request size.
+- No native upload mechanism — the entire payload (including any attachment `data:` URLs) goes into a single POST body. Watch your receiver's request-body limit; OpenIntake's default 14 MB cap (when attachments are enabled) is the practical upper bound for the request size.
 - The `webhook-receiver` example in `examples/webhook-receiver/` is a minimal Node.js receiver suitable for the docker-compose demo and for local development.
 
 ### Downstream API documentation
@@ -244,7 +244,7 @@ Notes:
 ### Notes
 
 - Requires a commercial license in production after the 14-day trial expires. See `docs/license.md`.
-- The API token is sensitive — treat it the same as a service-account password. Zendesk supports OAuth as an alternative; intake's v0 only implements basic auth + API token.
+- The API token is sensitive — treat it the same as a service-account password. Zendesk supports OAuth as an alternative; OpenIntake's v0 only implements basic auth + API token.
 
 ### Downstream API documentation
 

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"intake/internal/adapter/webhook"
-	"intake/internal/payload"
+	"github.com/clubpetey/openintake/relay/internal/adapter/webhook"
+	"github.com/clubpetey/openintake/relay/internal/payload"
 )
 
 // minimalPayload returns a schema-satisfying IntakePayload for testing.

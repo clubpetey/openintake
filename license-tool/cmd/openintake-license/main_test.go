@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"intake/license"
+	"github.com/clubpetey/openintake/relay/license"
 )
 
 // TestRoundTrip_KeygenSignVerify proves the CLI signs a license that the shared

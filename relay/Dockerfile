@@ -38,8 +38,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} \
     go build \
       -trimpath \
-      -ldflags="-s -w -X intake/internal/version.version=${VERSION} -X intake/internal/version.commit=${COMMIT} -X intake/internal/version.buildTime=${BUILD_TIME}" \
-      -o /out/intake-relay \
+      -ldflags="-s -w -X github.com/clubpetey/openintake/relay/internal/version.version=${VERSION} -X github.com/clubpetey/openintake/relay/internal/version.commit=${COMMIT} -X github.com/clubpetey/openintake/relay/internal/version.buildTime=${BUILD_TIME}" \
+      -o /out/openintake-relay \
       ./cmd/relay
 
 # 7-iii dependency: build fake-llm into the same image so the docker-compose
@@ -65,14 +65,14 @@ FROM gcr.io/distroless/static-debian12:nonroot@sha256:d093aa3e30dbadd3efe1310db0
 
 # OCI image annotations (operator/registry visible metadata).
 ARG VERSION=dev
-LABEL org.opencontainers.image.source="https://github.com/intake/intake" \
-      org.opencontainers.image.description="Intake relay — Go HTTP server for the intake widget" \
+LABEL org.opencontainers.image.source="https://github.com/clubpetey/openintake" \
+      org.opencontainers.image.description="OpenIntake relay — Go HTTP server for the intake widget" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.version="${VERSION}"
 
 # Copy the static binaries from the builder stage. Distroless ships /etc/passwd
 # with `nonroot` mapped to UID 65532; preserve that ownership.
-COPY --from=builder --chown=nonroot:nonroot /out/intake-relay /intake-relay
+COPY --from=builder --chown=nonroot:nonroot /out/openintake-relay /openintake-relay
 # 7-iii: fake-llm binary present in the same image, overridden by the
 # fake-llm service in docker-compose via `entrypoint: []` + `command:`.
 COPY --from=builder --chown=nonroot:nonroot /out/fake-llm /fake-llm
@@ -85,5 +85,5 @@ USER nonroot:nonroot
 # 9090 — Prometheus metrics endpoint (config.observability.metrics.addr)
 EXPOSE 8080 9090
 
-ENTRYPOINT ["/intake-relay"]
-CMD ["--config", "/etc/intake/config.yaml"]
+ENTRYPOINT ["/openintake-relay"]
+CMD ["--config", "/etc/openintake/config.yaml"]

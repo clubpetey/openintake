@@ -1,6 +1,6 @@
 # License model
 
-intake uses a dual licensing model:
+OpenIntake uses a dual licensing model:
 
 - **Apache 2.0** covers the framework — the relay binary, the widget packages, the schema, all free adapters, and all LLM providers. You can read, fork, modify, and redistribute under Apache 2.0 terms (see `LICENSE` at the repo root).
 - **Commercial license** is required to operate the paid adapters (`zendesk`, `linear`) in production. The source code is still Apache 2.0 — the gate is at runtime, not at distribution. See `COMMERCIAL.md` for the (draft) commercial terms.
@@ -43,13 +43,13 @@ The relay verifies the signature against a baked-in public key on startup (the p
 
 The relay resolves the license file in the following order; the first one found wins:
 
-1. **`--license <path>`** — CLI flag passed to `intake-relay`.
+1. **`--license <path>`** — CLI flag passed to `openintake-relay`.
 2. **`INTAKE_LICENSE`** environment variable — inline contents of the license JSON (one-line; useful for container deployments).
 3. **`INTAKE_LICENSE_FILE`** environment variable — path to a license file.
 4. **Default paths**, tried in order:
-   - `/etc/intake/license.json` (Linux/Unix production deployments)
-   - `$XDG_CONFIG_HOME/intake/license.json` (XDG-compliant Linux desktops)
-   - `os.UserConfigDir()/intake/license.json` (Linux: `~/.config/intake/`; macOS: `~/Library/Application Support/intake/`; Windows: `%AppData%/intake/`)
+   - `/etc/openintake/license.json` (Linux/Unix production deployments)
+   - `$XDG_CONFIG_HOME/openintake/license.json` (XDG-compliant Linux desktops)
+   - `os.UserConfigDir()/openintake/license.json` (Linux: `~/.config/openintake/`; macOS: `~/Library/Application Support/openintake/`; Windows: `%AppData%/intake/`)
 
 If none of the above is found, the relay enters **trial mode** (see below).
 
@@ -57,7 +57,7 @@ The license file path actually used is logged on startup at `slog.Info` level (w
 
 ## Trial mode
 
-On the first startup with no license file resolved, the relay creates an installation-state file at `os.UserConfigDir()/intake/state.json`:
+On the first startup with no license file resolved, the relay creates an installation-state file at `os.UserConfigDir()/openintake/state.json`:
 
 ```json
 {
@@ -96,8 +96,8 @@ A loaded-but-expired license behaves the same as trial expiry: paid adapters are
 
 ```bash
 # Linux / production
-sudo install -m 0640 -o intake -g intake my-license.json /etc/intake/license.json
-sudo systemctl restart intake-relay
+sudo install -m 0640 -o intake -g intake my-license.json /etc/openintake/license.json
+sudo systemctl restart openintake-relay
 ```
 
 ### From an environment variable (containers)
@@ -117,19 +117,19 @@ Or the file-path form:
 services:
   relay:
     environment:
-      INTAKE_LICENSE_FILE: /run/secrets/intake-license
+      INTAKE_LICENSE_FILE: /run/secrets/openintake-license
     secrets:
-      - intake-license
+      - openintake-license
 
 secrets:
-  intake-license:
+  openintake-license:
     file: ./my-license.json
 ```
 
 ### From the CLI flag
 
 ```bash
-intake-relay --config /etc/intake/relay.yaml --license /etc/intake/license.json
+openintake-relay --config /etc/openintake/relay.yaml --license /etc/openintake/license.json
 ```
 
 ## Verifying the license is active
@@ -165,7 +165,7 @@ For trial mode, `tier` is `"trial"` and `subject` is `null`. For free-mode (expi
 To purchase a commercial license:
 
 - **Email:** `licensing@<domain>`
-- **Subject line:** "intake commercial license — \<your organization\>"
+- **Subject line:** "OpenIntake commercial license — \<your organization\>"
 
 See `COMMERCIAL.md` for the (draft) terms. Note that `COMMERCIAL.md` is currently a draft pending legal review and does NOT constitute a binding offer.
 
@@ -176,7 +176,7 @@ See `COMMERCIAL.md` for the (draft) terms. Note that `COMMERCIAL.md` is currentl
 | `license: signature verification failed` on a license you just received | Public-key mismatch — your relay binary is from a release prior to your license. | Upgrade the relay to a release dated on or after your license issue date. |
 | `adapter "zendesk" disabled — see docs/license.md` after installing a license | License `enabled_adapters` doesn't include `zendesk`. | Contact licensing; you may need a license re-issued with the correct adapter list. |
 | Trial expired but you have a license file | `INTAKE_LICENSE_FILE` env var not set, or the default path doesn't contain the file. | Set `INTAKE_LICENSE_FILE=/path/to/your/license.json` and restart. Check the startup log to confirm the path was used. |
-| `license: trial active` after installing a license | License file path not picked up. | Set `INTAKE_LICENSE_FILE` explicitly or place the file at `/etc/intake/license.json`. |
+| `license: trial active` after installing a license | License file path not picked up. | Set `INTAKE_LICENSE_FILE` explicitly or place the file at `/etc/openintake/license.json`. |
 
 ## See also
 

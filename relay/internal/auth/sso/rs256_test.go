@@ -15,8 +15,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"intake/internal/auth/sso"
-	"intake/internal/config"
+	"github.com/clubpetey/openintake/relay/internal/auth/sso"
+	"github.com/clubpetey/openintake/relay/internal/config"
 )
 
 // rsaKid is a deterministic kid used in all RS256 tests.

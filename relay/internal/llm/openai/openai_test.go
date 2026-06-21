@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"intake/internal/llm"
-	openaipkg "intake/internal/llm/openai"
+	"github.com/clubpetey/openintake/relay/internal/llm"
+	openaipkg "github.com/clubpetey/openintake/relay/internal/llm/openai"
 )
 
 // cannedSSE is a minimal OpenAI Chat Completions streaming response that emits

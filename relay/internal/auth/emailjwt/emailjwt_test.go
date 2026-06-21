@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"intake/internal/auth/emailjwt"
+	"github.com/clubpetey/openintake/relay/internal/auth/emailjwt"
 
 	"github.com/golang-jwt/jwt/v5"
 )

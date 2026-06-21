@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"intake/internal/config"
+	"github.com/clubpetey/openintake/relay/internal/config"
 )
 
 // writeFile writes content to a new file in dir and returns the path.

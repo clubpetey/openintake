@@ -1,5 +1,5 @@
 /**
- * Smoke script for @intake/core.
+ * Smoke script for @openintake/core.
  * Drives init → turn → submit against a running relay.
  *
  * Usage:
@@ -19,7 +19,7 @@ const WIDGET_VERSION = '0.1.0-smoke';
 
 async function main(): Promise<void> {
   // This smoke runs in Node, where there is no browser. captureClient() in
-  // @intake/core is SSR-safe and returns empty defaults without a window —
+  // @openintake/core is SSR-safe and returns empty defaults without a window —
   // but the relay schema requires client.url to be a valid URI, so an empty
   // url is (correctly) rejected with 400. Stub the minimal browser globals the
   // real widget supplies in a browser so the smoke exercises the success path.

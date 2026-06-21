@@ -3,7 +3,7 @@ package auth_test
 import (
 	"testing"
 
-	"intake/internal/auth"
+	"github.com/clubpetey/openintake/relay/internal/auth"
 )
 
 // requireFullSessionContext asserts that every field of sess matches the

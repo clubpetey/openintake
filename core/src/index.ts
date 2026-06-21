@@ -1,4 +1,4 @@
-// @intake/core — public API. Frozen in sub-plan 1-v.
+// @openintake/core — public API. Frozen in sub-plan 1-v.
 
 // Generated payload types (Phase 0 contract spine)
 export * from './generated/payload.js';

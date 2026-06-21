@@ -1,5 +1,5 @@
 {
-  "name": "@intake/vue",
+  "name": "@openintake/vue",
   "version": "0.1.0",
   "type": "module",
   "private": false,
@@ -27,7 +27,7 @@
     "vue": ">=3.5.0"
   },
   "dependencies": {
-    "@intake/core": "*"
+    "@openintake/core": "*"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "8.18.0",

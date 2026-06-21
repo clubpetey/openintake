@@ -8,8 +8,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"intake/internal/auth"
-	"intake/internal/config"
+	"github.com/clubpetey/openintake/relay/internal/auth"
+	"github.com/clubpetey/openintake/relay/internal/config"
 )
 
 // HS256Verifier validates HS256-signed SSO tokens against a shared secret.

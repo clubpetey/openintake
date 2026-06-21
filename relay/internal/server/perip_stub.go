@@ -3,7 +3,7 @@ package server
 import (
 	"net/http"
 
-	"intake/internal/ratelimit/perip"
+	"github.com/clubpetey/openintake/relay/internal/ratelimit/perip"
 )
 
 // perIPLimitMiddleware enforces the per-IP token bucket via the supplied

@@ -3,7 +3,7 @@ package adapter
 import (
 	"context"
 
-	"intake/internal/payload"
+	"github.com/clubpetey/openintake/relay/internal/payload"
 )
 
 // CreateResult is returned by Adapter.Create on success.

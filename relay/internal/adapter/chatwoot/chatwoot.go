@@ -37,9 +37,9 @@ import (
 	"strings"
 	"time"
 
-	"intake/internal/adapter"
-	"intake/internal/attachvalidate"
-	"intake/internal/payload"
+	"github.com/clubpetey/openintake/relay/internal/adapter"
+	"github.com/clubpetey/openintake/relay/internal/attachvalidate"
+	"github.com/clubpetey/openintake/relay/internal/payload"
 )
 
 // Adapter creates a Chatwoot conversation via the Chatwoot REST API.

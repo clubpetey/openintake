@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"intake/internal/auth/emailcode"
+	"github.com/clubpetey/openintake/relay/internal/auth/emailcode"
 )
 
 // virtualClock is a controllable now-source.

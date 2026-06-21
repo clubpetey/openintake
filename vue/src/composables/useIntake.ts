@@ -5,18 +5,18 @@ import {
   AttachmentTooLargeError,
   AggregateTooLargeError,
   MimeNotAllowedError,
-} from '@intake/core';
+} from '@openintake/core';
 import type {
   IntakeConfig,
   ChatMessage,
   SubmitResult,
   PendingAttachment,
   AttachmentLimits,
-} from '@intake/core';
-import type { InitResponse } from '@intake/core';
+} from '@openintake/core';
+import type { InitResponse } from '@openintake/core';
 
 // Security invariant: the widget NEVER handles provider API keys.
-// It only calls the relay through @intake/core's IntakeClient.
+// It only calls the relay through @openintake/core's IntakeClient.
 // No code path in this file contacts Anthropic or any LLM provider directly.
 
 export interface UseIntakeOptions {
@@ -151,9 +151,9 @@ export function useIntake(options: UseIntakeOptions) {
 
   /**
    * Runs the supplied capture function (default: dynamically imports
-   * @intake/core's capturePage) and opens the redactor modal by setting
+   * @openintake/core's capturePage) and opens the redactor modal by setting
    * redactorSource. Tests pass a stub capture; production passes the
-   * real capturePage from @intake/core.
+   * real capturePage from @openintake/core.
    */
   async function attachAndRedact(capture: () => Promise<HTMLCanvasElement>) {
     if (!canAttach.value) {

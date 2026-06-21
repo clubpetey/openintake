@@ -14,19 +14,19 @@ import (
 
 	metricstestutil "github.com/prometheus/client_golang/prometheus/testutil"
 
-	webhookadapter "intake/internal/adapter/webhook"
-	"intake/internal/attachvalidate"
-	"intake/internal/auth"
-	"intake/internal/classify"
-	"intake/internal/config"
-	"intake/internal/llm"
-	metricsregistry "intake/internal/metrics"
-	"intake/internal/payload"
-	"intake/internal/payloadbuild"
-	"intake/internal/router"
-	"intake/internal/server"
+	webhookadapter "github.com/clubpetey/openintake/relay/internal/adapter/webhook"
+	"github.com/clubpetey/openintake/relay/internal/attachvalidate"
+	"github.com/clubpetey/openintake/relay/internal/auth"
+	"github.com/clubpetey/openintake/relay/internal/classify"
+	"github.com/clubpetey/openintake/relay/internal/config"
+	"github.com/clubpetey/openintake/relay/internal/llm"
+	metricsregistry "github.com/clubpetey/openintake/relay/internal/metrics"
+	"github.com/clubpetey/openintake/relay/internal/payload"
+	"github.com/clubpetey/openintake/relay/internal/payloadbuild"
+	"github.com/clubpetey/openintake/relay/internal/router"
+	"github.com/clubpetey/openintake/relay/internal/server"
 
-	"intake/internal/adapter"
+	"github.com/clubpetey/openintake/relay/internal/adapter"
 )
 
 // fakeProviderSubmit returns a canned classify JSON response.
