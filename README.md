@@ -38,7 +38,7 @@ That starts the relay (on `http://localhost:18080`), a fake LLM, and a webhook r
   - `email` — magic-link auth via SMTP; for known users with light identity needs
   - `sso` — JWKS or HS256 JWT verification; for SSO-backed customer portals
 
-Plus: AI-driven classification + summarization, screenshot capture with client-side redaction, attachment upload (PNG/JPEG/WebP, 5 MB each / 10 MB aggregate), Phase 5 abuse gates (per-IP / per-session / daily LLM budget), Cloudflare Turnstile CAPTCHA, Prometheus metrics on an opt-in side-channel, consolidated startup-gate that flags every misconfig in one log line.
+Plus: AI-driven classification + summarization, screenshot capture with client-side redaction, attachment upload (PNG/JPEG/WebP, 5 MB each / 10 MB aggregate), abuse gates (per-IP / per-session / daily LLM budget), Cloudflare Turnstile CAPTCHA, Prometheus metrics on an opt-in side-channel, consolidated startup-gate that flags every misconfig in one log line.
 
 ## Documentation
 
@@ -74,7 +74,7 @@ openintake/
 ├── examples/            # vue-anonymous, webhook-receiver, docker-compose
 ├── scripts/             # codegen-go.sh, verify-contract.sh, check-pins.sh
 ├── docs/                # operator-facing docs + design specs
-└── ai/                  # task plans, lessons, phase READMEs (developer notes)
+└── ai/                  # task plans, lessons, phase READMEs (a view into how I guided claude to approach this project)
 ```
 
 ## Prerequisites
