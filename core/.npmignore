@@ -1,0 +1,6 @@
+# The published @openintake/core package ships runtime TypeScript source only.
+# Exclude tests, smoke drivers, and tooling config from the npm tarball.
+*.test.ts
+smoke/
+tsconfig.json
+*.config.ts
