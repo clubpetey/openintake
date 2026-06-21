@@ -1,0 +1,36 @@
+# Manually-triggered maintenance workflow to deprecate a published version of
+# both @openintake npm packages at once (they share one monorepo version).
+# Reuses the NPM_TOKEN secret so no local npm auth is needed.
+#
+# Run:  gh workflow run npm-deprecate.yml -f version=0.1.0-rc.4
+# Undo: set message to "" to un-deprecate (npm deprecate "" clears the notice).
+
+name: npm-deprecate
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to deprecate across @openintake/core and @openintake/vue (e.g. 0.1.0-rc.4)"
+        required: true
+      message:
+        description: 'Deprecation message (empty string clears the notice)'
+        required: true
+        default: "Pre-release dry-run build — install a stable release instead."
+
+jobs:
+  deprecate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Deprecate @openintake/core and @openintake/vue
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm deprecate "@openintake/core@${{ inputs.version }}" "${{ inputs.message }}"
+          npm deprecate "@openintake/vue@${{ inputs.version }}" "${{ inputs.message }}"
