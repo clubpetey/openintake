@@ -20,7 +20,8 @@ import (
 )
 
 // PricingURL is shown in the free/expired startup logs (PROJECT.md §12 wording).
-const PricingURL = "https://openintake.example.com/pricing"
+// Points at the committed commercial terms (no standalone pricing site by design).
+const PricingURL = "https://github.com/clubpetey/openintake/blob/main/COMMERCIAL.md"
 
 const trialDuration = 14 * 24 * time.Hour
 
