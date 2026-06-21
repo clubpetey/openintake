@@ -101,12 +101,26 @@ jobs:
       - name: Build @openintake/vue
         run: npm run -w @openintake/vue build
 
+      # Prerelease versions (e.g. 0.1.0-rc.1) must NOT land on the `latest`
+      # dist-tag; npm refuses them without an explicit --tag. Derive the tag
+      # from the package version: anything with a `-` suffix → `next`, else
+      # `latest` (the default for stable releases).
+      - name: Determine npm dist-tag
+        id: disttag
+        run: |
+          V=$(node -p "require('./core/package.json').version")
+          if [[ "$V" == *-* ]]; then
+            echo "tag=next" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish @openintake/core
-        run: npm publish -w @openintake/core --access public
+        run: npm publish -w @openintake/core --access public --tag ${{ steps.disttag.outputs.tag }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @openintake/vue
-        run: npm publish -w @openintake/vue --access public
+        run: npm publish -w @openintake/vue --access public --tag ${{ steps.disttag.outputs.tag }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
